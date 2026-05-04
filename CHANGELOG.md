@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] — 2026-05-04
+
+Patch release. Closes the v0.1.1 known-issues list — the agentos-d test
+suite is now fully green.
+
+### Fixed
+
+- **`packages/agentos-d` autopilot integration test** — the daemon now boots
+  from the correct release checkout path and uses `AGENTOS_DATA_DIR` plus a
+  tmp `AWOS_AGENTS_ROOT`, avoiding stale package-relative data and agents
+  paths in the test environment.
+- **Autopilot dispatch idempotency** — safe auto-dispatched policy decisions
+  now get idempotency rows too, so replaying the same dispatch key returns the
+  same safe and review-side counts.
+- **Backup / restore CLI** — restore round-trip now returns exit 0
+  consistently against the v0.1.1 backup-safety guards; backup manifests store
+  the restored SQLite payload checksum instead of an impossible self-referential
+  tarball checksum.
+- **Provenance frontmatter** — reads without an `actorId` no longer emit
+  `lastUsedBy: []`; the key is omitted entirely, consistent with
+  `authoringAgent`, `lastUpdatedBy`, and related optional frontmatter.
+- **Mission-map node colors** — blocked issues now render red-500
+  (`#ef4444`) like failed runs; red-900 (`#991b1b`) is reserved for evidence
+  nodes with `severity` of `block` or `critical`.
+- **Memory usage route tests** — usage tracking now runs against an in-process
+  app with tmp data and vault roots instead of whichever daemon happens to be
+  listening on `localhost:7710`.
+
+### Known issues
+
+None at the substrate level. `tests/substrate-e2e.test.ts` 8/8 green;
+`packages/agentos-d` 629/629.
+
 ## [0.1.1] — 2026-05-04
 
 Patch release. Closes the v0.1.0 known-issues list for policy-engine and

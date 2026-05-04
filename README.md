@@ -19,7 +19,7 @@ If your lawyer has ever asked “who approved that outbound?” or “how do we 
 One command on a Mac mini or Linux box you control:
 
 ```bash
-curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.1/install.sh | bash
+curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.2/install.sh | bash
 ```
 
 Requires Docker Desktop (or Docker Engine on Linux). About 15 minutes on a clean machine.
