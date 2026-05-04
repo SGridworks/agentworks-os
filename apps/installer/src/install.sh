@@ -2,8 +2,8 @@
 #
 # agentworks install — one-command setup for AgentWorks OS
 # Usage:
-#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.2/install.sh | bash
-#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.2/install.sh | bash -s -- --unattended
+#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.3/install.sh | bash
+#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.3/install.sh | bash -s -- --unattended
 #
 # To install a different release, override INSTALLER_REF:
 #   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.2.0/install.sh \
@@ -14,7 +14,7 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 # Constants
 # -----------------------------------------------------------------------------
-readonly INSTALLER_VERSION="0.1.2"
+readonly INSTALLER_VERSION="0.1.3"
 readonly REPO="SGridworks/agentworks-os"
 # Pin asset fetches to the release tag so v0.1.1 installer cannot silently
 # pull future main-branch changes. Override with INSTALLER_REF=<branch|tag|sha>

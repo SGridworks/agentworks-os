@@ -5,6 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] — 2026-05-04
+
+Patch release. Repairs the install pipeline end-to-end. v0.1.2 (and every
+release before it) shipped a `curl | bash` install URL that exited 0 but
+produced a half-broken stack on a clean Linux/WSL host. v0.1.3 is the
+first version where `git clone && ./apps/installer/src/install.sh` actually
+brings the substrate up and passes a real smoke test.
+
+### Fixed
+
+- **scanner-worker Dockerfile**: was unbuildable. `python:3.11-slim-amd64`
+  does not exist on Docker Hub (`python:3.11-slim` is multi-arch already);
+  `libffi7` no longer ships in Debian Trixie (renamed to `libffi8`); the
+  COPY layout flattened `src/` into `/app/` and broke hatchling's dynamic
+  version; `pip install -e .` left a `.pth` file pointing into the builder
+  stage that did not exist at runtime.
+- **agentos-d Dockerfile**: copying `packages/agentos-d/node_modules`
+  invalidated every relative pnpm symlink into the virtual store. Now uses
+  `pnpm deploy --filter @agentworks/agentos-d --prod /deploy` to materialize
+  a flat tree.
+- **`docker-compose.yml`**: scanner-worker build context corrected to
+  `./packages/scanner-worker` (matches the release workflow); bind-mount
+  paths parametrized via `AGENTWORKS_DATA_DIR`/`AGENTWORKS_CONFIG_DIR` so
+  install.sh can run compose from the source root while volumes resolve
+  under `~/.agentworks/`; `image:` repointed at `ghcr.io/sgridworks/...`
+  so `docker compose pull` actually finds the published images.
+- **`apps/installer/src/install.sh`**: clones the source instead of
+  fetching only docker-compose.yml from raw GitHub (previous path could
+  not work because compose has `build:` directives and v0.1 publishes
+  nothing pullable); generates `POSTGRES_PASSWORD` as hex, not base64
+  with `/`/`+` that corrupt the postgres URL; pre-creates `data/n8n` and
+  `data/scanner` with chmod 777 so the container uid mismatch does not
+  block writes; idempotent so re-running after a partial failure does
+  not invalidate the saved admin password.
+- **Release workflow**: `actions/cosign-installer@v4` does not exist —
+  was the reason every release since v0.1.0 failed before pushing any
+  GHCR image. Fixed to `sigstore/cosign-installer@v3`. Sign steps now
+  early-exit cleanly if `COSIGN_PRIVATE_KEY` is not set instead of taking
+  down the whole job.
+
+### Added
+
+- **Pre-flight checks in install.sh**: ports 7710/3101/5678 free, ≥10 GB
+  disk under `$HOME`, ≥4 GB RAM, internet to github.com, Docker daemon
+  reachable. Each failure prints the exact next action.
+- **`apps/installer/scripts/smoke-test.sh`**: real install gate that
+  POSTs `/api/tenants` and `/api/policy/check` end-to-end and asserts
+  the response shape. `install.sh main()` calls it at the end and exits
+  non-zero on failure. An LLM agent driving the install can grep for
+  `[PASS]` / `[FAIL]` / "Smoke test PASSED".
+- **Release workflow**: `workflow_dispatch` trigger so a maintainer can
+  re-run a release without cutting a new tag; uploads
+  `apps/installer/src/install.sh` as a release asset on every `v*` push
+  via `softprops/action-gh-release@v2`; flips the published GHCR
+  packages public so unauthenticated `docker compose pull` works for
+  end users.
+- **`docs/AI-AGENT-INSTALL-GUIDE.md`** rewritten (~600 → ~250 lines) for
+  the new flow: clone, run two scripts, enumerated failure modes with
+  fixes, final report template.
+
+### Removed
+
+- Stale `apps/installer/install.sh` and `apps/installer/bin/install.sh`
+  duplicates (both stuck at v0.1.0). `apps/installer/src/install.sh` is
+  the single source of truth.
+
 ## [0.1.2] — 2026-05-04
 
 Patch release. Closes the v0.1.1 known-issues list — the agentos-d test
