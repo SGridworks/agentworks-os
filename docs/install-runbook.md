@@ -39,24 +39,21 @@ If `docker ps` returns a connection error, open Docker Desktop and wait for it t
 On the machine that will host AgentWorks OS:
 
 ```bash
-curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.2/install.sh | bash
-```
-
-Or, to inspect first and run from a clone:
-
-```bash
-git clone --branch v0.1.2 https://github.com/SGridworks/agentworks-os.git
-cd agentworks-os && ./apps/installer/src/install.sh
+git clone --depth=1 --branch v0.1.2 https://github.com/SGridworks/agentworks-os.git
+cd agentworks-os
+./apps/installer/src/install.sh --unattended \
+  && ./apps/installer/scripts/smoke-test.sh
 ```
 
 The script will:
 
-1. Check for Docker
-2. Pull container images from GHCR
-3. Generate a tenant ID
-4. Create `~/.agentworks/` with the docker-compose.yml and data directories
-5. Start all services via Docker Compose
-6. Print the admin password — **save this now**
+1. Run pre-flight (Docker daemon up, ports 7710/3101/5678 free, ≥10 GB disk, ≥4 GB RAM, internet to github.com).
+2. Create `~/.agentworks/` with `data/`, `config/`, and `logs/` subdirs (and pre-chmod `data/n8n` + `data/scanner` to 777 for the n8n+scanner uid mismatch).
+3. Re-use the local checkout if you ran from one; otherwise `git clone` into `~/.agentworks/source`.
+4. Generate secrets (admin password, session secret, hex DB password) into `~/.agentworks/config/{.env,secrets.json}` mode 600. **The admin password is in `~/.agentworks/config/secrets.json`.**
+5. `docker compose pull` (best effort — falls through to local build).
+6. `docker compose up -d --build`. First build is 5-15 minutes.
+7. Wait up to 120s for `/api/health` to return 200, then run the end-to-end smoke test (POST /api/tenants + POST /api/policy/check + assertions).
 
 If the script fails, see [Common Errors](#common-errors) at the end of this document.
 

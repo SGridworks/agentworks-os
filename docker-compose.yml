@@ -19,7 +19,10 @@ services:
     build:
       context: .
       dockerfile: packages/agentos-d/Dockerfile
-    image: agentworks/agentos-d:${AGENTWORKS_VERSION:-0.1.0}
+    # Published by .github/workflows/release.yml on every `v*` tag.
+    # Override with AGENTWORKS_IMAGE_REGISTRY=docker.io/agentworks for a
+    # private mirror, or AGENTWORKS_VERSION to pin a different release.
+    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/agentos-d:${AGENTWORKS_VERSION:-0.1.2}
     container_name: agentos-d
     restart: unless-stopped
     ports:
@@ -35,8 +38,8 @@ services:
       AGENTWORKS_SESSION_SECRET: ${AGENTWORKS_SESSION_SECRET}
       AGENTOS_EXECUTION_DATABASE_URL: postgres://agentworks:${POSTGRES_PASSWORD:-agentworks-local}@postgres:5432/agentworks
     volumes:
-      - ./data:/data            # SQLite DB, WAL, vault, uploads
-      - ./config:/config:ro      # .env and secrets (read-only at runtime)
+      - ${AGENTWORKS_DATA_DIR:-./data}:/data            # SQLite DB, WAL, vault, uploads
+      - ${AGENTWORKS_CONFIG_DIR:-./config}:/config:ro    # .env and secrets (read-only at runtime)
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,9 +78,9 @@ services:
   # --------------------------------------------------------------------------
   scanner-worker:
     build:
-      context: .
-      dockerfile: packages/scanner-worker/Dockerfile
-    image: agentworks/scanner-worker:${AGENTWORKS_VERSION:-0.1.0}
+      context: ./packages/scanner-worker
+      dockerfile: Dockerfile
+    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/scanner-worker:${AGENTWORKS_VERSION:-0.1.2}
     container_name: scanner-worker
     restart: unless-stopped
     ports:
@@ -89,8 +92,8 @@ services:
       # Paths watched by the scanner
       SCANNER_WATCH_DIRS: "/config/claude,/config/cursor"
     volumes:
-      - ./config:/config:ro        # Agent configs to scan (CLAUDE.md, .cursorrules, etc.)
-      - ./data/scanner:/var/lib/scanner  # Scan state + findings cache
+      - ${AGENTWORKS_CONFIG_DIR:-./config}:/config:ro              # Agent configs to scan (CLAUDE.md, .cursorrules, etc.)
+      - ${AGENTWORKS_DATA_DIR:-./data}/scanner:/var/lib/scanner    # Scan state + findings cache
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:3101/health').raise_for_status()"]
       interval: 30s
@@ -126,7 +129,7 @@ services:
       - N8N_DATABASE_SQLITE_VACUUM_ON_STARTUP=true
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false
     volumes:
-      - ./data/n8n:/home/node/.n8n
+      - ${AGENTWORKS_DATA_DIR:-./data}/n8n:/home/node/.n8n
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:5678/healthz"]
       interval: 30s

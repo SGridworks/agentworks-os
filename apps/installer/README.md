@@ -56,41 +56,32 @@ curl -fsSL https://get.agentworks.os/install.sh | bash -s -- --unattended
 
 ## Managing Services
 
+Use the `agentworks` CLI (installed alongside the installer) — it wraps
+`docker compose` so the right source root and env file are picked up
+automatically.
+
 ```bash
-# Navigate to the install directory
-cd ~/.agentworks
-
-# View status
-docker compose ps
-
-# View logs
-docker compose logs -f
-
-# Stop services
-docker compose down
-
-# Restart services
-docker compose up -d
-
-# Update to latest
-docker compose pull && docker compose up -d
+agentworks status            # ps
+agentworks logs              # logs -f
+agentworks logs agentos-d    # logs -f for a single service
+agentworks update            # update to the latest published release
+agentworks update --check    # report current vs latest, no changes
+agentworks uninstall         # stop, remove volumes, delete data dirs
 ```
 
 ## Uninstall
 
 ```bash
-cd ~/.agentworks
-docker compose down -v      # removes containers + named volumes
-rm -rf ~/.agentworks        # removes data, config, logs
+agentworks uninstall
 ```
 
 ## Local Checkout Development
 
-If you are running the installer from a repo checkout, the script detects the local `docker-compose.yml` and rule-packs directory and uses them instead of downloading from GitHub:
+If you are running the installer from a repo checkout, the script detects the local `docker-compose.yml` and rule-packs directory and uses them instead of cloning from GitHub:
 
 ```bash
 cd ~/Projects/agentworks-os
-./apps/installer/bin/install.sh
+./apps/installer/src/install.sh
 ```
 
 ## Troubleshooting
@@ -125,13 +116,14 @@ docker exec agentos-d ls /opt/agentworks/rule-packs/
 
 ```
 ~/.agentworks/
-├── .env                 # Generated secrets + config (mode 600)
+├── source/              # Cloned AgentWorks OS source (build context)
 ├── config/
-│   └── secrets.json     # Plain-text secrets for installer use
+│   ├── .env             # Auto-generated env (mode 600, used by docker compose)
+│   └── secrets.json     # Generated admin password (mode 600)
 ├── data/
 │   ├── agentworks.db    # SQLite database
-│   ├── vault/           # Encrypted tenant vault
-│   └── rule-packs/     # Copied compliance packs
-├── logs/                # docker compose logs output
-└── docker-compose.yml  # Downloaded by installer
+│   ├── vault/           # Tenant vault
+│   ├── n8n/             # n8n workflows + sqlite (chmod 777, uid mismatch)
+│   └── scanner/         # Scanner state cache (chmod 777, uid mismatch)
+└── logs/                # docker compose logs output
 ```

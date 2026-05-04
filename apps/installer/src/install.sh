@@ -20,14 +20,19 @@ readonly REPO="SGridworks/agentworks-os"
 # pull future main-branch changes. Override with INSTALLER_REF=<branch|tag|sha>
 # only for development.
 readonly INSTALLER_REF="${INSTALLER_REF:-v${INSTALLER_VERSION}}"
-readonly COMPOSE_URL="https://raw.githubusercontent.com/${REPO}/${INSTALLER_REF}/docker-compose.yml"
-readonly GITHUB_API="https://api.github.com"
+readonly REPO_URL="https://github.com/${REPO}.git"
 readonly AGENTWORKS_DIR="${AGENTWORKS_DIR:-$HOME/.agentworks}"
 readonly DATA_DIR="${AGENTWORKS_DIR}/data"
 readonly CONFIG_DIR="${AGENTWORKS_DIR}/config"
 readonly LOG_DIR="${AGENTWORKS_DIR}/logs"
 readonly ENV_FILE="${CONFIG_DIR}/.env"
 readonly SECRETS_FILE="${CONFIG_DIR}/secrets.json"
+
+# SOURCE_DIR holds the AgentWorks source tree. We need the source — not just
+# docker-compose.yml — because compose has `build:` directives and v0.1
+# publishes no public images. Either we clone, or (when run from a checkout)
+# we use the checkout in place.
+SOURCE_DIR="${AGENTWORKS_SOURCE_DIR:-${AGENTWORKS_DIR}/source}"
 
 # Color codes (disabled if not a TTY)
 if [[ -t 1 ]]; then
@@ -88,31 +93,122 @@ check_curl() {
   fi
 }
 
+check_git() {
+  if ! command -v git &>/dev/null; then
+    log_error "git is required to fetch the AgentWorks source."
+    log_error "Install git, or clone the repo manually and re-run from inside it:"
+    log_error "  git clone ${REPO_URL} && cd agentworks-os && ./apps/installer/src/install.sh"
+    exit 1
+  fi
+}
+
 # -----------------------------------------------------------------------------
 # Pre-flight checks
+#
+# Each check below tells the agent (or human) exactly what is wrong AND what
+# to do about it. We exit non-zero on any unrecoverable check so that an LLM
+# agent reading the output knows to surface the failure rather than silently
+# continuing into a broken build.
 # -----------------------------------------------------------------------------
+check_ports_free() {
+  local in_use=()
+  for port in 7710 3101 5678; do
+    # lsof is on macOS by default; ss is on most Linux. Fall back to /dev/tcp.
+    if command -v lsof &>/dev/null; then
+      if lsof -i ":${port}" -sTCP:LISTEN -t &>/dev/null; then
+        in_use+=("$port")
+      fi
+    elif command -v ss &>/dev/null; then
+      if ss -ltn "sport = :${port}" 2>/dev/null | grep -q ":${port}"; then
+        in_use+=("$port")
+      fi
+    else
+      if (echo > "/dev/tcp/127.0.0.1/${port}") &>/dev/null; then
+        in_use+=("$port")
+      fi
+    fi
+  done
+
+  if (( ${#in_use[@]} > 0 )); then
+    log_error "Required ports already in use: ${in_use[*]}"
+    log_error "Free them, or override AGENTOS_PORT for 7710. Substrate needs:"
+    log_error "  7710  agentos-d daemon (REST + MCP)"
+    log_error "  3101  scanner-worker"
+    log_error "  5678  n8n"
+    log_error "To find the process: lsof -i :<port>"
+    exit 1
+  fi
+  log_info "Ports 7710, 3101, 5678 free."
+}
+
+check_disk_space() {
+  # Need ~10GB: ~3.5GB for images, ~1GB for source clone, the rest for SQLite,
+  # vault writes, and docker layer build cache.
+  local need_kb=$((10 * 1024 * 1024))
+  local avail_kb
+  avail_kb=$(df -k "$HOME" | awk 'NR==2 {print $4}')
+  if [[ -z "$avail_kb" ]] || (( avail_kb < need_kb )); then
+    local avail_gb=$(( avail_kb / 1024 / 1024 ))
+    log_error "Need >= 10 GB free under \$HOME; only ${avail_gb} GB available."
+    log_error "Free disk space and re-run."
+    exit 1
+  fi
+  log_info "Disk: $(( avail_kb / 1024 / 1024 )) GB free under \$HOME."
+}
+
+check_memory() {
+  local mem_gb=0
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    local bytes
+    bytes=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
+    mem_gb=$(( bytes / 1024 / 1024 / 1024 ))
+  elif [[ -r /proc/meminfo ]]; then
+    local kb
+    kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+    mem_gb=$(( kb / 1024 / 1024 ))
+  fi
+  if (( mem_gb > 0 )) && (( mem_gb < 4 )); then
+    log_error "System has only ${mem_gb} GB RAM; substrate needs >= 4 GB (8 GB recommended)."
+    log_error "agentos-d, scanner-worker (with sentence-transformers), and n8n will OOM under 4 GB."
+    exit 1
+  fi
+  log_info "Memory: ${mem_gb} GB total."
+}
+
+check_internet() {
+  # github.com is the source clone target and the GHCR auth path.
+  if ! curl -fsSL -m 10 -o /dev/null https://github.com/ 2>/dev/null; then
+    log_error "Cannot reach https://github.com — install needs internet access to clone the source."
+    log_error "If the host is behind a proxy, set HTTPS_PROXY and re-run."
+    exit 1
+  fi
+  log_info "Internet reachable."
+}
+
 preflight_check() {
   log_step "Running pre-flight checks..."
   check_curl
+  check_git
   check_docker
   check_docker_compose
 
-  # Check Docker is actually running
   if ! docker info &>/dev/null; then
-    log_error "Docker daemon is not running. Please start Docker Desktop."
+    log_error "Docker daemon is not running."
+    log_error "  macOS: open Docker Desktop (or 'open -a OrbStack') and wait for it to start."
+    log_error "  Linux: sudo systemctl start docker"
+    log_error "Then re-run this installer."
     exit 1
   fi
 
-  # Check platform
-  local platform
+  check_ports_free
+  check_disk_space
+  check_memory
+  check_internet
+
+  local platform arch
   platform=$(uname -s)
-  local arch
   arch=$(uname -m)
   log_info "Platform: ${platform}/${arch}"
-
-  if [[ "$platform" == "Darwin" ]]; then
-    log_info "Detected macOS. Ensure Docker Desktop is using Linux containers."
-  fi
 
   log_info "Pre-flight checks passed."
 }
@@ -123,31 +219,59 @@ preflight_check() {
 create_directories() {
   log_step "Creating AgentWorks directories..."
   mkdir -p "${DATA_DIR}" "${CONFIG_DIR}" "${LOG_DIR}"
+
+  # n8n runs inside its container as uid 1000 (`node`); the scanner-worker
+  # writes as root. Both bind-mount subdirs of $DATA_DIR. If the host process
+  # creating $DATA_DIR has a different uid (always true on Linux + WSL), the
+  # containers can't write. Permissive perms on these two subdirs sidesteps
+  # the cross-platform uid mismatch.
+  mkdir -p "${DATA_DIR}/n8n" "${DATA_DIR}/scanner"
+  chmod 777 "${DATA_DIR}/n8n" "${DATA_DIR}/scanner"
+
   log_info "Data directory: ${DATA_DIR}"
   log_info "Config directory: ${CONFIG_DIR}"
   log_info "Log directory: ${LOG_DIR}"
 }
 
 # -----------------------------------------------------------------------------
-# Download docker-compose.yml
+# Acquire source tree (clone, or use the local checkout we're running from)
 # -----------------------------------------------------------------------------
-download_compose() {
-  log_step "Downloading docker-compose.yml..."
-  local compose_file="${AGENTWORKS_DIR}/docker-compose.yml"
+acquire_source() {
+  log_step "Resolving AgentWorks source tree..."
 
-  local http_code
-  http_code=$(curl -o /dev/null -s -w "%{http_code}" \
-    --fail-with-body \
-    -L "${COMPOSE_URL}" \
-    -o "${compose_file}" 2>/dev/null || echo "000")
-
-  if [[ "$http_code" != "200" ]]; then
-    log_error "Failed to download docker-compose.yml (HTTP ${http_code})"
-    log_error "URL: ${COMPOSE_URL}"
-    exit 1
+  # If we're being run from inside a checkout, prefer it over re-cloning.
+  if [[ -f "$(pwd)/docker-compose.yml" ]] \
+      && [[ -d "$(pwd)/packages/agentos-d" ]] \
+      && grep -q "agentworks/agentos-d" "$(pwd)/docker-compose.yml" 2>/dev/null; then
+    SOURCE_DIR="$(pwd)"
+    log_info "Using local checkout: ${SOURCE_DIR}"
+    return 0
   fi
 
-  log_info "Downloaded docker-compose.yml"
+  if [[ -d "${SOURCE_DIR}/.git" ]]; then
+    log_info "Updating existing source clone at ${SOURCE_DIR}"
+    git -C "${SOURCE_DIR}" fetch --tags --depth=1 origin "${INSTALLER_REF}" 2>&1 | sed 's/^/  /'
+    git -C "${SOURCE_DIR}" checkout -q FETCH_HEAD
+  else
+    log_info "Cloning ${REPO_URL} (${INSTALLER_REF}) -> ${SOURCE_DIR}"
+    rm -rf "${SOURCE_DIR}"
+    mkdir -p "$(dirname "${SOURCE_DIR}")"
+    git clone --depth=1 --branch "${INSTALLER_REF}" "${REPO_URL}" "${SOURCE_DIR}" 2>&1 | sed 's/^/  /'
+  fi
+
+  log_info "Source ready: ${SOURCE_DIR}"
+}
+
+# -----------------------------------------------------------------------------
+# compose() runs `docker compose` from the source root with the absolute data
+# and config dirs exported, so bind-mount paths in docker-compose.yml resolve
+# under $AGENTWORKS_DIR rather than relative to the source checkout.
+# -----------------------------------------------------------------------------
+compose() {
+  ( cd "${SOURCE_DIR}" \
+    && AGENTWORKS_DATA_DIR="${DATA_DIR}" \
+       AGENTWORKS_CONFIG_DIR="${CONFIG_DIR}" \
+       docker compose --env-file "${ENV_FILE}" "$@" )
 }
 
 # -----------------------------------------------------------------------------
@@ -156,26 +280,37 @@ download_compose() {
 generate_secrets() {
   log_step "Generating secrets..."
 
-  # Admin password (32 chars, base64)
+  # Idempotency: if a previous run already generated credentials, reuse them.
+  # Re-running install.sh after a partial failure (e.g. ports were busy) must
+  # not invalidate the admin password the operator already saved.
+  if [[ -f "${ENV_FILE}" ]] \
+      && grep -q '^POSTGRES_PASSWORD=' "${ENV_FILE}" \
+      && grep -q '^AGENTWORKS_SESSION_SECRET=' "${ENV_FILE}" \
+      && [[ -f "${SECRETS_FILE}" ]]; then
+    log_info "Reusing existing secrets at ${ENV_FILE} (re-install detected)"
+    return 0
+  fi
+
+  # Admin password (32 chars, base64 with URL-unsafe chars stripped)
   local admin_password
-  admin_password=$(openssl rand -base64 32 | tr -d '=\n/' | head -c 32)
+  admin_password=$(openssl rand -base64 32 | tr -d '=\n/+' | head -c 32)
 
   # Session secret (32 bytes, hex)
   local session_secret
   session_secret=$(openssl rand -hex 32)
 
-  # Database password (32 chars)
+  # Database password — must be hex/alphanumeric so it can be embedded in the
+  # postgres connection string without percent-encoding. base64 with `/` or
+  # `+` corrupts the URL and the daemon fails to connect.
   local db_password
-  db_password=$(openssl rand -base64 32 | tr -d '=\n' | head -c 32)
+  db_password=$(openssl rand -hex 16)
 
-  # Write .env file to AGENTWORKS_DIR root (where docker-compose.yml lives)
-  # so docker compose can read these variables automatically.
-  # Also write a copy to CONFIG_DIR for the agentworks CLI tool.
-  cat > "${AGENTWORKS_DIR}/.env" <<EOF
+  cat > "${ENV_FILE}" <<EOF
 # Auto-generated on $(date -u +%Y-%m-%dT%H:%M:%SZ)
 # DO NOT COMMIT THIS FILE
 AGENTWORKS_VERSION=${INSTALLER_VERSION}
 AGENTWORKS_DATA_DIR=${DATA_DIR}
+AGENTWORKS_CONFIG_DIR=${CONFIG_DIR}
 AGENTWORKS_SESSION_SECRET=${session_secret}
 POSTGRES_PASSWORD=${db_password}
 POSTGRES_USER=agentworks
@@ -185,11 +320,8 @@ AGENTOS_PORT=7710
 AGENTOS_LOG_LEVEL=info
 AGENTOS_AWCP_VERSION=awcp/v0.1
 EOF
+  chmod 600 "${ENV_FILE}"
 
-  # Write .env copy to CONFIG_DIR
-  cp "${AGENTWORKS_DIR}/.env" "${ENV_FILE}"
-
-  # Write secrets to a separate file (chmod 600)
   cat > "${SECRETS_FILE}" <<EOF
 {
   "admin_password": "${admin_password}",
@@ -200,36 +332,29 @@ EOF
   chmod 600 "${SECRETS_FILE}"
 
   log_info "Secrets written to ${SECRETS_FILE} (mode 600)"
-  log_info ".env written to ${AGENTWORKS_DIR}/.env"
-  chmod 600 "${AGENTWORKS_DIR}/.env" "${ENV_FILE}"
+  log_info ".env written to ${ENV_FILE}"
 }
 
 # -----------------------------------------------------------------------------
-# Pull images
+# Pull images (best-effort — v0.1 ships nothing pullable on Docker Hub)
 # -----------------------------------------------------------------------------
 pull_images() {
-  log_step "Pulling Docker images (this may take a few minutes)..."
-  cd "${AGENTWORKS_DIR}"
-
-  if ! docker compose pull 2>&1 | tee "${LOG_DIR}/docker-pull.log"; then
-    log_error "Failed to pull Docker images. Check ${LOG_DIR}/docker-pull.log"
-    exit 1
-  fi
-
-  log_info "Images pulled successfully."
+  log_step "Pulling Docker images (will fall through to local build on miss)..."
+  # `|| true` because v0.1 publishes nothing under the docker-compose `image:`
+  # paths. The build path below covers the failure.
+  compose pull 2>&1 | tee "${LOG_DIR}/docker-pull.log" || true
 }
 
 # -----------------------------------------------------------------------------
 # Start services
 # -----------------------------------------------------------------------------
 start_services() {
-  log_step "Starting AgentWorks services..."
-  cd "${AGENTWORKS_DIR}"
+  log_step "Building and starting AgentWorks services (first build ~5-15 min)..."
 
-  # Create named volumes for persistence
   docker volume create agentworks-postgres-data &>/dev/null || true
 
-  if ! docker compose up -d 2>&1 | tee "${LOG_DIR}/docker-up.log"; then
+  # --build forces a fresh local build for any image that wasn't pullable.
+  if ! compose up -d --build 2>&1 | tee "${LOG_DIR}/docker-up.log"; then
     log_error "Failed to start services. Check ${LOG_DIR}/docker-up.log"
     exit 1
   fi
@@ -289,8 +414,8 @@ verify_install() {
   fi
 
   # Check postgres — only if the legacy profile is active (not running in v1 by default)
-  if docker compose ps postgres 2>/dev/null | grep -q "Up"; then
-    if docker compose exec -T postgres pg_isready &>/dev/null; then
+  if compose ps postgres 2>/dev/null | grep -q "Up"; then
+    if compose exec -T postgres pg_isready &>/dev/null; then
       log_info "postgres: ${GREEN}UP${NC}"
     else
       log_warn "postgres: ${YELLOW}DOWN${NC} (legacy profile)"
@@ -300,7 +425,7 @@ verify_install() {
   fi
 
   # Check scanner-worker
-  if docker compose ps scanner-worker 2>/dev/null | grep -q "Up"; then
+  if compose ps scanner-worker 2>/dev/null | grep -q "Up"; then
     log_info "scanner-worker: ${GREEN}UP${NC}"
   else
     log_warn "scanner-worker: ${YELLOW}DOWN or not running${NC}"
@@ -386,9 +511,9 @@ main() {
     echo "This will install AgentWorks OS on this machine."
     echo "Docker is required. The installer will:"
     echo "  1. Create ~/.agentworks/ directory"
-    echo "  2. Download docker-compose.yml"
+    echo "  2. Clone the AgentWorks OS source (~50 MB) into ~/.agentworks/source"
     echo "  3. Generate secure credentials"
-    echo "  4. Start 3 Docker services (agentos-d, scanner-worker, n8n)"
+    echo "  4. Build and start 3 Docker services (agentos-d, scanner-worker, n8n)"
     echo "     Note: postgres is in legacy profile (not started — v1 uses SQLite)"
     echo ""
     echo -n "Press Enter to continue, or Ctrl+C to cancel: "
@@ -397,13 +522,37 @@ main() {
 
   preflight_check
   create_directories
-  download_compose
+  acquire_source
   generate_secrets
   pull_images
   start_services
   wait_for_services
   verify_install || true
+  run_smoke_test
   print_next_steps
+}
+
+# -----------------------------------------------------------------------------
+# Run the end-to-end smoke test (POST tenant + policy.check + assertions).
+# Always runs — the install isn't "done" if the substrate can't take a write.
+# -----------------------------------------------------------------------------
+run_smoke_test() {
+  local smoke="${SOURCE_DIR}/apps/installer/scripts/smoke-test.sh"
+  if [[ ! -x "$smoke" ]]; then
+    log_warn "Smoke test script not found at ${smoke} — skipping."
+    log_warn "Manual verification: curl http://localhost:7710/api/health"
+    return 0
+  fi
+
+  log_step "Running end-to-end smoke test..."
+  if AGENTOS_URL="http://127.0.0.1:7710" "$smoke"; then
+    log_info "Smoke test PASSED — substrate is healthy and responding to writes."
+  else
+    log_error "Smoke test FAILED. The substrate booted but is not behaving correctly."
+    log_error "Above output points at the failed step. After fixing, re-run only the smoke test:"
+    log_error "  ${smoke}"
+    return 1
+  fi
 }
 
 main "$@"

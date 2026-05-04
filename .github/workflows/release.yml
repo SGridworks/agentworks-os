@@ -4,6 +4,16 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual trigger so a maintainer can re-run a failed release without
+  # cutting a new tag — useful when the workflow itself was the bug.
+  # Pick the tag from the GitHub UI's "Use workflow from" branch dropdown,
+  # or pass a tag/sha to check out.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag or commit SHA to release (defaults to the workflow's source ref)"
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -20,6 +30,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       # ------------------------------------------------------------------
       # Metadata for agentos-d
@@ -88,16 +100,19 @@ jobs:
 
       - name: Sign agentos-d with Cosign
         if: github.event_name == 'push'
-        uses: actions/cosign-installer@v4
+        uses: sigstore/cosign-installer@v3
         with:
           cosign-release: 'v2.4.1'
 
       - name: Sign and attest agentos-d images
-        if: github.event_name == 'push'
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: |
+          if [ -z "$COSIGN_PRIVATE_KEY" ]; then
+            echo "COSIGN_PRIVATE_KEY not set — skipping signing for agentos-d (image is published unsigned)."
+            exit 0
+          fi
           echo "$COSIGN_PRIVATE_KEY" | cosign sign --yes --key - \
             ${{ env.IMAGE_PREFIX }}/agentos-d:${{ github.ref_name }}
 
@@ -119,16 +134,19 @@ jobs:
 
       - name: Sign scanner-worker with Cosign
         if: github.event_name == 'push'
-        uses: actions/cosign-installer@v4
+        uses: sigstore/cosign-installer@v3
         with:
           cosign-release: 'v2.4.1'
 
       - name: Sign and attest scanner-worker images
-        if: github.event_name == 'push'
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: |
+          if [ -z "$COSIGN_PRIVATE_KEY" ]; then
+            echo "COSIGN_PRIVATE_KEY not set — skipping signing for scanner-worker."
+            exit 0
+          fi
           echo "$COSIGN_PRIVATE_KEY" | cosign sign --yes --key - \
             ${{ env.IMAGE_PREFIX }}/scanner-worker:${{ github.ref_name }}
 
@@ -149,10 +167,47 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Sign and attest admin-ui images
-        if: github.event_name == 'push'
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: |
+          if [ -z "$COSIGN_PRIVATE_KEY" ]; then
+            echo "COSIGN_PRIVATE_KEY not set — skipping signing for admin-ui."
+            exit 0
+          fi
           echo "$COSIGN_PRIVATE_KEY" | cosign sign --yes --key - \
             ${{ env.IMAGE_PREFIX }}/admin-ui:${{ github.ref_name }}
+
+      # ------------------------------------------------------------------
+      # Publish GitHub Release with install.sh as an asset.
+      #
+      # The customer-facing install URL is
+      #   https://github.com/SGridworks/agentworks-os/releases/download/<tag>/install.sh
+      # — referenced from README and docs. Uploading the asset here keeps
+      # the URL valid for every future tag without a manual step.
+      # ------------------------------------------------------------------
+      - name: Publish GitHub Release with install.sh
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.ref || github.ref_name }}
+          files: apps/installer/src/install.sh
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+
+      # ------------------------------------------------------------------
+      # Make the just-published GHCR packages public so unauthenticated
+      # `docker compose pull` works for end users. Idempotent — flipping a
+      # package that's already public is a no-op (the API returns 204).
+      # Requires the workflow's GITHUB_TOKEN to have `packages: write`,
+      # which is granted at the top of this file.
+      # ------------------------------------------------------------------
+      - name: Make GHCR packages public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for pkg in agentworks/agentos-d agentworks/scanner-worker agentworks/admin-ui; do
+            gh api -X PATCH \
+              "/user/packages/container/${pkg//\//%2F}/visibility" \
+              -f visibility=public \
+              || echo "  warn: could not set ${pkg} public (may already be public, or owner is an org)"
+          done

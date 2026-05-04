@@ -21,12 +21,14 @@ set -euo pipefail
 # Constants
 # -----------------------------------------------------------------------------
 readonly AGENTWORKS_DIR="${AGENTWORKS_DIR:-$HOME/.agentworks}"
-readonly COMPOSE_FILE="${AGENTWORKS_DIR}/docker-compose.yml"
 readonly CONFIG_DIR="${AGENTWORKS_DIR}/config"
+readonly ENV_FILE="${CONFIG_DIR}/.env"
 readonly SECRETS_FILE="${CONFIG_DIR}/secrets.json"
 readonly LOG_DIR="${AGENTWORKS_DIR}/logs"
 readonly DATA_DIR="${AGENTWORKS_DIR}/data"
-readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.1.0}"
+readonly SOURCE_DIR="${AGENTWORKS_SOURCE_DIR:-${AGENTWORKS_DIR}/source}"
+readonly COMPOSE_FILE="${SOURCE_DIR}/docker-compose.yml"
+readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.1.2}"
 readonly REPO="SGridworks/agentworks-os"
 readonly GITHUB_RELEASES="https://api.github.com/repos/${REPO}/releases"
 
@@ -79,21 +81,32 @@ get_compose_cmd() {
   fi
 }
 
+# compose() runs docker compose from the source root with the absolute data
+# and config dirs exported, matching what install.sh does. Bind mounts in
+# docker-compose.yml resolve under $AGENTWORKS_DIR rather than the source dir.
+compose() {
+  local cc
+  cc=$(get_compose_cmd)
+  local env_args=()
+  [[ -f "$ENV_FILE" ]] && env_args=(--env-file "$ENV_FILE")
+  ( cd "$SOURCE_DIR" \
+    && AGENTWORKS_DATA_DIR="$DATA_DIR" \
+       AGENTWORKS_CONFIG_DIR="$CONFIG_DIR" \
+       $cc "${env_args[@]}" "$@" )
+}
+
 # -----------------------------------------------------------------------------
 # Command: status
 # -----------------------------------------------------------------------------
 cmd_status() {
   require_installed
-  cd "$AGENTWORKS_DIR"
-  local compose_cmd
-  compose_cmd=$(get_compose_cmd)
 
   echo ""
   echo "AgentWorks OS — Service Status"
   echo "================================"
   echo ""
 
-  $compose_cmd ps
+  compose ps
 
   echo ""
   local health
@@ -110,15 +123,11 @@ cmd_status() {
 # -----------------------------------------------------------------------------
 cmd_logs() {
   require_installed
-  cd "$AGENTWORKS_DIR"
-  local compose_cmd
-  compose_cmd=$(get_compose_cmd)
-
   local service="${1:-}"
   if [[ -n "$service" ]]; then
-    $compose_cmd logs -f "$service"
+    compose logs -f "$service"
   else
-    $compose_cmd logs -f
+    compose logs -f
   fi
 }
 
@@ -127,9 +136,6 @@ cmd_logs() {
 # -----------------------------------------------------------------------------
 cmd_update() {
   require_installed
-  cd "$AGENTWORKS_DIR"
-  local compose_cmd
-  compose_cmd=$(get_compose_cmd)
 
   local check_only=false
   if [[ "${1:-}" == "--check" ]]; then
@@ -163,11 +169,13 @@ cmd_update() {
     return 0
   fi
 
-  log_step "Pulling updated images..."
-  AGENTWORKS_VERSION="$latest_version" $compose_cmd pull
+  log_step "Updating source clone to v${latest_version}..."
+  git -C "$SOURCE_DIR" fetch --tags --depth=1 origin "v${latest_version}" 2>&1 | sed 's/^/  /'
+  git -C "$SOURCE_DIR" checkout -q FETCH_HEAD
 
-  log_step "Starting updated services..."
-  AGENTWORKS_VERSION="$latest_version" $compose_cmd up -d
+  log_step "Pulling and rebuilding services..."
+  AGENTWORKS_VERSION="$latest_version" compose pull || true
+  AGENTWORKS_VERSION="$latest_version" compose up -d --build
 
   log_info "Update complete."
 }
@@ -201,13 +209,10 @@ cmd_backup() {
   chmod 600 "$tmpdir/config"/*.json 2>/dev/null || true
 
   # Database dump
-  local compose_cmd
-  compose_cmd=$(get_compose_cmd)
-  cd "$AGENTWORKS_DIR"
-  if $compose_cmd ps -q postgres &>/dev/null; then
+  if compose ps -q postgres &>/dev/null; then
     log_step "Dumping database..."
     mkdir -p "$tmpdir/db"
-    $compose_cmd exec -T postgres pg_dump -U agentworks -d agentworks > "$tmpdir/db/agentworks.sql" 2>/dev/null || true
+    compose exec -T postgres pg_dump -U agentworks -d agentworks > "$tmpdir/db/agentworks.sql" 2>/dev/null || true
   fi
 
   # Create tarball
@@ -258,18 +263,13 @@ cmd_restore() {
 
   tar -xzf "$input" -C "$tmpdir"
 
-  # Stop services
-  cd "$AGENTWORKS_DIR"
-  local compose_cmd
-  compose_cmd=$(get_compose_cmd)
-  $compose_cmd stop
+  compose stop
 
   # Restore data
   rm -rf "$DATA_DIR"/* && cp -r "$tmpdir/data/"* "$DATA_DIR/"
   rm -rf "$CONFIG_DIR"/* && cp -r "$tmpdir/config/"* "$CONFIG_DIR/"
 
-  # Restart services
-  $compose_cmd up -d
+  compose up -d
 
   log_info "Restore complete."
 }
@@ -284,15 +284,11 @@ cmd_uninstall() {
   log_warn "Ctrl+C to abort."
   sleep 5
 
-  cd "$AGENTWORKS_DIR"
-  local compose_cmd
-  compose_cmd=$(get_compose_cmd)
-
   log_step "Stopping services..."
-  $compose_cmd down -v 2>/dev/null || true
+  compose down -v 2>/dev/null || true
 
   log_step "Removing data directories..."
-  rm -rf "$DATA_DIR" "$CONFIG_DIR" "$LOG_DIR" "$AGENTWORKS_DIR/docker-compose.yml"
+  rm -rf "$DATA_DIR" "$CONFIG_DIR" "$LOG_DIR" "$SOURCE_DIR"
 
   log_info "AgentWorks OS has been removed."
 }
@@ -328,9 +324,9 @@ cmd_mcp_configure() {
   mkdir -p "$config_dir"
 
   local mcp_url="http://localhost:7710"
-  # Bridge path: shipped with the agentos-d package. Fall back to the global
-  # install path if running from a checkout.
-  local bridge_path="${AGENTWORKS_DIR}/bin/mcp-stdio-bridge.js"
+  # Bridge path lives inside the source clone (or a developer's local checkout
+  # if we're running from one).
+  local bridge_path="${SOURCE_DIR}/packages/agentos-d/dist/bin/mcp-stdio-bridge.js"
   if [[ ! -f "$bridge_path" ]]; then
     if [[ -f "$(pwd)/packages/agentos-d/dist/bin/mcp-stdio-bridge.js" ]]; then
       bridge_path="$(pwd)/packages/agentos-d/dist/bin/mcp-stdio-bridge.js"
@@ -390,25 +386,21 @@ cmd_support_bundle() {
   tmpdir=$(mktemp -d)
   trap "rm -rf $tmpdir" EXIT
 
-  cd "$AGENTWORKS_DIR"
-  local compose_cmd
-  compose_cmd=$(get_compose_cmd)
-
   # Service logs (last 500 lines each)
   mkdir -p "$tmpdir/logs"
   for svc in agentos-d scanner-worker n8n postgres; do
-    $compose_cmd logs --tail=500 "$svc" > "$tmpdir/logs/${svc}.log" 2>&1 || true
+    compose logs --tail=500 "$svc" > "$tmpdir/logs/${svc}.log" 2>&1 || true
   done
 
   # Docker compose config (sanitized)
-  $compose_cmd config > "$tmpdir/docker-compose.yml" 2>/dev/null || true
+  compose config > "$tmpdir/docker-compose.yml" 2>/dev/null || true
 
   # Health endpoint output
   curl -s http://localhost:7710/api/health > "$tmpdir/health.json" 2>/dev/null || true
 
   # Database stats (if accessible)
-  $compose_cmd exec -T postgres psql -U agentworks -d agentworks -c "SELECT 1" &>/dev/null && \
-    $compose_cmd exec -T postgres pg_dump -U agentworks &>/dev/null > "$tmpdir/db.sql" || true
+  compose exec -T postgres psql -U agentworks -d agentworks -c "SELECT 1" &>/dev/null && \
+    compose exec -T postgres pg_dump -U agentworks &>/dev/null > "$tmpdir/db.sql" || true
 
   tar -czf "$output" -C "$tmpdir" .
 

@@ -16,23 +16,28 @@ If your lawyer has ever asked “who approved that outbound?” or “how do we 
 
 ## Quick install
 
-One command on a Mac mini or Linux box you control:
+Requires Docker Desktop (macOS) or Docker Engine (Linux), git, ~10 GB free disk, and ~4 GB RAM. About 10‑20 minutes on a clean machine, mostly the first build.
 
 ```bash
-curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.2/install.sh | bash
+git clone --depth=1 --branch v0.1.2 https://github.com/SGridworks/agentworks-os.git
+cd agentworks-os
+./apps/installer/src/install.sh --unattended \
+  && ./apps/installer/scripts/smoke-test.sh
 ```
 
-Requires Docker Desktop (or Docker Engine on Linux). About 15 minutes on a clean machine.
+If both scripts exit 0 — done. The installer prints `Smoke test PASSED` at the end; the standalone smoke run is a second gate that POSTs a tenant and a `policy.check` end‑to‑end.
 
-See the [install runbook](./docs/install-runbook.md) for full step‑by‑step, including prerequisites and first‑run verification.
+**Installing through an AI coding agent?** Point Claude Code (or Codex, or Cursor) at this repo and tell it to follow [`docs/AI-AGENT-INSTALL-GUIDE.md`](./docs/AI-AGENT-INSTALL-GUIDE.md). The guide is written for an LLM: numbered steps, explicit verify commands, enumerated failure modes with fixes, and a final report template. Pre‑flight in `install.sh` catches the things an agent can’t reason about (port conflicts, disk pressure, no internet, Docker daemon down) before wasting 10 minutes on a build.
 
-**Working through an AI coding agent?** Hand the right playbook to Claude Code, Cursor, Codex, etc.:
+Other agent‑readable runbooks:
 
-- [Install Guide](./docs/AI-AGENT-INSTALL-GUIDE.md) — install + vault + MCP, end‑to‑end
+- [Install Guide](./docs/AI-AGENT-INSTALL-GUIDE.md) — the canonical install playbook above
 - [Rule‑Pack Authoring](./docs/AI-AGENT-RULE-PACK-GUIDE.md) — draft, validate, ship a rule pack safely
 - [Operator Runbook](./docs/AI-AGENT-OPERATOR-RUNBOOK.md) — daily ops, triage, incident response
-- [MCP Debug](./docs/AI-AGENT-MCP-DEBUG.md) — five‑layer diagnosis when MCP isn't connecting
+- [MCP Debug](./docs/AI-AGENT-MCP-DEBUG.md) — five‑layer diagnosis when MCP isn’t connecting
 - [Vault Hygiene](./docs/AI-AGENT-VAULT-HYGIENE.md) — lint, dedupe, prune the vault
+
+For a human‑oriented walk‑through: [docs/install-runbook.md](./docs/install-runbook.md).
 
 ## What’s in the box
 

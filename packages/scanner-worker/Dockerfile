@@ -1,6 +1,11 @@
 # syntax=docker/dockerfile:1
-ARG TARGETARCH
-FROM python:3.11-slim${TARGETARCH:+-${TARGETARCH}} AS builder
+#
+# scanner-worker Dockerfile.
+#
+# Build context is this package directory (set in docker-compose.yml), not the
+# repo root: the only build inputs are pyproject.toml, README.md, and src/.
+#
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
@@ -8,15 +13,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml src/ /app/
-RUN pip install --user -e .
+# pyproject.toml + README must sit at /app; src/ must keep its subdir so
+# hatchling can read src/scanner_worker/__version__.py for the dynamic version.
+COPY pyproject.toml README.md /app/
+COPY src/ /app/src/
 
-FROM python:3.11-slim${TARGETARCH:+-${TARGETARCH}}
+# A non-editable install copies the package into ~/.local/lib/python3.11/...
+# which we then ship to the runtime stage. `pip install -e .` would leave a
+# .pth file pointing at /app/src — fine in the builder, broken at runtime.
+RUN pip install --user --no-cache-dir .
+
+FROM python:3.11-slim
 
 WORKDIR /app
 
+# Debian Trixie (slim base) renamed libffi7 -> libffi8.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libffi7 \
+    libffi8 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /root/.local /root/.local
