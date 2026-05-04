@@ -210,20 +210,23 @@ rules:
 // ---- evaluatePack: block scenarios -------------------------------------------
 
 describe("evaluatePack — block scenarios", () => {
-  it("returns block when required_data is missing (undefined)", () => {
+  it("routes to review when required_data is missing (undefined)", () => {
+    // Missing-data is intentionally route_to_review, not block: the human
+    // reviewer decides whether the field is genuinely absent or just unwired.
+    // A blanket block here would mask integration gaps as compliance failures.
     const pack = loadPackFromString(BASE_PACK_YAML);
     const action = makeAction({ payload: {} });
     const result = evaluatePack(pack, action);
-    expect(result.decision).toBe("block");
+    expect(result.decision).toBe("route_to_review");
     expect(result.missingFields).toContain("consentRecordRef");
     expect(result.matchedRule?.rule_id).toBe("tcpa-consent-check");
   });
 
-  it("returns block when required_data is null", () => {
+  it("routes to review when required_data is null", () => {
     const pack = loadPackFromString(BASE_PACK_YAML);
     const action = makeAction({ payload: { consentRecordRef: null } });
     const result = evaluatePack(pack, action);
-    expect(result.decision).toBe("block");
+    expect(result.decision).toBe("route_to_review");
     expect(result.missingFields).toContain("consentRecordRef");
   });
 

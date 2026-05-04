@@ -3,11 +3,21 @@ import { validateYaml } from './yaml-schema';
 
 describe('validateYaml', () => {
   it('returns valid for a well-formed minimal rule pack', () => {
+    // Schema requires rules: minItems 1 — a pack with zero rules is meaningless.
     const yaml = [
       'pack_id: test-pack',
       'pack_version: "1.0.0"',
       'schema_version: "awcp/v1.0"',
-      'rules: []',
+      'rules:',
+      '  - rule_id: r1',
+      '    name: n',
+      '    description: d',
+      '    required_data: ["x"]',
+      '    conditions:',
+      '      - when: {}',
+      '        then:',
+      '          decision: allow',
+      '          reason: ok',
     ].join('\n');
 
     const result = validateYaml(yaml);
@@ -32,9 +42,10 @@ describe('validateYaml', () => {
   });
 
   it('returns a parse error marker for malformed YAML syntax', () => {
+    // Use a tab-indent + flow-mode mismatch the YAML parser actually rejects.
     const yaml = [
       'pack_id: test',
-      '  invalid indent',  // syntax error
+      'pack_version: [unterminated',
     ].join('\n');
 
     const result = validateYaml(yaml);
