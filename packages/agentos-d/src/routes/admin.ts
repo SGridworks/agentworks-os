@@ -50,7 +50,9 @@ const CreateViolationSchema = z.object({
 function calculateAutopilotBucket(item: {
   decision?: string;
   proposed_action_kind?: string;
+  proposedActionKind?: string;
   decision_reason?: string;
+  decisionReason?: string;
   policy_decision_id?: string;
 }): {
   decision: "allow" | "needsApproval" | "risky";
@@ -62,8 +64,8 @@ function calculateAutopilotBucket(item: {
   // Start with base risk from decision
   let riskScore = 0.0;
   const decision = item.decision || "allow";
-  const actionKind = item.proposed_action_kind || "unknown";
-  const decisionReason = item.decision_reason || "";
+  const actionKind = item.proposed_action_kind || item.proposedActionKind || "unknown";
+  const decisionReason = item.decision_reason || item.decisionReason || "";
   
   // If any rule blocked, it's automatically risky
   if (decision === "block") {
@@ -657,24 +659,50 @@ export function createAdminRouter(_config: Config): Router {
 
         if (dryRun) {
           // In dry run mode, just calculate and return results
+          if (autopilotResult.decision === "allow") dispatchedCount++;
+          else skippedCount++;
           continue;
         }
 
         // Update approval queue with autopilot decision
         const now = new Date().toISOString();
         const dispatchedAt = autopilotResult.decision === "allow" ? now : null;
-
-        db.update(approvalQueue)
-          .set({
-            autopilotDecision: autopilotResult.decision,
-            riskScore: autopilotResult.riskScore,
-            reasons: JSON.stringify(autopilotResult.reasons),
-            idempotencyKey,
-            dispatchedAt,
-            updatedAt: now,
-          })
+        const existingQueueRow = db
+          .select({ id: approvalQueue.id })
+          .from(approvalQueue)
           .where(eq(approvalQueue.policyDecisionId, decision.id))
-          .run();
+          .get();
+
+        const queueUpdate = {
+          autopilotDecision: autopilotResult.decision,
+          riskScore: autopilotResult.riskScore,
+          reasons: JSON.stringify(autopilotResult.reasons),
+          idempotencyKey,
+          dispatchedAt,
+          updatedAt: now,
+        };
+
+        if (existingQueueRow) {
+          db.update(approvalQueue)
+            .set(queueUpdate)
+            .where(eq(approvalQueue.policyDecisionId, decision.id))
+            .run();
+        } else {
+          db.insert(approvalQueue)
+            .values({
+              id: randomUUID(),
+              policyDecisionId: decision.id,
+              tenantId: decision.tenantId,
+              actorLabel: decision.actorLabel,
+              proposedActionKind: decision.proposedActionKind,
+              proposedActionSummary: decision.proposedActionSummary,
+              decisionReason: decision.decisionReason,
+              status: autopilotResult.decision === "allow" ? "approved" : "pending",
+              ...queueUpdate,
+              createdAt: now,
+            })
+            .run();
+        }
 
         if (autopilotResult.decision === "allow") {
           // Auto-execute the action by creating an action log entry
