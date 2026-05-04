@@ -39,13 +39,13 @@ If `docker ps` returns a connection error, open Docker Desktop and wait for it t
 On the machine that will host AgentWorks OS:
 
 ```bash
-curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.0/install.sh | bash
+curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.1/install.sh | bash
 ```
 
 Or, to inspect first and run from a clone:
 
 ```bash
-git clone --branch v0.1.0 https://github.com/SGridworks/agentworks-os.git
+git clone --branch v0.1.1 https://github.com/SGridworks/agentworks-os.git
 cd agentworks-os && ./apps/installer/src/install.sh
 ```
 

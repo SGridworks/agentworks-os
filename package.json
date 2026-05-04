@@ -1,8 +1,8 @@
 {
   "name": "agentworks-os",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
-  "description": "AgentWorks OS — AI compliance firewall for regulated SMBs",
+  "description": "AgentWorks OS \u2014 AI compliance firewall for regulated SMBs",
   "type": "module",
   "scripts": {
     "typecheck": "pnpm -r typecheck",
@@ -22,6 +22,9 @@
     "vitest": "^2.1.9"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
   }
 }

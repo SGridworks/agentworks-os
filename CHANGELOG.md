@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-05-04
+
+Patch release. Closes the v0.1.0 known-issues list for policy-engine and
+admin-ui, and ships one real bug fix that was caught after release.
+
+### Fixed
+
+- **Memory graph showed only the tenant's own subtree.**
+  `FileVaultStore.list()` used `fs.readdir({ recursive: true })`, which does
+  NOT follow symbolic links. Tenants whose `wiki/` and `memory/` folders are
+  symlinks (the recommended layout for shared knowledge) saw a fraction of
+  their actual notes in `/api/memory/graph`. `list()` now walks manually and
+  resolves each symlink via `fs.stat`. realpath dedup keeps the walk
+  cycle-safe.
+- **`packages/policy-engine`** — `evaluator.test.ts` expected `block` for
+  missing `required_data`. Tests realigned to the runtime's
+  `route_to_review` behavior, which is the correct fail-safe (see v0.1.0
+  known-issues note).
+- **`packages/admin-ui`** — `yaml-schema.test.ts` expectations realigned to
+  the schema's `rules.minItems = 1` and `condition.then.required = [decision,
+  reason]` constraints. Marker messages also now include the offending
+  property name for `additionalProperties` and `required` errors so Monaco
+  surfaces it inline.
+
+### Known issues
+
+Still triaged for v0.1.2:
+
+- `packages/agentos-d`: 11 failures across `cli.test.ts` (backup/restore
+  CLI), `bin/mcp-stdio.test.ts`, `routes/admin-mission-map`,
+  `routes/memory-usage`, and `services/mission-map`. The substrate-e2e suite
+  remains the canonical shippability check.
+
 ## [0.1.0] — 2026-05-04
 
 First public release. Initial commit history is reset from the internal
