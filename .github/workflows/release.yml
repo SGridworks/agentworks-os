@@ -23,7 +23,7 @@ jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write   # softprops/action-gh-release creates the GitHub release + uploads install.sh
       packages: write
       id-token: write   # needed for cosign OIDC federation
 
