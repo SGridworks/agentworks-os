@@ -21,7 +21,12 @@ COPY packages/shared/tsconfig.json ./packages/shared/tsconfig.json
 COPY packages/admin-ui ./packages/admin-ui
 
 RUN pnpm --filter @agentworks/shared build \
- && pnpm --filter @agentworks/admin-ui build
+ && pnpm --filter admin-ui build
+
+# next.js's COPY ./public step in the runtime stage requires the directory
+# to exist, but admin-ui doesn't ship any static assets yet — ensure the
+# directory exists so the multi-stage COPY does not fail on a fresh tree.
+RUN mkdir -p /app/packages/admin-ui/public
 
 # ------------------------------------------------------------------------------
 # Runtime image
