@@ -26,6 +26,8 @@ Requires Docker Desktop (or Docker Engine on Linux). About 15 minutes on a cle
 
 See the [install runbook](./docs/install-runbook.md) for full step‑by‑step, including prerequisites and first‑run verification.
 
+**Installing through an AI coding agent?** Hand them [docs/AI-AGENT-INSTALL-GUIDE.md](./docs/AI-AGENT-INSTALL-GUIDE.md) — a single self‑contained playbook for Claude Code, Cursor, Codex, etc., that walks the agent through install + vault setup + MCP wiring with verifications at every step.
+
 ## What’s in the box
 
 | Pillar | What it does |

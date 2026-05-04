@@ -5,6 +5,7 @@ Welcome to the AgentWorks documentation site.
 - [User Guide](./users-guide.md) - full operator guide for setup, daily use, vault hygiene, maintenance, and agent orchestration.
 - [Quickstart](./quickstart.md) - install and verify AgentWorks OS in under 20 minutes.
 - [Install Runbook](./install-runbook.md) - complete first-time installation procedure.
+- [AI Agent Install Guide](./AI-AGENT-INSTALL-GUIDE.md) - single self-contained playbook to hand to a coding agent (Claude Code, Cursor, Codex) so it can install, configure the vault, and wire MCP end-to-end with verifications.
 - [MCP Integration](./mcp-integration.md) - connect agent clients to AgentWorks OS.
 - [Rule Pack Authoring](./rule-pack-authoring.md) - write and validate policy rule packs.
 - [AWCP](./awcp.md) - action schema and policy-check wire format.
