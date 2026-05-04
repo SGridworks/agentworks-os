@@ -334,18 +334,46 @@ export class FileVaultStore implements VaultStore {
   async list(tenantId: string): Promise<string[]> {
     const dir = this.tenantDir(tenantId);
     try {
-      const entries = await fs.readdir(dir, { withFileTypes: true, recursive: true });
+      // Manual walk so symlinked directories (e.g. tenant's `wiki -> ../wiki`
+      // and `memory -> ../memory`) are traversed. Node's
+      // fs.readdir({ recursive: true }) does NOT descend into symlinks, which
+      // hid shared wiki + operator memory from the graph route.
       const keys: string[] = [];
-      for (const entry of entries) {
-        if (entry.isFile() && entry.name.endsWith(".md")) {
-          const fullPath = join(entry.parentPath ?? dir, entry.name);
-          const rel = relative(dir, fullPath);
-          if (rel.startsWith("..") || rel.startsWith("/")) continue;
-          // strip .md suffix and normalize slashes
-          const key = rel.replace(/\\/g, "/").replace(/\.md$/, "");
-          keys.push(key);
+      const seen = new Set<string>(); // realpath dedup — cycle-safe
+      const walk = async (current: string): Promise<void> => {
+        const real = await fs.realpath(current).catch(() => current);
+        if (seen.has(real)) return;
+        seen.add(real);
+        let entries: import("node:fs").Dirent[];
+        try {
+          entries = await fs.readdir(current, { withFileTypes: true });
+        } catch {
+          return;
         }
-      }
+        for (const entry of entries) {
+          const full = join(current, entry.name);
+          let isDir = entry.isDirectory();
+          let isFile = entry.isFile();
+          if (entry.isSymbolicLink()) {
+            try {
+              const st = await fs.stat(full);
+              isDir = st.isDirectory();
+              isFile = st.isFile();
+            } catch {
+              continue;
+            }
+          }
+          if (isDir) {
+            await walk(full);
+          } else if (isFile && entry.name.endsWith(".md")) {
+            const rel = relative(dir, full);
+            if (rel.startsWith("..") || rel.startsWith("/")) continue;
+            const key = rel.replace(/\\/g, "/").replace(/\.md$/, "");
+            keys.push(key);
+          }
+        }
+      };
+      await walk(dir);
       return keys.sort();
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
