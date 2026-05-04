@@ -4,7 +4,7 @@
 
 **Operator hand-off:** point the agent at the repo root and say *"follow `docs/AI-AGENT-INSTALL-GUIDE.md` to install AgentWorks OS on this machine."*
 
-**Target version:** v0.1.3.
+**Target version:** v0.1.4.
 **Estimated wall-clock:** 10-20 minutes on a clean machine, mostly the first Docker build of agentos-d (TypeScript compile + `pnpm deploy`) and scanner-worker (sentence-transformers download).
 
 ---
@@ -42,7 +42,7 @@ Conventions:
 ```bash
 # If you are not already inside a checkout of agentworks-os, clone it.
 test -f docker-compose.yml && grep -q "agentworks/agentos-d" docker-compose.yml \
-  || git clone --depth=1 --branch v0.1.3 \
+  || git clone --depth=1 --branch v0.1.4 \
        https://github.com/SGridworks/agentworks-os.git \
   && cd agentworks-os
 ```
@@ -175,7 +175,7 @@ If the failure does not match any row above, hand the failing line and the last 
 Post this back to the operator, filling the bracketed values:
 
 ```
-AgentWorks OS v0.1.3 install complete.
+AgentWorks OS v0.1.4 install complete.
 
 Install location:  [PATH from §1.2, default $HOME/.agentworks]
 Source clone:      [PATH, default $HOME/.agentworks/source]

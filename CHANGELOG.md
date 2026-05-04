@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] — 2026-05-04
+
+Patch release. Fixes the v0.1.3 release pipeline gap: admin-ui's image
+failed to build, which cascaded and skipped the install.sh upload + GHCR
+package public-flip steps. v0.1.4 is the first release where every
+docker image publishes and the post-build steps run unconditionally.
+
+### Fixed
+
+- **admin-ui Dockerfile**: `pnpm --filter @agentworks/admin-ui build`
+  matched zero packages because admin-ui's `package.json` declares its
+  name as `admin-ui`, not `@agentworks/admin-ui` like every other package.
+  Filter changed to `pnpm --filter admin-ui`. Also added a builder-stage
+  `mkdir -p packages/admin-ui/public` so the runtime stage's COPY does
+  not fail when no static assets exist yet.
+- **Release workflow**: `Publish GitHub Release with install.sh` and
+  `Make GHCR packages public` now run with `if: always()`. A partial
+  image build (e.g. one Dockerfile broken) no longer skips the release
+  asset upload, and whatever packages did publish still get flipped
+  public.
+
 ## [0.1.3] — 2026-05-04
 
 Patch release. Repairs the install pipeline end-to-end. v0.1.2 (and every

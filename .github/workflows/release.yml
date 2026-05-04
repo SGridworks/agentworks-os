@@ -187,6 +187,10 @@ jobs:
       # the URL valid for every future tag without a manual step.
       # ------------------------------------------------------------------
       - name: Publish GitHub Release with install.sh
+        # Run even if an earlier image build failed — install.sh as a release
+        # asset is independent of any single image, and the README's URL
+        # contract should not depend on every image building cleanly.
+        if: ${{ always() && (success() || failure()) }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.ref || github.ref_name }}
@@ -202,6 +206,9 @@ jobs:
       # which is granted at the top of this file.
       # ------------------------------------------------------------------
       - name: Make GHCR packages public
+        # Same rationale as the release-asset step above: a partial build
+        # should still flip whatever packages did get published.
+        if: ${{ always() && (success() || failure()) }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -209,5 +216,5 @@ jobs:
             gh api -X PATCH \
               "/user/packages/container/${pkg//\//%2F}/visibility" \
               -f visibility=public \
-              || echo "  warn: could not set ${pkg} public (may already be public, or owner is an org)"
+              || echo "  warn: could not set ${pkg} public (may not exist yet, may already be public, or owner is an org)"
           done

@@ -24,7 +24,7 @@ docker ps          # should run without error
 ## Step 1 — Install (one command)
 
 ```bash
-curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.3/install.sh | bash
+curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.4/install.sh | bash
 ```
 
 The script creates `~/.agentworks/` with the Docker Compose configuration, starts all services, generates a tenant ID, and prints your admin password. Save the password.
