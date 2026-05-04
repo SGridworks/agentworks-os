@@ -99,13 +99,14 @@ export async function getProvenance(
       const store = getVaultStore() as FileVaultStore;
       const result = await store.read(tenantId, key);
       if (result.existed) {
+        const lastUsedBy = (result.lastUsedBy ?? []).filter(
+          (u): u is { agentId: string; usedAt: string } => Boolean(u.agentId),
+        );
         frontmatter = {
           ...(result.authoringAgent !== undefined && { authoringAgent: result.authoringAgent }),
           ...(result.lastUpdatedBy !== undefined && { lastUpdatedBy: result.lastUpdatedBy }),
           ...(result.lastUpdatedAt !== undefined && { lastUpdatedAt: result.lastUpdatedAt }),
-          lastUsedBy: (result.lastUsedBy ?? []).filter(
-            (u): u is { agentId: string; usedAt: string } => Boolean(u.agentId),
-          ),
+          ...(lastUsedBy.length > 0 && { lastUsedBy }),
         };
       }
     } catch (_err) {
