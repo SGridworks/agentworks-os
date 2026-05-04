@@ -1,0 +1,152 @@
+# AgentWorks OS — Docker Compose
+#
+# Services:
+#   agentos-d       Main substrate daemon (REST API + MCP)
+#   postgres       Local execution database
+#   scanner-worker  AgentGuard Python sidecar
+#   n8n            Workflow automation
+#
+# Usage:
+#   docker compose up -d
+#   docker compose logs -f agentos-d
+#   docker compose down
+#
+services:
+  # --------------------------------------------------------------------------
+  # agentos-d — main substrate daemon
+  # --------------------------------------------------------------------------
+  agentos-d:
+    build:
+      context: .
+      dockerfile: packages/agentos-d/Dockerfile
+    image: agentworks/agentos-d:${AGENTWORKS_VERSION:-0.1.0}
+    container_name: agentos-d
+    restart: unless-stopped
+    ports:
+      - "7710:7710"   # REST + MCP
+    environment:
+      AGENTOS_HOST: "0.0.0.0"
+      AGENTOS_PORT: "7710"
+      AGENTOS_LOG_LEVEL: ${AGENTOS_LOG_LEVEL:-info}
+      AGENTOS_AWCP_VERSION: ${AGENTOS_AWCP_VERSION:-awcp/v0.1}
+      RULE_PACKS_DIR: /opt/agentworks/rule-packs
+      VAULT_ROOT: /data/vault
+      AGENTWORKS_DATA_DIR: /data
+      AGENTWORKS_SESSION_SECRET: ${AGENTWORKS_SESSION_SECRET}
+      AGENTOS_EXECUTION_DATABASE_URL: postgres://agentworks:${POSTGRES_PASSWORD:-agentworks-local}@postgres:5432/agentworks
+    volumes:
+      - ./data:/data            # SQLite DB, WAL, vault, uploads
+      - ./config:/config:ro      # .env and secrets (read-only at runtime)
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:7710/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - agentworks
+
+  # --------------------------------------------------------------------------
+  # postgres - local execution database
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: agentos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agentworks}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentworks-local}
+      POSTGRES_DB: ${POSTGRES_DB:-agentworks}
+    volumes:
+      - agentworks-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentworks}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agentworks
+
+  # --------------------------------------------------------------------------
+  # scanner-worker — AgentGuard Python sidecar
+  # --------------------------------------------------------------------------
+  scanner-worker:
+    build:
+      context: .
+      dockerfile: packages/scanner-worker/Dockerfile
+    image: agentworks/scanner-worker:${AGENTWORKS_VERSION:-0.1.0}
+    container_name: scanner-worker
+    restart: unless-stopped
+    ports:
+      - "3101:3101"   # Health + findings API
+    environment:
+      SCANNER_WORKER_PORT: "3101"
+      SCANNER_SIDECAR_URL: "http://agentos-d:7710"
+      SCANNER_POLL_INTERVAL_MS: "30000"
+      # Paths watched by the scanner
+      SCANNER_WATCH_DIRS: "/config/claude,/config/cursor"
+    volumes:
+      - ./config:/config:ro        # Agent configs to scan (CLAUDE.md, .cursorrules, etc.)
+      - ./data/scanner:/var/lib/scanner  # Scan state + findings cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:3101/health').raise_for_status()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - agentworks
+
+  # --------------------------------------------------------------------------
+  # n8n — workflow automation
+  # Builds AgentWorks custom nodes into the n8n image at image build time.
+  # Runs: PolicyCheck, MemoryRead, MemoryWrite, Dispatch.
+  n8n:
+    build:
+      context: .
+      dockerfile: packages/n8n-nodes/Dockerfile
+    container_name: agentworks-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"   # n8n UI
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - EXECUTIONS_DATA_SAVE_ON_VOLATICAL_ERROR=all
+      - GENERIC_TIMEZONE=America/New_York
+      # SQLite for n8n workflow data (bundled in the image)
+      - N8N_DATABASE_TYPE=sqlite
+      - N8N_DATABASE_SQLITE_VACUUM_ON_STARTUP=true
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false
+    volumes:
+      - ./data/n8n:/home/node/.n8n
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - agentworks
+
+# ------------------------------------------------------------------------------
+# Networks
+# ------------------------------------------------------------------------------
+networks:
+  agentworks:
+    name: agentworks
+    driver: bridge
+
+# ------------------------------------------------------------------------------
+# Volumes
+# ------------------------------------------------------------------------------
+volumes:
+  agentworks-postgres-data:
+    name: agentworks-postgres-data

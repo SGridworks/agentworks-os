@@ -1,0 +1,158 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/agentworks
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write   # needed for cosign OIDC federation
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # Metadata for agentos-d
+      # ------------------------------------------------------------------
+      - name: Extract metadata for agentos-d
+        id: meta-agentos-d
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/agentos-d
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      # ------------------------------------------------------------------
+      # Metadata for scanner-worker
+      # ------------------------------------------------------------------
+      - name: Extract metadata for scanner-worker
+        id: meta-scanner-worker
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/scanner-worker
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      # ------------------------------------------------------------------
+      # Metadata for admin-ui
+      # ------------------------------------------------------------------
+      - name: Extract metadata for admin-ui
+        id: meta-admin-ui
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/admin-ui
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ------------------------------------------------------------------
+      # Build and push agentos-d
+      # ------------------------------------------------------------------
+      - name: Build and push agentos-d
+        id: push-agentos-d
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./packages/agentos-d/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-agentos-d.outputs.tags }}
+          labels: ${{ steps.meta-agentos-d.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Sign agentos-d with Cosign
+        if: github.event_name == 'push'
+        uses: actions/cosign-installer@v4
+        with:
+          cosign-release: 'v2.4.1'
+
+      - name: Sign and attest agentos-d images
+        if: github.event_name == 'push'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          echo "$COSIGN_PRIVATE_KEY" | cosign sign --yes --key - \
+            ${{ env.IMAGE_PREFIX }}/agentos-d:${{ github.ref_name }}
+
+      # ------------------------------------------------------------------
+      # Build and push scanner-worker
+      # ------------------------------------------------------------------
+      - name: Build and push scanner-worker
+        id: push-scanner-worker
+        uses: docker/build-push-action@v6
+        with:
+          context: ./packages/scanner-worker
+          file: ./packages/scanner-worker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-scanner-worker.outputs.tags }}
+          labels: ${{ steps.meta-scanner-worker.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Sign scanner-worker with Cosign
+        if: github.event_name == 'push'
+        uses: actions/cosign-installer@v4
+        with:
+          cosign-release: 'v2.4.1'
+
+      - name: Sign and attest scanner-worker images
+        if: github.event_name == 'push'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          echo "$COSIGN_PRIVATE_KEY" | cosign sign --yes --key - \
+            ${{ env.IMAGE_PREFIX }}/scanner-worker:${{ github.ref_name }}
+
+      # ------------------------------------------------------------------
+      # Build and push admin-ui
+      # ------------------------------------------------------------------
+      - name: Build and push admin-ui
+        id: push-admin-ui
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./packages/admin-ui/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-admin-ui.outputs.tags }}
+          labels: ${{ steps.meta-admin-ui.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Sign and attest admin-ui images
+        if: github.event_name == 'push'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          echo "$COSIGN_PRIVATE_KEY" | cosign sign --yes --key - \
+            ${{ env.IMAGE_PREFIX }}/admin-ui:${{ github.ref_name }}

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "agentworks": {
+      "url": "http://127.0.0.1:7710/api/mcp",
+      "mode": "http",
+      "authToken": "REPLACE_WITH_REAL_TOKEN"
+    }
+  }
+}
