@@ -26,7 +26,13 @@ Requires Docker Desktop (or Docker Engine on Linux). About 15 minutes on a cle
 
 See the [install runbook](./docs/install-runbook.md) for full step‑by‑step, including prerequisites and first‑run verification.
 
-**Installing through an AI coding agent?** Hand them [docs/AI-AGENT-INSTALL-GUIDE.md](./docs/AI-AGENT-INSTALL-GUIDE.md) — a single self‑contained playbook for Claude Code, Cursor, Codex, etc., that walks the agent through install + vault setup + MCP wiring with verifications at every step.
+**Working through an AI coding agent?** Hand the right playbook to Claude Code, Cursor, Codex, etc.:
+
+- [Install Guide](./docs/AI-AGENT-INSTALL-GUIDE.md) — install + vault + MCP, end‑to‑end
+- [Rule‑Pack Authoring](./docs/AI-AGENT-RULE-PACK-GUIDE.md) — draft, validate, ship a rule pack safely
+- [Operator Runbook](./docs/AI-AGENT-OPERATOR-RUNBOOK.md) — daily ops, triage, incident response
+- [MCP Debug](./docs/AI-AGENT-MCP-DEBUG.md) — five‑layer diagnosis when MCP isn't connecting
+- [Vault Hygiene](./docs/AI-AGENT-VAULT-HYGIENE.md) — lint, dedupe, prune the vault
 
 ## What’s in the box
 
