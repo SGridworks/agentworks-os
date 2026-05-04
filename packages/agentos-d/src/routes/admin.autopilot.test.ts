@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const REPO_ROOT = resolve(__dirname, "../../..");
+const REPO_ROOT = resolve(__dirname, "../../../..");
 const DAEMON_ENTRY = join(REPO_ROOT, "packages", "agentos-d", "dist", "cli.js");
 const RULE_PACKS = join(REPO_ROOT, "rule-packs");
 
@@ -60,7 +60,8 @@ beforeAll(async () => {
       AGENTOS_LOG_LEVEL: "warn",
       RULE_PACKS_DIR: RULE_PACKS,
       VAULT_ROOT: join(tmpRoot, "vault"),
-      AGENTWORKS_DATA_DIR: join(tmpRoot, "data"),
+      AGENTOS_DATA_DIR: join(tmpRoot, "data"),
+      AWOS_AGENTS_ROOT: join(tmpRoot, "agents"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -95,6 +96,11 @@ describe("autopilot dispatch endpoint", () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
     tenantId = body.id;
+
+    const unassignBaseline = await fetch(`${baseUrl}/api/tenants/${tenantId}/rule-packs/smb-starter`, {
+      method: "DELETE",
+    });
+    expect(unassignBaseline.status).toBe(204);
 
     // Assign rule packs
     for (const packId of ["tcpa-real-estate", "fair-housing"]) {
@@ -143,10 +149,10 @@ describe("autopilot dispatch endpoint", () => {
     const result = await callTool("policy.check", {
       tenantId,
       actor: { id: "agent-1", type: "agent", label: "TestAgent" },
-      proposedAction: { kind: "http.post", summary: "Post to external API" },
+      proposedAction: { kind: "outbound.email", summary: "Send housing marketing email" },
       evidenceSnapshot: {
-        action_kind: "http.post",
-        url: "https://api.example.com/data",
+        action_kind: "outbound.email",
+        housing_related: true,
         contains_pii: false,
         rate_limit_check: "unknown",
       },
