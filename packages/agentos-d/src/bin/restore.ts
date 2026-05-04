@@ -124,16 +124,7 @@ export async function runRestore(argv: string[]): Promise<void> {
       );
     }
 
-    // 4. Verify checksum (using the tarball we actually extracted / decrypted)
-    const actualChecksum = sha256File(workTar);
-    if (manifest.checksumSha256 && manifest.checksumSha256 !== actualChecksum) {
-      throw new Error(
-        `Checksum mismatch: expected ${manifest.checksumSha256}, got ${actualChecksum}. ` +
-        `Backup may be corrupted or tampered with.`
-      );
-    }
-
-    // 5. Stop daemon (caller's responsibility, but warn)
+    // 4. Stop daemon (caller's responsibility, but warn)
     console.log("NOTE: Stop the agentos-d daemon before proceeding. Data will be overwritten.");
 
     const config = loadConfig();
@@ -150,6 +141,14 @@ export async function runRestore(argv: string[]): Promise<void> {
       if (existsSync(legacy)) dbBackupPath = legacy;
       else throw new Error("agentworks.db not found in backup payload");
     }
+    const actualChecksum = sha256File(dbBackupPath);
+    if (manifest.checksumSha256 && manifest.checksumSha256 !== actualChecksum) {
+      throw new Error(
+        `Checksum mismatch: expected ${manifest.checksumSha256}, got ${actualChecksum}. ` +
+        `Backup may be corrupted or tampered with.`
+      );
+    }
+
     const actualDbDir = config.dataDir;
     if (!existsSync(actualDbDir)) mkdirSync(actualDbDir, { recursive: true });
     const actualDbPath = join(actualDbDir, "agentworks.db");

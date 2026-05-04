@@ -133,6 +133,7 @@ export async function runBackup(argv: string[]): Promise<void> {
     }
 
     // 4. Write MANIFEST.json
+    const checksum = sha256File(dbPath);
     const manifest: BackupManifest = {
       version: BACKUP_VERSION,
       createdAt: new Date().toISOString(),
@@ -141,7 +142,7 @@ export async function runBackup(argv: string[]): Promise<void> {
       vaults: vaultTenantIds,
       rulePackAssignments: true,
       tenantConfigs: allTenants.map((t) => t.id),
-      checksumSha256: "", // filled after tar
+      checksumSha256: checksum,
     };
     writeFileSync(
       join(tmpdir, "MANIFEST.json"),
@@ -156,20 +157,7 @@ export async function runBackup(argv: string[]): Promise<void> {
     const tarPath = outPath ?? defaultOut;
     execSync(`tar -czf "${tarPath}" -C "${tmpdir}" .`, { encoding: "utf8" });
 
-    // 6. Update checksum in manifest and re-tar
-    const checksum = sha256File(tarPath);
-    manifest.checksumSha256 = checksum;
-
-    // For encrypted backups, include the checksum in the encrypted output
-    // For unencrypted, update the MANIFEST inside the tar and re-create
-    writeFileSync(
-      join(tmpdir, "MANIFEST.json"),
-      JSON.stringify(manifest, null, 2),
-      "utf8"
-    );
-    execSync(`tar -czf "${tarPath}" -C "${tmpdir}" .`, { encoding: "utf8" });
-
-    // 7. Encrypt if key provided
+    // 6. Encrypt if key provided
     if (key) {
       const encPath = `${tarPath}.enc`;
       execSync(
