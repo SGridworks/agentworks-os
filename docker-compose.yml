@@ -22,7 +22,7 @@ services:
     # Published by .github/workflows/release.yml on every `v*` tag.
     # Override with AGENTWORKS_IMAGE_REGISTRY=docker.io/agentworks for a
     # private mirror, or AGENTWORKS_VERSION to pin a different release.
-    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/agentos-d:${AGENTWORKS_VERSION:-0.1.4}
+    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/agentos-d:${AGENTWORKS_VERSION:-0.1.5}
     container_name: agentos-d
     restart: unless-stopped
     ports:
@@ -34,7 +34,11 @@ services:
       AGENTOS_AWCP_VERSION: ${AGENTOS_AWCP_VERSION:-awcp/v0.1}
       RULE_PACKS_DIR: /opt/agentworks/rule-packs
       VAULT_ROOT: /data/vault
-      AGENTWORKS_DATA_DIR: /data
+      # Daemon reads AGENTOS_DATA_DIR (see packages/agentos-d/src/config.ts:50).
+      # Without this, the daemon writes SQLite to /app/data (ephemeral inside the
+      # container layer) instead of /data (the bind mount), and loses every tenant,
+      # vault page, and audit-log row on the next 'docker compose down'.
+      AGENTOS_DATA_DIR: /data
       AGENTWORKS_SESSION_SECRET: ${AGENTWORKS_SESSION_SECRET}
       AGENTOS_EXECUTION_DATABASE_URL: postgres://agentworks:${POSTGRES_PASSWORD:-agentworks-local}@postgres:5432/agentworks
     volumes:
@@ -80,7 +84,7 @@ services:
     build:
       context: ./packages/scanner-worker
       dockerfile: Dockerfile
-    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/scanner-worker:${AGENTWORKS_VERSION:-0.1.4}
+    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/scanner-worker:${AGENTWORKS_VERSION:-0.1.5}
     container_name: scanner-worker
     restart: unless-stopped
     ports:

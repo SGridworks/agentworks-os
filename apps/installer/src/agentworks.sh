@@ -324,18 +324,27 @@ cmd_mcp_configure() {
   mkdir -p "$config_dir"
 
   local mcp_url="http://localhost:7710"
-  # Bridge path lives inside the source clone (or a developer's local checkout
-  # if we're running from one).
-  local bridge_path="${SOURCE_DIR}/packages/agentos-d/dist/bin/mcp-stdio-bridge.js"
-  if [[ ! -f "$bridge_path" ]]; then
-    if [[ -f "$(pwd)/packages/agentos-d/dist/bin/mcp-stdio-bridge.js" ]]; then
-      bridge_path="$(pwd)/packages/agentos-d/dist/bin/mcp-stdio-bridge.js"
-    fi
+  # Bridge resolution order:
+  #   1. install.sh extracts the bridge from the running container into
+  #      ${CONFIG_DIR}/mcp-stdio-bridge.js — preferred (no source build needed).
+  #   2. A developer's local checkout (./packages/agentos-d/dist/bin/...) when
+  #      we're running from one.
+  #   3. The source clone under ${SOURCE_DIR} as a fallback.
+  local bridge_path=""
+  if [[ -f "${CONFIG_DIR}/mcp-stdio-bridge.js" ]]; then
+    bridge_path="${CONFIG_DIR}/mcp-stdio-bridge.js"
+  elif [[ -f "$(pwd)/packages/agentos-d/dist/bin/mcp-stdio-bridge.js" ]]; then
+    bridge_path="$(pwd)/packages/agentos-d/dist/bin/mcp-stdio-bridge.js"
+  elif [[ -f "${SOURCE_DIR}/packages/agentos-d/dist/bin/mcp-stdio-bridge.js" ]]; then
+    bridge_path="${SOURCE_DIR}/packages/agentos-d/dist/bin/mcp-stdio-bridge.js"
   fi
 
-  if [[ ! -f "$bridge_path" ]]; then
-    log_error "MCP stdio bridge not found at: $bridge_path"
-    log_error "Run 'agentworks install' first or build packages/agentos-d."
+  if [[ -z "$bridge_path" || ! -f "$bridge_path" ]]; then
+    log_error "MCP stdio bridge not found."
+    log_error "Expected at one of:"
+    log_error "  ${CONFIG_DIR}/mcp-stdio-bridge.js (install.sh extracts it here)"
+    log_error "  ${SOURCE_DIR}/packages/agentos-d/dist/bin/mcp-stdio-bridge.js"
+    log_error "Re-run install.sh, or build packages/agentos-d locally."
     exit 1
   fi
 

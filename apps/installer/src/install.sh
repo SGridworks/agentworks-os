@@ -2,8 +2,8 @@
 #
 # agentworks install — one-command setup for AgentWorks OS
 # Usage:
-#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.4/install.sh | bash
-#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.4/install.sh | bash -s -- --unattended
+#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.5/install.sh | bash
+#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.5/install.sh | bash -s -- --unattended
 #
 # To install a different release, override INSTALLER_REF:
 #   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.2.0/install.sh \
@@ -14,7 +14,7 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 # Constants
 # -----------------------------------------------------------------------------
-readonly INSTALLER_VERSION="0.1.4"
+readonly INSTALLER_VERSION="0.1.5"
 readonly REPO="SGridworks/agentworks-os"
 # Pin asset fetches to the release tag so v0.1.1 installer cannot silently
 # pull future main-branch changes. Override with INSTALLER_REF=<branch|tag|sha>
@@ -98,6 +98,14 @@ check_git() {
     log_error "git is required to fetch the AgentWorks source."
     log_error "Install git, or clone the repo manually and re-run from inside it:"
     log_error "  git clone ${REPO_URL} && cd agentworks-os && ./apps/installer/src/install.sh"
+    exit 1
+  fi
+}
+
+check_openssl() {
+  if ! command -v openssl &>/dev/null; then
+    log_error "openssl is required to generate install secrets."
+    log_error "Install: 'brew install openssl' (macOS) or 'apt install openssl' (Debian/Ubuntu)."
     exit 1
   fi
 }
@@ -189,13 +197,26 @@ preflight_check() {
   log_step "Running pre-flight checks..."
   check_curl
   check_git
+  check_openssl
   check_docker
   check_docker_compose
 
   if ! docker info &>/dev/null; then
-    log_error "Docker daemon is not running."
-    log_error "  macOS: open Docker Desktop (or 'open -a OrbStack') and wait for it to start."
-    log_error "  Linux: sudo systemctl start docker"
+    # Distinguish 'daemon not running' from 'permission denied' on Linux.
+    # The 'docker info' exit code is the same; check the stderr text.
+    local docker_err
+    docker_err=$(docker info 2>&1 >/dev/null || true)
+    if echo "$docker_err" | grep -qiE "permission denied|cannot connect.*sock"; then
+      log_error "Docker daemon is reachable but the current user lacks permission."
+      log_error "On Linux, add yourself to the docker group:"
+      log_error "  sudo usermod -aG docker \$USER && newgrp docker"
+      log_error "Or re-run this installer in a new shell after the group change takes effect."
+      log_error "Do NOT 'sudo ./install.sh' — it leaves ~/.agentworks/ owned by root."
+    else
+      log_error "Docker daemon is not running."
+      log_error "  macOS: open Docker Desktop (or 'open -a OrbStack') and wait for it to start."
+      log_error "  Linux: sudo systemctl start docker"
+    fi
     log_error "Then re-run this installer."
     exit 1
   fi
@@ -240,9 +261,11 @@ acquire_source() {
   log_step "Resolving AgentWorks source tree..."
 
   # If we're being run from inside a checkout, prefer it over re-cloning.
+  # Sentinel: the AWOS docker-compose.yml has a build directive for the
+  # agentos-d package; an unrelated docker-compose.yml in the cwd will not.
   if [[ -f "$(pwd)/docker-compose.yml" ]] \
       && [[ -d "$(pwd)/packages/agentos-d" ]] \
-      && grep -q "agentworks/agentos-d" "$(pwd)/docker-compose.yml" 2>/dev/null; then
+      && grep -qE "packages/agentos-d/Dockerfile|agentos-d:" "$(pwd)/docker-compose.yml" 2>/dev/null; then
     SOURCE_DIR="$(pwd)"
     log_info "Using local checkout: ${SOURCE_DIR}"
     return 0
@@ -449,45 +472,85 @@ verify_install() {
 }
 
 # -----------------------------------------------------------------------------
+# Install the agentworks CLI wrapper on PATH so the next-steps banner does not
+# tell the operator (or an agent) to run a command that does not exist.
+# Tries /usr/local/bin first (writable on most macOS, not on most Linux without
+# sudo); falls back to ~/.local/bin and warns if it is not on PATH.
+# Idempotent — replaces an existing symlink that points at our wrapper.
+# -----------------------------------------------------------------------------
+install_cli_wrapper() {
+  local wrapper="${SOURCE_DIR}/apps/installer/src/agentworks.sh"
+  if [[ ! -x "$wrapper" ]]; then
+    log_warn "agentworks wrapper not found at ${wrapper} — skipping PATH install"
+    return 0
+  fi
+
+  local target=""
+  if [[ -w /usr/local/bin ]]; then
+    target=/usr/local/bin/agentworks
+  else
+    mkdir -p "${HOME}/.local/bin"
+    target="${HOME}/.local/bin/agentworks"
+  fi
+
+  ln -sf "$wrapper" "$target"
+  chmod +x "$target" 2>/dev/null || true
+  AGENTWORKS_CLI_PATH="$target"
+
+  if ! command -v agentworks &>/dev/null; then
+    log_warn "Installed agentworks at ${target}, but it is not on PATH."
+    log_warn "Add to your shell rc:  export PATH=\"${HOME}/.local/bin:\$PATH\""
+    log_warn "Or invoke directly: ${target} status"
+  else
+    log_info "agentworks CLI installed: ${target}"
+  fi
+}
+
+# -----------------------------------------------------------------------------
+# Extract the MCP stdio bridge out of the running agentos-d container so the
+# wrapper's `agentworks mcp configure` step has a real file to point Claude
+# Desktop / Cursor / Codex at. The bridge is shipped inside the image; this is
+# a one-time copy, not a runtime dependency.
+# -----------------------------------------------------------------------------
+extract_mcp_bridge() {
+  local target="${CONFIG_DIR}/mcp-stdio-bridge.js"
+  if compose cp agentos-d:/app/dist/bin/mcp-stdio-bridge.js "$target" 2>/dev/null; then
+    chmod +x "$target" 2>/dev/null || true
+    log_info "MCP stdio bridge extracted: ${target}"
+  else
+    log_warn "Could not extract MCP bridge from agentos-d container — agentworks mcp configure may need manual setup"
+  fi
+}
+
+# -----------------------------------------------------------------------------
 # Print next steps
 # -----------------------------------------------------------------------------
 print_next_steps() {
-  # Retrieve admin password from secrets file
-  local admin_password
-  admin_password=$(cat "${SECRETS_FILE}" 2>/dev/null | grep -o '"admin_password"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+  local cli="${AGENTWORKS_CLI_PATH:-${SOURCE_DIR}/apps/installer/src/agentworks.sh}"
 
   echo ""
   echo "=============================================================================="
   echo -e "${GREEN}AgentWorks OS installation complete!${NC}"
   echo "=============================================================================="
   echo ""
-  echo "Admin UI:       http://localhost:3000"
-  echo "API:            http://localhost:7710"
-  echo "n8n Workflow:   http://localhost:5678"
+  echo "Substrate:"
+  echo "  agentos-d API:  http://localhost:7710  (REST + MCP)"
+  echo "  scanner-worker: http://localhost:3101  (security scanner)"
+  echo "  n8n workflows:  http://localhost:5678  (self-hosted only — see licenses/SUL_NOTICE.md)"
   echo ""
-  echo "NOTE: n8n is self-hosted only. Commercial SaaS use requires a paid license."
-  echo "      See licenses/SUL_NOTICE.md for details."
-  echo ""
-  echo "Admin password: ${admin_password}"
-  echo "(also saved in ${SECRETS_FILE})"
+  echo "Admin password is in ${SECRETS_FILE} (mode 600). DO NOT print it to chat."
+  echo "  Read with: cat ${SECRETS_FILE}"
   echo ""
   echo "Next steps:"
-  echo "  1. Open http://localhost:3000 in your browser"
-  echo "  2. Log in with the admin password above"
-  echo "  3. Complete the onboarding wizard"
-  # Auto-open admin UI in default browser if possible
-  if command -v open >/dev/null 2>&1; then
-    open http://localhost:3000 &>/dev/null &
-  elif command -v xdg-open >/dev/null 2>&1; then
-    xdg-open http://localhost:3000 &>/dev/null &
-  fi
-  echo "  4. Configure Claude Desktop MCP: agentworks mcp configure"
+  echo "  1. Connect a coding agent: ${cli} mcp configure"
+  echo "  2. Tail logs while you test: ${cli} logs"
+  echo "  3. Take a baseline backup:  ${cli} backup"
   echo ""
   echo "Commands:"
-  echo "  agentworks status    # Show service status"
-  echo "  agentworks logs      # Tail service logs"
-  echo "  agentworks update    # Update to latest version"
-  echo "  agentworks uninstall # Remove AgentWorks"
+  echo "  ${cli} status        # Show service status"
+  echo "  ${cli} logs          # Tail service logs"
+  echo "  ${cli} update        # Update to latest version"
+  echo "  ${cli} uninstall     # Remove AgentWorks"
   echo ""
   echo "=============================================================================="
 }
@@ -528,6 +591,8 @@ main() {
   start_services
   wait_for_services
   verify_install || true
+  install_cli_wrapper
+  extract_mcp_bridge
   run_smoke_test
   print_next_steps
 }

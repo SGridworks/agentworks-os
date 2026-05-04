@@ -4,7 +4,7 @@
 
 **Operator hand-off:** point the agent at the repo root and say *"follow `docs/AI-AGENT-INSTALL-GUIDE.md` to install AgentWorks OS on this machine."*
 
-**Target version:** v0.1.4.
+**Target version:** v0.1.5.
 **Estimated wall-clock:** 10-20 minutes on a clean machine, mostly the first Docker build of agentos-d (TypeScript compile + `pnpm deploy`) and scanner-worker (sentence-transformers download).
 
 ---
@@ -41,10 +41,15 @@ Conventions:
 
 ```bash
 # If you are not already inside a checkout of agentworks-os, clone it.
-test -f docker-compose.yml && grep -q "agentworks/agentos-d" docker-compose.yml \
-  || git clone --depth=1 --branch v0.1.4 \
-       https://github.com/SGridworks/agentworks-os.git \
-  && cd agentworks-os
+# The sentinel grep matches the agentos-d build directive that's only present
+# in the AgentWorks compose file (regardless of registry/tag changes).
+if test -f docker-compose.yml && grep -qE "packages/agentos-d/Dockerfile|agentos-d:" docker-compose.yml; then
+  echo "Already in an agentworks-os checkout."
+else
+  git clone --depth=1 --branch v0.1.5 \
+    https://github.com/SGridworks/agentworks-os.git
+  cd agentworks-os
+fi
 ```
 
 **Verify:**
@@ -82,8 +87,12 @@ The `--unattended` flag suppresses the "press enter to continue" prompt. Everyth
 5. `docker compose pull` (best effort — v0.1 publishes nothing, falls through).
 6. `docker compose up -d --build`. First build is 5-15 minutes — the agentos-d TypeScript compile and the scanner-worker Python+sentence-transformers download dominate.
 7. Waits up to 120s for `/api/health` to return 200.
-8. Runs `apps/installer/scripts/smoke-test.sh` end-to-end.
-9. Prints the next-steps banner.
+8. Installs the `agentworks` CLI wrapper (symlink at `/usr/local/bin/agentworks` when writable, otherwise `~/.local/bin/agentworks`).
+9. Extracts the MCP stdio bridge from the running `agentos-d` container into `$AGENTWORKS_DIR/config/mcp-stdio-bridge.js` so `agentworks mcp configure` has a real file to point clients at.
+10. Runs `apps/installer/scripts/smoke-test.sh` end-to-end.
+11. Prints the next-steps banner.
+
+> **CLI on PATH:** if `command -v agentworks` returns nothing after install, the installer placed it at `~/.local/bin/agentworks`. Add `export PATH="$HOME/.local/bin:$PATH"` to your shell rc, or invoke with the absolute path. Every `agentworks ...` command in §2 below works the same with the absolute path.
 
 **Verify:** the installer exits 0 AND prints `Smoke test PASSED`. If you see either an `[ERROR]` line OR a non-zero exit code, jump to §3 Failure modes.
 
@@ -142,7 +151,7 @@ Each tenant's content lives at `<VAULT_ROOT>/<tenant_id>/`. The default `VAULT_R
 
 For (A), no action needed — the daemon creates the tenant dir on first write.
 For (B): see [docs/install-runbook.md §Vault](./install-runbook.md).
-For (C): set `VAULT_ROOT=/absolute/path/to/vault` in `$AGENTWORKS_DIR/config/.env` and `agentworks` restart agentos-d.
+For (C): set `VAULT_ROOT=/absolute/path/to/vault` in `$AGENTWORKS_DIR/config/.env` and run `agentworks restart agentos-d`.
 
 **Important:** do NOT symlink the operator's `~/.claude/projects/.../memory/` directory unless they ask. That folder is operator-private memory and may include secrets.
 
@@ -159,6 +168,8 @@ Every failure message printed by `install.sh` and `smoke-test.sh` is enumerated 
 | `System has only N GB RAM; substrate needs >= 4 GB` | Below minimum. | Stop. Surface to the operator. |
 | `Cannot reach https://github.com` | No internet (or proxy). | If the host is behind a corporate proxy, `export HTTPS_PROXY=...` and re-run. Otherwise tell the operator to fix network. |
 | `Docker daemon is not running` | Docker Desktop / OrbStack / `dockerd` is not up. | macOS: `open -a "Docker"` or `open -a OrbStack`. Linux: `sudo systemctl start docker`. Wait 30s. Re-run. |
+| `Docker daemon reachable but current user lacks permission` | Linux: user not in `docker` group. | Run `sudo usermod -aG docker $USER`, then log out and back in (or `newgrp docker`). Re-run. **Do NOT prefix `install.sh` with `sudo`** — it would create root-owned files in `$HOME/.agentworks`. |
+| `openssl is required to generate session secrets` | openssl missing from PATH. | macOS: ships with the system; check `which openssl`. Linux: `apt install openssl` or `dnf install openssl`. Re-run. |
 | `git is required to fetch the AgentWorks source` | git missing. | Install git (Xcode Command Line Tools on macOS, `apt install git` on Debian/Ubuntu). Re-run. |
 | `agentos-d did not respond at .../api/health within 90s` | Daemon failed to come up. | Run `docker compose --env-file ~/.agentworks/config/.env -f ~/.agentworks/source/docker-compose.yml logs agentos-d --tail 100`. Common: SQLite migration failure (look for `migration` in logs), pnpm symlink issue (build was incomplete — re-run `docker compose build agentos-d`), or OOM. |
 | `POST /api/tenants failed` | Daemon is up but rejecting writes. | Same `docker compose logs agentos-d --tail 100`. Check for `EACCES` (permission on data dir) or `SQLITE_READONLY` (data/agentworks.db readonly). |
@@ -175,11 +186,12 @@ If the failure does not match any row above, hand the failing line and the last 
 Post this back to the operator, filling the bracketed values:
 
 ```
-AgentWorks OS v0.1.4 install complete.
+AgentWorks OS v0.1.5 install complete.
 
 Install location:  [PATH from §1.2, default $HOME/.agentworks]
 Source clone:      [PATH, default $HOME/.agentworks/source]
 Daemon URL:        http://127.0.0.1:7710
+CLI:               [path printed by installer — /usr/local/bin/agentworks or ~/.local/bin/agentworks]
 Admin password:    saved at $HOME/.agentworks/config/secrets.json (mode 600)
 MCP client wired:  [Claude Desktop / Cursor / Codex / skipped]
 Vault layout:      [A / B / C from §2.2]
@@ -197,7 +209,7 @@ Optional / non-blocking:
 
 Next:
   1. The admin password is in $HOME/.agentworks/config/secrets.json — do NOT print it to chat.
-  2. Open the Admin UI (if exposed on :3000) and complete the onboarding wizard.
+  2. Wire an MCP client: agentworks mcp configure (or absolute path if not on PATH).
   3. Load a rule pack matching the operator's industry (rule-packs/ in source).
   4. Read docs/users-guide.md for the full feature tour.
 

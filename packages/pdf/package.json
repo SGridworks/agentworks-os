@@ -1,6 +1,6 @@
 {
   "name": "@agentworks/pdf",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "AgentWorks PDF rendering: HTML-to-PDF engine for compliance evidence reports. Puppeteer-based with a fake engine for tests and dry-run mode.",
   "type": "module",
   "main": "./dist/index.js",

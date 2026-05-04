@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] — 2026-05-04
+
+Patch release. Closes the v0.1.4 friend-readiness gap. v0.1.4 published a
+working stack but the install-then-use loop still bounced anyone who wasn't
+already familiar with the repo: the daemon silently wrote to an ephemeral
+path inside the container, the `agentworks` CLI was never on PATH, and
+the install guide's repo-detection grep matched no compose lines. v0.1.5
+is the first release where a friend can `git clone && ./install.sh` and
+have a CLI they can use afterwards.
+
+### Fixed
+
+- **`docker-compose.yml`**: agentos-d's data env var was named
+  `AGENTWORKS_DATA_DIR`, but the daemon reads `AGENTOS_DATA_DIR`
+  (`packages/agentos-d/src/config.ts:50`). The mismatch meant SQLite
+  wrote to `/app/data` (an ephemeral container layer) instead of `/data`
+  (the bind mount), and every tenant, vault page, and audit row vanished
+  on the next `docker compose down`. Renamed to `AGENTOS_DATA_DIR`.
+- **`apps/installer/src/install.sh`**:
+  - Sentinel grep in repo-detection (`grep -q "agentworks/agentos-d"`)
+    matched zero lines after the v0.1.3 image rename. Replaced with
+    `grep -qE "packages/agentos-d/Dockerfile|agentos-d:"`, which matches
+    on either the build directive or the published image tag.
+  - Pre-flight now distinguishes "Docker daemon down" from "Docker
+    daemon up but current user lacks permission" on Linux. The latter
+    prints the `usermod -aG docker` fix and explicitly warns NOT to
+    re-run `install.sh` under sudo (which would create root-owned files
+    in `~/.agentworks`).
+  - Added `check_openssl()` to pre-flight — the secret generator silently
+    crashed mid-install on hosts without openssl on PATH.
+  - `print_next_steps` no longer echoes the admin password, no longer
+    points at admin-ui :3000 (not in the v0.1 compose), and no longer
+    auto-opens a browser.
+- **`docs/AI-AGENT-INSTALL-GUIDE.md`** and **`docs/install-runbook.md`**:
+  bumped install command to v0.1.5, removed admin-ui :3000 references,
+  fixed the repo-detection grep, fixed the wrong `~/.agentworks/docker-compose.yml`
+  path (compose lives at `~/.agentworks/source/docker-compose.yml`), added
+  a CLI-on-PATH callout, and added Docker-permission and openssl rows to
+  the failure-modes table.
+
+### Added
+
+- **`agentworks` CLI on PATH**: install.sh now installs a symlink to the
+  wrapper at `/usr/local/bin/agentworks` (or `~/.local/bin/agentworks`
+  if `/usr/local/bin` is not writable). Every `agentworks <verb>` command
+  in the docs now actually resolves after install. The installer's
+  next-steps banner prints the absolute CLI path it chose so an LLM agent
+  can hand it back verbatim if PATH is not configured.
+- **MCP stdio bridge extraction**: install.sh now `compose cp`s
+  `mcp-stdio-bridge.js` out of the running agentos-d container into
+  `~/.agentworks/config/mcp-stdio-bridge.js` so `agentworks mcp configure`
+  has a real file to point Claude Desktop / Cursor / Codex at.
+
 ## [0.1.4] — 2026-05-04
 
 Patch release. Fixes the v0.1.3 release pipeline gap: admin-ui's image

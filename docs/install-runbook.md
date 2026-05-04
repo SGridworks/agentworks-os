@@ -39,7 +39,7 @@ If `docker ps` returns a connection error, open Docker Desktop and wait for it t
 On the machine that will host AgentWorks OS:
 
 ```bash
-git clone --depth=1 --branch v0.1.4 https://github.com/SGridworks/agentworks-os.git
+git clone --depth=1 --branch v0.1.5 https://github.com/SGridworks/agentworks-os.git
 cd agentworks-os
 ./apps/installer/src/install.sh --unattended \
   && ./apps/installer/scripts/smoke-test.sh
@@ -62,7 +62,7 @@ If the script fails, see [Common Errors](#common-errors) at the end of this docu
 ## Step 2 — Verify All Services Are Running
 
 ```bash
-docker compose -f ~/.agentworks/docker-compose.yml ps
+docker compose -f ~/.agentworks/source/docker-compose.yml ps
 ```
 
 All services should show `Up` within 30 seconds of the installer completing.
@@ -263,7 +263,7 @@ The `agentos-d` daemon couldn't bind to port 7710.
 lsof -i :7710
 ```
 
-Stop it, or edit `~/.agentworks/docker-compose.yml` to change the host port mapping (e.g., `7711:7710`) before reinstalling.
+Stop it, or edit `~/.agentworks/source/docker-compose.yml` to change the host port mapping (e.g., `7711:7710`) before reinstalling.
 
 ---
 
@@ -281,7 +281,7 @@ Claude Desktop can't reach the AgentWorks OS MCP server.
 
 **Fix (in order):**
 
-1. Confirm AgentWorks OS is running: `docker compose -f ~/.agentworks/docker-compose.yml ps` — `agentos-d` should show `Up`
+1. Confirm AgentWorks OS is running: `docker compose -f ~/.agentworks/source/docker-compose.yml ps` — `agentos-d` should show `Up`
 2. Confirm the machine can reach the host: `curl http://localhost:7710/api/health` from the machine running Claude Desktop
 3. If on different machines, use the IP address instead of `localhost`: `http://192.168.x.x:7710`
 4. Check your Claude Desktop config has the correct URL with no trailing slash
@@ -323,7 +323,7 @@ Agents can connect but `/memory read` returns nothing.
 To remove AgentWorks OS and all data:
 
 ```bash
-docker compose -f ~/.agentworks/docker-compose.yml down -v
+docker compose -f ~/.agentworks/source/docker-compose.yml down -v
 rm -rf ~/.agentworks
 rm -rf ~/Library/Application\ Support/agentworks   # macOS
 rm -rf ~/.config/agentworks                        # Linux

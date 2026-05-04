@@ -1,6 +1,6 @@
 {
   "name": "@agentworks/agentos-d",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "AgentWorks substrate daemon",
   "type": "module",
   "main": "./dist/index.js",
