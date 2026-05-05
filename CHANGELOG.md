@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] — 2026-05-04
+
+Patch release. Fixes the v0.1.5 install pipeline blocker that surfaced
+the moment a friend ran the install on a clean Win11/WSL2 host: the
+n8n image build aborted at COPY because `packages/n8n-nodes/dist`
+doesn't exist in a fresh clone (it's gitignored). v0.1.6 is the first
+release where every Dockerfile in the stack builds without a host-side
+build step.
+
+### Fixed
+
+- **packages/n8n-nodes/Dockerfile**: was a single-stage Dockerfile that
+  COPY'd `./packages/n8n-nodes/dist` from the build context, expecting a
+  pre-built artifact. `dist/` is gitignored, so on a fresh clone the
+  COPY failed with `failed to compute cache key: "/packages/n8n-nodes/dist":
+  not found`, which aborted the entire `docker compose up` and left
+  install.sh in the failure path with no services running. Rewritten as a
+  multi-stage build (node:22-alpine builder → n8nio/n8n runtime) that
+  installs pnpm, builds n8n-nodes from source inside the image, then
+  copies the resulting dist/ into n8n's discoverable node_modules. Same
+  pattern as packages/agentos-d/Dockerfile and packages/admin-ui/Dockerfile.
+
+### Other
+
+- Bundled non-blocking polish from the v0.1.5 → v0.1.6 window:
+  - **fix(memory)**: vault-lint dead-link false positives. Wikilinks in
+    fenced code blocks (template/example placeholders like `[[page-name]]`)
+    no longer count as real outbound links, and the resolver now matches
+    in both directions so tenant-prefixed `[[<tenantId>/me/profile]]`
+    resolves to `me/profile.md`. On a 365-page vault the dead-link warning
+    count dropped from 243 → ~80 (real broken links only).
+  - **fix(admin-ui)**: TopBar tenant switcher was a styled no-op (rendered
+    a chevron but had no click handler). Wired with localStorage
+    persistence + custom-event broadcast via a new `useActiveTenant` hook;
+    memory-vault page migrated to read the active tenant from the hook
+    instead of hardcoding `tenants[0]`.
+  - **chore(agents)**: 21 agent-instruction files in `agents/_imported/`
+    and `agents/*/AGENTS.md` had stale paperclip/Hermes vocabulary that
+    surfaced verbatim in the admin UI's agent-instruction renderer.
+    Replaced customer-visible labels (Paperclip API → AgentWorks API,
+    `{{paperclipApiUrl}}` → `{{agentworksApiUrl}}`, etc.) per
+    `agents/_shared/STANDALONE-PRODUCT-DOCS.md`. Architectural lineage
+    notes in role docs are kept (engineering-internal, not customer-visible).
+
 ## [0.1.5] — 2026-05-04
 
 Patch release. Closes the v0.1.4 friend-readiness gap. v0.1.4 published a

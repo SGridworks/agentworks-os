@@ -1,6 +1,6 @@
 {
   "name": "@agentworks/memory",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "AgentWorks vault contract \u2014 tenant-isolated, file-backed memory wrapper used by agentos-d MCP memory.read / memory.write",
   "type": "module",
   "main": "./dist/index.js",
