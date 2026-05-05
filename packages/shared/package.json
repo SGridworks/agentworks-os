@@ -1,6 +1,6 @@
 {
   "name": "@agentworks/shared",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Shared types, schemas, and utilities for AgentWorks OS",
   "type": "module",
   "main": "./dist/index.js",

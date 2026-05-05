@@ -6,6 +6,7 @@
 # Usage:
 #   agentworks status
 #   agentworks logs [service]
+#   agentworks restart [service ...]
 #   agentworks update
 #   agentworks update --check
 #   agentworks backup --output <file.tar.gz>
@@ -31,7 +32,7 @@ readonly COMPOSE_FILE="${SOURCE_DIR}/docker-compose.yml"
 # Bumped on every release. `agentworks update --check` compares this to the
 # GitHub releases API; a stale value means every fresh install reports
 # "update available" even when fully current. RELEASE CHECKLIST: bump.
-readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.1.7}"
+readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.1.8}"
 readonly REPO="SGridworks/agentworks-os"
 readonly GITHUB_RELEASES="https://api.github.com/repos/${REPO}/releases"
 
@@ -131,6 +132,23 @@ cmd_logs() {
     compose logs -f "$service"
   else
     compose logs -f
+  fi
+}
+
+# -----------------------------------------------------------------------------
+# Command: restart [service ...]
+# `agentworks restart` with no args bounces every service.
+# `agentworks restart agentos-d` (or any subset) bounces only those.
+# Documented in docs/AI-AGENT-INSTALL-GUIDE.md §2.2(C).
+# -----------------------------------------------------------------------------
+cmd_restart() {
+  require_installed
+  if (( $# > 0 )); then
+    log_info "Restarting: $*"
+    compose restart "$@"
+  else
+    log_info "Restarting all services..."
+    compose restart
   fi
 }
 
@@ -455,6 +473,7 @@ Commands:
   agentworks install            Download and run the installer
   agentworks status            Show service status
   agentworks logs [service]    Tail service logs (all or a specific service)
+  agentworks restart [svc...]  Restart one or more services (default: all)
   agentworks update            Update to the latest version
   agentworks update --check    Check for available updates
   agentworks backup [file]     Create a backup tarball (default: agentworks-backup-YYYYMMDD.tar.gz)
@@ -482,6 +501,7 @@ main() {
   case "$cmd" in
     status)       cmd_status "$@" ;;
     logs)         cmd_logs "$@" ;;
+    restart)      cmd_restart "$@" ;;
     update)       cmd_update "$@" ;;
     backup)       cmd_backup "$@" ;;
     restore)      cmd_restore "$@" ;;

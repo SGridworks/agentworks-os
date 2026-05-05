@@ -19,7 +19,7 @@ If your lawyer has ever asked “who approved that outbound?” or “how do we 
 Requires Docker Desktop (macOS) or Docker Engine (Linux), git, ~10 GB free disk, and ~4 GB RAM. About 10‑20 minutes on a clean machine, mostly the first build.
 
 ```bash
-git clone --depth=1 --branch v0.1.7 https://github.com/SGridworks/agentworks-os.git
+git clone --depth=1 --branch v0.1.8 https://github.com/SGridworks/agentworks-os.git
 cd agentworks-os
 ./apps/installer/src/install.sh --unattended \
   && ./apps/installer/scripts/smoke-test.sh

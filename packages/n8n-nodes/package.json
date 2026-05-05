@@ -1,6 +1,6 @@
 {
   "name": "@agentworks/n8n-nodes",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "AgentWorks custom n8n nodes \u2014 policy_check, memory.read/write, dispatch",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -48,6 +48,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     logLevel: env.AGENTOS_LOG_LEVEL,
     awcpVersion: env.AGENTOS_AWCP_VERSION,
     dataDir: env.AGENTOS_DATA_DIR ?? "./data",
+    scannerSidecarUrl: env.SCANNER_SIDECAR_URL,
+    scannerPollIntervalMs: env.SCANNER_POLL_INTERVAL_MS,
     auditLogRetentionDays: env.AGENTOS_AUDIT_LOG_RETENTION_DAYS,
     legacyAdapterUrl: env.AGENTOS_LEGACY_ADAPTER_URL,
     legacyAdapterApiKey: env.AGENTOS_LEGACY_ADAPTER_API_KEY,

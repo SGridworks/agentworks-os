@@ -129,17 +129,39 @@ case "$decision" in
 esac
 
 # -----------------------------------------------------------------------------
-# Step 4 — scanner-worker (best effort; non-blocking)
+# Step 4 — scanner-worker /health (FATAL).
+# Stub mode is the default in docker-compose.yml as of v0.1.7, so /health
+# should respond in <1s. If it doesn't, the sidecar is genuinely broken
+# and the install gate must fail loudly. Set SMOKE_SCANNER_OPTIONAL=1 to
+# downgrade to a warning (the historical pre-v0.1.8 behavior) — useful
+# only when running with EMBEDDING_MODE=real on a slow link.
 # -----------------------------------------------------------------------------
-if curl -sf -m 3 http://127.0.0.1:3101/health >/dev/null 2>&1; then
-  pass "scanner-worker /health is up."
-else
-  warn "scanner-worker /health unreachable on 3101. Substrate works without it."
-  warn "Investigate: docker compose logs scanner-worker --tail 50"
-fi
+scanner_optional="${SMOKE_SCANNER_OPTIONAL:-0}"
+scanner_url="${SCANNER_URL:-http://127.0.0.1:3101}"
+scanner_timeout="${SMOKE_SCANNER_TIMEOUT:-30}"
+
+elapsed=0
+until curl -sf -m 3 "${scanner_url}/health" >/dev/null 2>&1; do
+  if (( elapsed >= scanner_timeout )); then
+    if [[ "$scanner_optional" == "1" ]]; then
+      warn "scanner-worker /health unreachable on ${scanner_url} after ${scanner_timeout}s. SMOKE_SCANNER_OPTIONAL=1, continuing."
+      warn "Investigate: docker compose logs scanner-worker --tail 50"
+      break
+    fi
+    fail "scanner-worker /health unreachable on ${scanner_url} after ${scanner_timeout}s."
+    fail "Diagnose: docker compose logs scanner-worker --tail 100"
+    fail "If you're running EMBEDDING_MODE=real, the sidecar may still be downloading model weights;"
+    fail "re-run with SMOKE_SCANNER_OPTIONAL=1 to make this a warning instead of a failure."
+    exit 1
+  fi
+  sleep 2
+  elapsed=$(( elapsed + 2 ))
+done
+[[ "$scanner_optional" == "1" && $elapsed -ge $scanner_timeout ]] || pass "scanner-worker /health is up."
 
 # -----------------------------------------------------------------------------
-# Step 5 — n8n (best effort; non-blocking)
+# Step 5 — n8n (warning only; n8n is workflow automation, not core compliance,
+# and its first-boot SQLite init takes 20-60s on a slow disk).
 # -----------------------------------------------------------------------------
 if curl -sf -m 3 http://127.0.0.1:5678/healthz >/dev/null 2>&1; then
   pass "n8n /healthz is up."

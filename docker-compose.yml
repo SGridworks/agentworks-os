@@ -22,7 +22,7 @@ services:
     # Published by .github/workflows/release.yml on every `v*` tag.
     # Override with AGENTWORKS_IMAGE_REGISTRY=docker.io/agentworks for a
     # private mirror, or AGENTWORKS_VERSION to pin a different release.
-    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/agentos-d:${AGENTWORKS_VERSION:-0.1.7}
+    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/agentos-d:${AGENTWORKS_VERSION:-0.1.8}
     container_name: agentos-d
     restart: unless-stopped
     ports:
@@ -41,6 +41,10 @@ services:
       AGENTOS_DATA_DIR: /data
       AGENTWORKS_SESSION_SECRET: ${AGENTWORKS_SESSION_SECRET}
       AGENTOS_EXECUTION_DATABASE_URL: postgres://agentworks:${POSTGRES_PASSWORD:-agentworks-local}@postgres:5432/agentworks
+      # Scanner sidecar URL (config.ts reads SCANNER_SIDECAR_URL; default
+      # http://127.0.0.1:3101 is unreachable from inside the agentos-d
+      # container — the sidecar is reachable as the docker network hostname).
+      SCANNER_SIDECAR_URL: http://scanner-worker:3101
     volumes:
       - ${AGENTWORKS_DATA_DIR:-./data}:/data            # SQLite DB, WAL, vault, uploads
       - ${AGENTWORKS_CONFIG_DIR:-./config}:/config:ro    # .env and secrets (read-only at runtime)
@@ -84,14 +88,17 @@ services:
     build:
       context: ./packages/scanner-worker
       dockerfile: Dockerfile
-    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/scanner-worker:${AGENTWORKS_VERSION:-0.1.7}
+    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/scanner-worker:${AGENTWORKS_VERSION:-0.1.8}
     container_name: scanner-worker
     restart: unless-stopped
     ports:
       - "3101:3101"   # Health + findings API
     environment:
       SCANNER_WORKER_PORT: "3101"
-      SCANNER_SIDECAR_URL: "http://agentos-d:7710"
+      # NB: scanner-worker does not call back into agentos-d in v0.1.x —
+      # it answers HTTP requests but is not a producer. SCANNER_SIDECAR_URL
+      # was set here in v0.1.0–v0.1.7 but the Python code never read it.
+      # Removed in v0.1.8.
       SCANNER_POLL_INTERVAL_MS: "30000"
       # Paths watched by the scanner. The Python module reads WATCH_DIRS
       # (packages/scanner-worker/src/scanner_worker/app.py), and expects

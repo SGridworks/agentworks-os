@@ -2,8 +2,8 @@
 #
 # agentworks install — one-command setup for AgentWorks OS
 # Usage:
-#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.7/install.sh | bash
-#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.7/install.sh | bash -s -- --unattended
+#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.8/install.sh | bash
+#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.8/install.sh | bash -s -- --unattended
 #
 # To install a different release, override INSTALLER_REF:
 #   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.2.0/install.sh \
@@ -14,7 +14,7 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 # Constants
 # -----------------------------------------------------------------------------
-readonly INSTALLER_VERSION="0.1.7"
+readonly INSTALLER_VERSION="0.1.8"
 readonly REPO="SGridworks/agentworks-os"
 # Pin asset fetches to the release tag so v0.1.1 installer cannot silently
 # pull future main-branch changes. Override with INSTALLER_REF=<branch|tag|sha>
@@ -140,11 +140,13 @@ check_ports_free() {
 
   if (( ${#in_use[@]} > 0 )); then
     log_error "Required ports already in use: ${in_use[*]}"
-    log_error "Free them, or override AGENTOS_PORT for 7710. Substrate needs:"
+    log_error "Substrate needs:"
     log_error "  7710  agentos-d daemon (REST + MCP)"
     log_error "  3101  scanner-worker"
     log_error "  5678  n8n"
     log_error "To find the process: lsof -i :<port>"
+    log_error "Stop the process and re-run. Custom ports are not supported in v0.1.x"
+    log_error "(every health check, doc URL, and CLI command hardcodes these three)."
     exit 1
   fi
   log_info "Ports 7710, 3101, 5678 free."

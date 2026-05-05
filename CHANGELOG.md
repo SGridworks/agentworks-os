@@ -5,6 +5,79 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] — 2026-05-05
+
+Patch release. Codex's adversarial pre-release audit (the prompt at
+`docs/CODEX-PRE-RELEASE-AUDIT.md` introduced in v0.1.7) ran against
+the v0.1.7 commit and surfaced 7 findings: 2 BLOCKERs, 3 HIGH,
+2 MEDIUM. v0.1.8 closes 6 of them; one MEDIUM (compose container_name
+collisions across multi-install) is deferred as not-blocking for the
+single-install norm.
+
+### Fixed
+
+- **agentos-d never loaded `SCANNER_SIDECAR_URL` (BLOCKER).** The
+  config schema declared `scannerSidecarUrl` with default
+  `http://127.0.0.1:3101`, but `loadConfig()` did not pass
+  `env.SCANNER_SIDECAR_URL` to the Zod parse — so the daemon always
+  used the default `127.0.0.1:3101`, which from inside the
+  `agentos-d` container is the container itself, not the
+  `scanner-worker` container. Every `/api/scanner/*` proxy call
+  failed silently. Fix: `loadConfig()` now reads
+  `env.SCANNER_SIDECAR_URL` (and `env.SCANNER_POLL_INTERVAL_MS`),
+  and `docker-compose.yml` sets
+  `SCANNER_SIDECAR_URL: http://scanner-worker:3101` on the agentos-d
+  service. Removed the dead `SCANNER_SIDECAR_URL` from the
+  scanner-worker service env (the Python code never read it; it was
+  set on the wrong side of the relationship for two releases).
+- **`docs/quickstart.md` promised an Admin UI at :7710 that does not
+  exist (BLOCKER).** `agentos-d` does not serve a UI; the
+  `admin-ui` package is published to GHCR but `docker-compose.yml`
+  does not start it. Customer-facing docs now describe the daemon
+  REST surface and explicitly note that admin-ui inclusion is a
+  pending decision; no link to a non-existent UI.
+- **Smoke test gave a false PASS when scanner-worker was unreachable
+  (HIGH).** The script printed `[WARN]` and continued, so a release
+  gate could pass with the scanner sidecar broken. Stub mode (the
+  default since v0.1.7) means `/health` should respond in <1s; if it
+  doesn't, the sidecar is genuinely broken. Smoke test now treats
+  scanner /health as fatal with a 30s deadline. Override with
+  `SMOKE_SCANNER_OPTIONAL=1` (only useful when running with
+  `EMBEDDING_MODE=real` on a slow link). n8n /healthz remains a
+  warning — n8n is workflow automation, not core compliance, and its
+  first-boot SQLite init takes 20-60s.
+- **Misleading "override AGENTOS_PORT" guidance in the
+  port-conflict error message (HIGH).** The error told users to
+  override the port, but every health check, doc URL, smoke-test
+  invocation, and CLI command hardcodes 7710/3101/5678. Updated the
+  message to explicitly say custom ports are not supported in v0.1.x.
+- **Dead doc link `agentworks restart agentos-d` (HIGH).** The AI
+  install guide §2.2(C) referenced a `restart` subcommand the
+  wrapper did not implement; running it just printed help. Added
+  `cmd_restart` to `agentworks.sh` (with no args bounces all
+  services; with args bounces only the named services).
+- **Stale `apps/installer/Dockerfile` (MEDIUM).** Referenced
+  `bin/install.sh` which doesn't exist (deleted in v0.1.3). The
+  Dockerfile bundled an installer-as-Docker-image idea that never
+  shipped. Deleted; `apps/installer/src/install.sh` is the canonical
+  install entry point.
+
+### Known limitations carried forward
+
+- Compose uses fixed `container_name`, network, and volume names.
+  Two AgentWorks installs on the same host (different `AGENTWORKS_DIR`
+  overrides) collide on `agentos-d` / `agentworks-postgres` /
+  `scanner-worker` / `agentworks-n8n` container names. Single-install
+  is the v0.1.x norm; multi-install would require deriving names
+  from a project tag.
+- `admin-ui` image is published but not started by compose. README
+  and `install-runbook.md` reference an admin UI on :7710 that the
+  daemon does not serve. Decision pending: add the service and route
+  through reverse proxy, or drop the reference.
+- `postgres` runs by default and `agentos-d depends_on` it, despite
+  install.sh banner calling postgres "legacy / not used in v1."
+  Either docs or compose is wrong; non-blocking, deferred.
+
 ## [0.1.7] — 2026-05-04
 
 Patch release. The v0.1.6 install succeeded ("Smoke test PASSED") but

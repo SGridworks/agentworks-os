@@ -2,7 +2,7 @@
 
 **When to use:** before tagging any AgentWorks OS release. Paste the prompt below into Codex (or any other independent LLM agent — Cursor, Claude, Gemini), point it at the candidate commit, and treat it like a hostile reviewer who gets paid only when they find a release-blocker that would embarrass you in front of a customer.
 
-**Why this exists:** v0.1.0 → v0.1.7 had three releases in a row where a fresh customer install hit a bug we did not catch in our own dev loop. The recurring pattern: developers run inside an environment where build artifacts already exist on disk, the right ports are free, the daemon is already trained, model weights are cached, the right env vars are exported in their shell. Customers don't have any of that. An adversarial third-party agent simulating the customer surface catches what dogfooding cannot.
+**Why this exists:** v0.1.0 → v0.1.8 had three releases in a row where a fresh customer install hit a bug we did not catch in our own dev loop. The recurring pattern: developers run inside an environment where build artifacts already exist on disk, the right ports are free, the daemon is already trained, model weights are cached, the right env vars are exported in their shell. Customers don't have any of that. An adversarial third-party agent simulating the customer surface catches what dogfooding cannot.
 
 ---
 
@@ -52,7 +52,7 @@ For every Dockerfile in the repo (find with `git ls-files '**/Dockerfile'`):
      and the entire docker compose up aborted.
   b) Are EXPOSE and HEALTHCHECK port numbers consistent with the port the
      application actually binds to AND with what docker-compose.yml maps?
-     The v0.1.6 → v0.1.7 bug: scanner-worker EXPOSE 8001 + healthcheck on
+     The v0.1.6 → v0.1.8 bug: scanner-worker EXPOSE 8001 + healthcheck on
      :8001, but compose set SCANNER_WORKER_PORT=3101 and overrode the
      healthcheck — masked in compose, broken when run standalone.
   c) Are the runtime entrypoint's expected env vars all set somewhere
@@ -93,7 +93,7 @@ For every env var the codebase reads (grep `os.environ.get` in Python,
 `process.env.` in TS, `${VAR}` in bash):
   - Is the name spelled identically everywhere it is set, read, and
     documented?
-  - This is the v0.1.6 → v0.1.7 bug #2: docker-compose.yml set
+  - This is the v0.1.6 → v0.1.8 bug #2: docker-compose.yml set
     SCANNER_WATCH_DIRS but the Python parser read WATCH_DIRS. Silent
     feature break for two releases.
   - Cross-check against packages/agentos-d/CLAUDE.md (which documents
@@ -115,7 +115,7 @@ timeout will produce a false WARN or FAIL.
   b) For each: how long does it take on a fresh install with cold caches?
   c) Propose either: (1) move to background task, (2) skip by default and
      require opt-in, or (3) bundle the asset into the image.
-  d) The v0.1.7 fix was option (2) for embed/rerank — don't accept option
+  d) The v0.1.8 fix was option (2) for embed/rerank — don't accept option
      (1) without verifying the model code handles a "not preloaded" state
      gracefully.
 
@@ -129,7 +129,7 @@ For every relative link in README.md and every file under docs/:
      does that section exist?
   c) Does every `git clone --branch v0.1.X` example point at the version
      this release actually ships?
-  d) The v0.1.6 → v0.1.7 bug: docs/AI-AGENT-INSTALL-GUIDE.md §2.2(B)
+  d) The v0.1.6 → v0.1.8 bug: docs/AI-AGENT-INSTALL-GUIDE.md §2.2(B)
      pointed at docs/install-runbook.md §Vault, which never existed.
 
 ============================================================
@@ -251,7 +251,7 @@ Cap output at 2000 words. If you have more than 30 findings, keep the
 
 ## What to expect
 
-A good Codex pass returns 5-15 findings on a candidate that has had a few releases. v0.1.7's pre-release audit caught 16 items across 10 passes (3 BLOCKERS, 5 HIGH, 4 MEDIUM, 4 LOW). If Codex returns zero findings on the first run, the prompt is broken or Codex is hallucinating compliance — re-run with a different model.
+A good Codex pass returns 5-15 findings on a candidate that has had a few releases. v0.1.8's pre-release audit caught 16 items across 10 passes (3 BLOCKERS, 5 HIGH, 4 MEDIUM, 4 LOW). If Codex returns zero findings on the first run, the prompt is broken or Codex is hallucinating compliance — re-run with a different model.
 
 A bad Codex pass returns vague "consider improving error handling" type comments. If you see those, push back: "you found nothing actionable; re-read the prompt's Severity rubric and try again, focusing on Pass N specifically."
 
