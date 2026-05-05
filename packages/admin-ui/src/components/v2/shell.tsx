@@ -26,6 +26,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { getHealth, listTenants, type Health, type Tenant as TenantRow } from '@/lib/api';
+import { useActiveTenantId, setActiveTenantId } from '@/lib/use-active-tenant';
 
 type Theme = 'light' | 'dark';
 
@@ -191,13 +192,22 @@ export function V2Shell({
     }
   }, [theme]);
 
-  // Derive tenant from the live tenants list. Fall back to the explicit prop
-  // (e.g. company-detail page passing a company-derived label) if provided.
+  // Active-tenant id persists in localStorage; default to the newest tenant
+  // (the API returns ORDER BY createdAt DESC). The TopBar dropdown writes
+  // back via setActiveTenantId, which fires a storage event consumers listen for.
+  const activeTenantId = useActiveTenantId();
+  useEffect(() => {
+    if (!activeTenantId && live.tenants && live.tenants[0]) {
+      setActiveTenantId(live.tenants[0].id);
+    }
+  }, [activeTenantId, live.tenants]);
+
   const liveTenant: Tenant | null = (() => {
     if (tenantProp) return tenantProp;
-    const first = live.tenants?.[0];
-    if (!first) return null;
-    return { name: first.name, mark: deriveMark(first.name) };
+    const list = live.tenants ?? [];
+    const picked = list.find((t) => t.id === activeTenantId) ?? list[0];
+    if (!picked) return null;
+    return { name: picked.name, mark: deriveMark(picked.name) };
   })();
   const displayTenant: Tenant = liveTenant ?? { name: 'Loading…', mark: '··' };
   const substrateVersion = live.health ? `v${live.health.version}` : '—';
@@ -332,24 +342,106 @@ export function TopBar({
     stale: 'STALE · retrying',
     error: 'OFFLINE',
   };
+
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const activeTenantId = useActiveTenantId();
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    const onEsc = (e: KeyboardEvent) => e.key === 'Escape' && setPickerOpen(false);
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [pickerOpen]);
+
   return (
     <header className="topbar">
-      <button
-        className="tenant-switcher"
-        title={
-          multiTenant
-            ? 'Switch tenant'
-            : tenants[0]
-            ? `Single tenant · ${tenants[0].id.slice(0, 8)}`
-            : 'No tenants registered yet'
-        }
-        disabled={!multiTenant}
-        style={{ cursor: multiTenant ? 'pointer' : 'default', opacity: tenants.length ? 1 : 0.7 }}
-      >
-        <span className="tenant-mark">{tenant.mark}</span>
-        <span style={{ fontWeight: 500 }}>{tenant.name}</span>
-        {multiTenant && <ChevronDown size={13} strokeWidth={1.6} />}
-      </button>
+      <div ref={pickerRef} style={{ position: 'relative' }}>
+        <button
+          className="tenant-switcher"
+          title={
+            multiTenant
+              ? 'Switch tenant'
+              : tenants[0]
+              ? `Single tenant · ${tenants[0].id.slice(0, 8)}`
+              : 'No tenants registered yet'
+          }
+          disabled={!multiTenant}
+          onClick={() => multiTenant && setPickerOpen((o) => !o)}
+          style={{ cursor: multiTenant ? 'pointer' : 'default', opacity: tenants.length ? 1 : 0.7 }}
+        >
+          <span className="tenant-mark">{tenant.mark}</span>
+          <span style={{ fontWeight: 500 }}>{tenant.name}</span>
+          {multiTenant && <ChevronDown size={13} strokeWidth={1.6} />}
+        </button>
+        {pickerOpen && (
+          <div
+            role="listbox"
+            style={{
+              position: 'absolute',
+              top: 'calc(100% + 4px)',
+              left: 0,
+              minWidth: 240,
+              background: 'var(--surface-2, #1a1a1f)',
+              border: '1px solid var(--border, #2a2a32)',
+              borderRadius: 6,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+              zIndex: 50,
+              padding: 4,
+            }}
+          >
+            {tenants.map((t) => {
+              const isActive = t.id === activeTenantId;
+              return (
+                <button
+                  key={t.id}
+                  role="option"
+                  aria-selected={isActive}
+                  onClick={() => {
+                    setActiveTenantId(t.id);
+                    setPickerOpen(false);
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    width: '100%',
+                    padding: '8px 10px',
+                    background: isActive ? 'var(--surface-hover, #25252d)' : 'transparent',
+                    border: 'none',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    borderRadius: 4,
+                    fontFamily: 'inherit',
+                    fontSize: 13,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) e.currentTarget.style.background = 'var(--surface-hover, #25252d)';
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) e.currentTarget.style.background = 'transparent';
+                  }}
+                >
+                  <span className="tenant-mark">{deriveMark(t.name)}</span>
+                  <span style={{ flex: 1 }}>{t.name}</span>
+                  <span style={{ fontFamily: 'monospace', fontSize: 11, opacity: 0.5 }}>
+                    {t.id.slice(0, 8)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
       <div className="cmdk" title="Command palette is not yet wired (Cmd+K coming)">
         <Search size={14} strokeWidth={1.6} />
         <span>Search companies, agents, issues, vault notes…</span>

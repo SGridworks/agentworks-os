@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { V2Shell } from '@/components/v2/shell';
 import { useV2Nav } from '@/components/v2/nav';
-import { listTenants, getMemoryGraph, getMemoryProvenance, type Tenant, type VaultGraph, type VaultGraphNote, type ProvenanceMeta } from '@/lib/api';
+import { getMemoryGraph, getMemoryProvenance, type VaultGraph, type VaultGraphNote, type ProvenanceMeta } from '@/lib/api';
+import { useActiveTenant } from '@/lib/use-active-tenant';
 import { ChevronDown, ChevronRight, Folder, X } from 'lucide-react';
 import GraphCanvas from '@/components/v2/graph-canvas';
 
@@ -34,7 +35,7 @@ function relTime(iso: string): string {
 
 export default function MemoryVaultV2() {
   const navigate = useV2Nav();
-  const [tenant, setTenant] = useState<Tenant | null>(null);
+  const { tenant } = useActiveTenant();
   const [graph, setGraph] = useState<VaultGraph | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
@@ -42,9 +43,9 @@ export default function MemoryVaultV2() {
   const [filterKinds, setFilterKinds] = useState<Set<string>>(new Set(Object.keys(KIND_META)));
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  useEffect(() => { listTenants().then((ts) => setTenant(ts[0] ?? null)).catch((e) => setError(String(e))); }, []);
   useEffect(() => {
     if (!tenant) return;
+    setSelectedId(null);
     getMemoryGraph(tenant.id).then(setGraph).catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [tenant]);
 
