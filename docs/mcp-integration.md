@@ -41,17 +41,22 @@ The `agentos-d` daemon listens on the host and port from your install. The defau
 http://127.0.0.1:7710
 ```
 
-If you changed `AGENTOS_PORT` in your environment, use that value instead.
+The default v0.1.x install uses port 7710. Custom install ports are not
+supported by the installer yet.
 
 ### Tenant ID
 
-1. Open the Admin UI (default: `http://localhost:7710` served by the admin UI on port 3000, or directly at the daemon's API if UI is not running)
-2. Navigate to Settings > Tenant Info
-3. Copy the **Tenant ID** — a UUID, for example `00000000-0000-4000-8000-000000000001`
+1. List tenants from the daemon:
+
+   ```bash
+   curl -s http://127.0.0.1:7710/api/tenants
+   ```
+
+2. Copy the `id` for the tenant you want to connect — a UUID, for example `00000000-0000-4000-8000-000000000001`.
 
 ### Bearer token
 
-The same token you use for the Admin UI. If you are running a managed install through sgridworks, your token was provided during onboarding. Self-hosted token generation is not yet available via CLI; ask your sgridworks contact for a token.
+If you are running a managed install through sgridworks, your token was provided during onboarding. Self-hosted token generation is not yet available via CLI; ask your sgridworks contact for a token.
 
 > **Auth status:** the MCP bridge does not yet forward bearer tokens to the daemon. The `/api/mcp` route is currently open on localhost. This is acceptable for local-only installs but is not suitable for production exposure. Auth forwarding is tracked in AWO-152.
 

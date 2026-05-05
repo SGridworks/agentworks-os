@@ -36,16 +36,20 @@ single-install norm.
   does not start it. Customer-facing docs now describe the daemon
   REST surface and explicitly note that admin-ui inclusion is a
   pending decision; no link to a non-existent UI.
-- **Smoke test gave a false PASS when scanner-worker was unreachable
+- **Post-fix audit found remaining Admin UI install references
+  (BLOCKER).** `docs/users-guide.md`, `docs/install-runbook.md`,
+  `docs/mcp-integration.md`, migration docs, rule-pack docs, and the
+  smoke-test footer still described the Admin UI/onboarding wizard as
+  part of the default install. These now route default v0.1.x users to
+  REST/MCP flows and mark the Admin UI as a separately-run package.
+- **Smoke test gave a false PASS when scanner-worker or n8n was unreachable
   (HIGH).** The script printed `[WARN]` and continued, so a release
   gate could pass with the scanner sidecar broken. Stub mode (the
   default since v0.1.7) means `/health` should respond in <1s; if it
   doesn't, the sidecar is genuinely broken. Smoke test now treats
-  scanner /health as fatal with a 30s deadline. Override with
-  `SMOKE_SCANNER_OPTIONAL=1` (only useful when running with
-  `EMBEDDING_MODE=real` on a slow link). n8n /healthz remains a
-  warning — n8n is workflow automation, not core compliance, and its
-  first-boot SQLite init takes 20-60s.
+  scanner /health as fatal with a 30s deadline and n8n /healthz as
+  fatal with a 120s deadline. Override with `SMOKE_SCANNER_OPTIONAL=1`
+  or `SMOKE_N8N_OPTIONAL=1` only for daemon-only debugging.
 - **Misleading "override AGENTOS_PORT" guidance in the
   port-conflict error message (HIGH).** The error told users to
   override the port, but every health check, doc URL, smoke-test
@@ -70,10 +74,10 @@ single-install norm.
   `scanner-worker` / `agentworks-n8n` container names. Single-install
   is the v0.1.x norm; multi-install would require deriving names
   from a project tag.
-- `admin-ui` image is published but not started by compose. README
-  and `install-runbook.md` reference an admin UI on :7710 that the
-  daemon does not serve. Decision pending: add the service and route
-  through reverse proxy, or drop the reference.
+- `admin-ui` image is published but not started by compose. Customer
+  install docs route users through REST/MCP for v0.1.x. Decision
+  pending: add the service and route through reverse proxy, or keep it
+  as a separately-run package.
 - `postgres` runs by default and `agentos-d depends_on` it, despite
   install.sh banner calling postgres "legacy / not used in v1."
   Either docs or compose is wrong; non-blocking, deferred.

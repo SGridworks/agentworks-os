@@ -45,14 +45,20 @@ curl -fsSL https://get.agentworks.os/install.sh | bash -s -- --unattended
 
 ## Post-Install
 
-1. Open **http://localhost:3000** (Admin UI)
-2. Log in with the admin password printed at the end of install
-3. Complete the onboarding wizard
-4. Connect Claude Desktop:
+1. Verify the daemon:
+
+   ```bash
+   curl http://localhost:7710/api/health
+   ```
+
+2. Connect Claude Desktop:
 
    ```bash
    agentworks mcp configure
    ```
+
+The `admin-ui` package exists, but v0.1.x does not start it from the default
+Docker Compose stack.
 
 ## Managing Services
 

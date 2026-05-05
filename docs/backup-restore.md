@@ -4,7 +4,7 @@
 
 - Before upgrading AgentWorks OS
 - Before changing rule pack configuration
-- Before running the onboarding wizard a second time (it seeds the vault)
+- Before reseeding or bulk-writing vault content
 - Weekly as part of normal operations
 
 ## What gets backed up

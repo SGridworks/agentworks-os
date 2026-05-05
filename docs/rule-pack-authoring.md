@@ -259,11 +259,9 @@ A pack that passes validation still might not do what you intended. Read the out
 
 ### Loading a Pack
 
-Admin UI: **Policy > Rule Packs > Add Pack**
-
-Loading and mode switching are done through the Admin UI or REST API.
-
-**Admin UI:** Policy > Rule Packs > Add Pack (to load); click a pack > Mode (to switch)
+Loading and mode switching are done through the REST API. If you run the
+Admin UI package separately, you can also use **Policy > Rule Packs > Add
+Pack** and the pack **Mode** control.
 
 **REST API:**
 

@@ -20,7 +20,7 @@ Run the installer on your target machine before beginning migration:
 curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.8/install.sh | bash
 ```
 
-Complete the onboarding wizard (or skip it — you can fill it in later from Settings). Make sure all services show `Up` before proceeding.
+Make sure all services show `Up` before proceeding. v0.1.x does not start the Admin UI from the default Docker Compose stack, so use the REST/MCP checks below unless you are running the UI package separately.
 
 ---
 
@@ -236,7 +236,7 @@ Then write those entries to the vault as reference material.
 
 After migration, verify each piece is working:
 
-- [ ] Admin UI accessible at `http://localhost:7710` — logged in as admin
+- [ ] Daemon health returns HTTP 200 at `http://localhost:7710/api/health`
 - [ ] Claude Desktop connected — `/memory read` returns vault content
 - [ ] Vault pages visible — key pages (company/overview, context/conventions) readable
 - [ ] Scanner findings — no critical findings on migrated agent configs

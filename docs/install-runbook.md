@@ -77,21 +77,16 @@ The `postgres` service starts in `legacy` profile only (v1 uses SQLite). It show
 
 ---
 
-## Step 3 — Open the Admin UI
+## Step 3 — Verify the daemon
 
-The admin UI is served by `agentos-d` at the same port as the REST API:
+v0.1.x does not start the Admin UI from the default Docker Compose stack.
+Verify the REST/MCP daemon instead:
 
+```bash
+curl http://localhost:7710/api/health
 ```
-http://localhost:7710
-```
 
-Log in with:
-- **Username:** `admin`
-- **Password:** the temporary password printed by the installer
-
-The first launch opens the **Onboarding Wizard**. Walk through it to set your company name, industry (which suggests relevant rule packs), approver email addresses, and which agents to connect.
-
-You can skip any step and fill it in later from Settings.
+Expected result: HTTP 200 with `"status":"ok"`.
 
 ---
 
@@ -306,7 +301,7 @@ See [Rule Pack Authoring](./rule-pack-authoring.md) for the schema reference.
 
 The policy engine started but no packs are active.
 
-**Fix:** Admin UI → **Policy** → **Rule Packs** → activate a pack. Or use the REST API to load one.
+**Fix:** Use the REST API to load and activate a rule pack. If you are running the Admin UI package separately, you can also use **Policy** → **Rule Packs**.
 
 ---
 
@@ -314,7 +309,7 @@ The policy engine started but no packs are active.
 
 Agents can connect but `/memory read` returns nothing.
 
-**Fix:** The vault seeds from your onboarding wizard answers. If you skipped the seeding step, use Admin UI → **Memory** → **Seed from Text**, or POST directly to the memory API.
+**Fix:** Seed the vault through the memory API. If you are running the Admin UI package separately, you can also use **Memory** → **Seed from Text**.
 
 ---
 

@@ -78,8 +78,8 @@ Apache 2.0. See [LICENSE](./LICENSE).
 ## Getting started
 
 1. [Install](./docs/install-runbook.md)
-2. Run the onboarding wizard (starts automatically on first admin UI load)
-3. Connect your agents via MCP (wizard walks you through Claude Desktop and Cursor)
+2. Verify the daemon with `curl http://localhost:7710/api/health`
+3. Connect your agents via MCP
 4. Load a rule pack or write your own (see [rule‑pack authoring](./docs/rule-pack-authoring.md))
 5. Test a policy decision: try to send an outbound SMS to a number in your DNC list and confirm it routes to review.
 

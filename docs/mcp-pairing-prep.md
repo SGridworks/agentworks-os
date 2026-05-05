@@ -13,7 +13,7 @@ running inside `agentos-d`. Once connected, those tools can:
 
 - `agentos-d` exposes the MCP server.
 - The install runbook includes the supported MCP client configuration.
-- The onboarding wizard links to the MCP integration guide.
+- The MCP integration guide has the current tenant-ID and client config steps.
 - The customer has approved the support channel used for managed setup.
 
 ## Implementation Notes

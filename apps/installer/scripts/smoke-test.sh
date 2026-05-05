@@ -160,14 +160,30 @@ done
 [[ "$scanner_optional" == "1" && $elapsed -ge $scanner_timeout ]] || pass "scanner-worker /health is up."
 
 # -----------------------------------------------------------------------------
-# Step 5 — n8n (warning only; n8n is workflow automation, not core compliance,
-# and its first-boot SQLite init takes 20-60s on a slow disk).
+# Step 5 — n8n /healthz (FATAL by default).
+# n8n is part of the installed stack. First boot can take 20-60s on a slow
+# disk, so this gets a longer timeout than scanner-worker. Set
+# SMOKE_N8N_OPTIONAL=1 to downgrade to a warning for daemon-only debugging.
 # -----------------------------------------------------------------------------
-if curl -sf -m 3 http://127.0.0.1:5678/healthz >/dev/null 2>&1; then
-  pass "n8n /healthz is up."
-else
-  warn "n8n /healthz unreachable on 5678. n8n boots slowly on first run; retry in a minute."
-fi
+n8n_optional="${SMOKE_N8N_OPTIONAL:-0}"
+n8n_url="${N8N_URL:-http://127.0.0.1:5678}"
+n8n_timeout="${SMOKE_N8N_TIMEOUT:-120}"
+
+elapsed=0
+until curl -sf -m 3 "${n8n_url}/healthz" >/dev/null 2>&1; do
+  if (( elapsed >= n8n_timeout )); then
+    if [[ "$n8n_optional" == "1" ]]; then
+      warn "n8n /healthz unreachable on ${n8n_url} after ${n8n_timeout}s. SMOKE_N8N_OPTIONAL=1, continuing."
+      break
+    fi
+    fail "n8n /healthz unreachable on ${n8n_url} after ${n8n_timeout}s."
+    fail "Diagnose: docker compose logs n8n --tail 100"
+    exit 1
+  fi
+  sleep 5
+  elapsed=$(( elapsed + 5 ))
+done
+[[ "$n8n_optional" == "1" && $elapsed -ge $n8n_timeout ]] || pass "n8n /healthz is up."
 
 echo ""
 echo "=============================================================================="
@@ -178,5 +194,5 @@ echo "  Tenant ID:   ${tenant_id}"
 echo "  Decision:    ${decision}"
 echo ""
 echo "The substrate is responding to writes and the policy engine is online."
-echo "Next: open the Admin UI or wire an MCP client. See README.md."
+echo "Next: wire an MCP client. See README.md."
 exit 0

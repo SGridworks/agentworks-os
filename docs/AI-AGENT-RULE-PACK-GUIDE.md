@@ -313,7 +313,8 @@ Open questions for you (operator):
   3. <when do you want to flip to enforce mode — date or audit-log threshold?>
 
 What you should do next:
-  1. Open the Admin UI rule-pack editor and re-read every rule end-to-end.
+  1. Re-read every rule end-to-end. If you run the Admin UI package separately,
+     use its rule-pack editor; otherwise inspect the YAML directly.
   2. Watch the audit log for the shadow window. Surprise fires = bug in the rule.
   3. If this should be 'paid' or 'attorney-reviewed' tier, get that done before
      the shadow window ends. I cannot make those tier claims for you.
