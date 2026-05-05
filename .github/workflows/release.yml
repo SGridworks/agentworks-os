@@ -14,12 +14,27 @@ on:
 env:
   REGISTRY: ghcr.io
 
+# Serialize releases. Two concurrent runs would race on the shared
+# :buildcache-* registry tags and on the floating :<minor> tag,
+# so the loser would silently overwrite the winner's manifest.
+# cancel-in-progress: false because we never want to interrupt a
+# release that's already publishing artifacts.
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   # ------------------------------------------------------------------
-  # Resolve tag/version/minor and the lowercased owner once. All
-  # downstream jobs read these outputs so we never reparse the ref
-  # in shell, and so the image-prefix is guaranteed lowercase
+  # Resolve tag/version/minor/sha7 and the lowercased owner once.
+  # All downstream jobs read these outputs so we never reparse the
+  # ref in shell, and so the image-prefix is guaranteed lowercase
   # (Docker rejects uppercase repository paths).
+  #
+  # sha7 must reflect the dispatched-tag commit, not the dispatching
+  # branch. On workflow_dispatch from main with ref=v0.1.8,
+  # GITHUB_SHA is main HEAD, not v0.1.8's commit. Checking out at
+  # the resolved tag and reading HEAD gives the right SHA in both
+  # the tag-push and dispatch cases.
   # ------------------------------------------------------------------
   resolve-tag:
     runs-on: ubuntu-latest
@@ -31,7 +46,7 @@ jobs:
       owner_lc: ${{ steps.r.outputs.owner_lc }}
       image_prefix: ${{ steps.r.outputs.image_prefix }}
     steps:
-      - id: r
+      - id: validate
         run: |
           set -euo pipefail
           tag="${{ inputs.ref }}"
@@ -39,15 +54,24 @@ jobs:
             tag="${{ github.ref_name }}"
           fi
           case "$tag" in
-            v*) ;;
+            v[0-9]*.[0-9]*.[0-9]*) ;;
             *)
               echo "::error::release workflow requires a vN.N.N tag, got '$tag'. Dispatch with the 'ref' input set to the tag you want to release."
               exit 1
               ;;
           esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.validate.outputs.tag }}
+          fetch-depth: 1
+      - id: r
+        run: |
+          set -euo pipefail
+          tag="${{ steps.validate.outputs.tag }}"
           version="${tag#v}"
           minor="${version%.*}"
-          sha7="${GITHUB_SHA::7}"
+          sha7="$(git rev-parse HEAD | cut -c1-7)"
           owner_lc="$(printf '%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
           image_prefix="ghcr.io/${owner_lc}/agentworks"
           {
@@ -229,6 +253,11 @@ jobs:
       # for orgs, which is why these packages had to be flipped
       # manually the first time. This makes future first-time
       # releases work without manual intervention.
+      #
+      # After flipping, verify the package is actually public by
+      # reading visibility back from the API. A silent flip failure
+      # would let a green release ship with private images, and
+      # unauthenticated `docker compose pull` would 401.
       - name: Make ${{ matrix.image }} GHCR package public
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -236,10 +265,20 @@ jobs:
           set -euo pipefail
           pkg="agentworks/${{ matrix.image }}"
           enc="${pkg//\//%2F}"
+          owner_lc="${{ needs.resolve-tag.outputs.owner_lc }}"
           if gh api -X PATCH "/user/packages/container/${enc}/visibility" -f visibility=public >/dev/null 2>&1; then
             echo "ok: flipped ${pkg} public via /user"
-          elif gh api -X PATCH "/orgs/${{ needs.resolve-tag.outputs.owner_lc }}/packages/container/${enc}/visibility" -f visibility=public >/dev/null 2>&1; then
+          elif gh api -X PATCH "/orgs/${owner_lc}/packages/container/${enc}/visibility" -f visibility=public >/dev/null 2>&1; then
             echo "ok: flipped ${pkg} public via /orgs"
           else
-            echo "warn: could not flip ${pkg} public (may already be public, or token lacks scope)"
+            echo "warn: PATCH visibility failed via both /user and /orgs (may already be public)"
           fi
+          # Verify visibility is public; fail the job otherwise.
+          vis="$(gh api "/users/${{ github.repository_owner }}/packages/container/${enc}" --jq .visibility 2>/dev/null \
+              || gh api "/orgs/${owner_lc}/packages/container/${enc}" --jq .visibility 2>/dev/null \
+              || echo "")"
+          if [ "$vis" != "public" ]; then
+            echo "::error::${pkg} visibility is '${vis:-unknown}', not public — unauthenticated docker pull will fail"
+            exit 1
+          fi
+          echo "verified: ${pkg} visibility=public"
