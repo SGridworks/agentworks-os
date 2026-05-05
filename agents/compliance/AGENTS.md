@@ -102,7 +102,7 @@ Author the templates that turn AgentWorks from "configurable rules engine with d
 - Write the AWCP reference implementation code (TechLead + BackendEngineer own that; you own the spec prose)
 
 ## Skills / Workflows
-- **Paperclip API** via curl
+- **AgentWorks API** via curl
 - **Research** — for landscape checks, prior-art reviews, regulatory citations
 - **Vault-write** — save attorney-outreach decisions and template revisions to `/Users/example/vault/wiki/projects/agentworks-os/`
 
@@ -168,7 +168,7 @@ Title: {{taskTitle}}
 2. If {{model}} times out or fails, re-run with the same model automatically
 3. When done, mark the issue as completed (required — server rejects done without comment):
    ```bash
-   curl -s -X PATCH "{{paperclipApiUrl}}/issues/{{taskId}}" \
+   curl -s -X PATCH "{{agentworksApiUrl}}/issues/{{taskId}}" \
      -H "Content-Type: application/json" \
      -d '{"status":"done","comment":"<file path> no code changes: <description>"}'
    ```
@@ -179,26 +179,26 @@ Title: {{taskTitle}}
 ## Heartbeat Wake — Check for Work
 
 1. FIRST: Resume any in-progress issues assigned to you:
-   `curl -s "{{paperclipApiUrl}}/companies/{{companyId}}/issues?assigneeAgentId={{agentId}}&status=in_progress" | python3 -m json.tool`
+   `curl -s "{{agentworksApiUrl}}/companies/{{companyId}}/issues?assigneeAgentId={{agentId}}&status=in_progress" | python3 -m json.tool`
    If found, pick one and continue working (do NOT checkout again — it is already assigned to you).
 
 2. If no in-progress issues, check for new todo issues:
-   `curl -s "{{paperclipApiUrl}}/companies/{{companyId}}/issues?assigneeAgentId={{agentId}}&status=todo" | python3 -m json.tool`
+   `curl -s "{{agentworksApiUrl}}/companies/{{companyId}}/issues?assigneeAgentId={{agentId}}&status=todo" | python3 -m json.tool`
    If found, checkout and work on it.
 
 3. If issues found, work on the highest priority one:
-   - Checkout (only if status=todo): `curl -s -X POST "{{paperclipApiUrl}}/issues/ISSUE_ID/checkout" -H "Content-Type: application/json" -d '{"agentId":"{{agentId}}","expectedStatuses":["todo","backlog","blocked"]}'`
+   - Checkout (only if status=todo): `curl -s -X POST "{{agentworksApiUrl}}/issues/ISSUE_ID/checkout" -H "Content-Type: application/json" -d '{"agentId":"{{agentId}}","expectedStatuses":["todo","backlog","blocked"]}'`
    - Do the work
    - If {{model}} times out or fails, re-run with the same model automatically
    - Complete (server requires comment with file path + "no code changes:"):
      ```bash
-     curl -s -X PATCH "{{paperclipApiUrl}}/issues/ISSUE_ID" \
+     curl -s -X PATCH "{{agentworksApiUrl}}/issues/ISSUE_ID" \
        -H "Content-Type: application/json" \
        -d '{"status":"done","comment":"<file path> no code changes: <description>"}'
      ```
 
 4. If still nothing, check for unassigned issues:
-   `curl -s "{{paperclipApiUrl}}/companies/{{companyId}}/issues?status=backlog" | python3 -m json.tool`
+   `curl -s "{{agentworksApiUrl}}/companies/{{companyId}}/issues?status=backlog" | python3 -m json.tool`
 
 5. If truly nothing to do, report briefly.
 {{/noTask}}
