@@ -1,6 +1,6 @@
 {
   "name": "agentworks-os",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "description": "AgentWorks OS \u2014 AI compliance firewall for regulated SMBs",
   "type": "module",

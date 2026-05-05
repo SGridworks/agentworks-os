@@ -24,7 +24,7 @@ docker ps          # should run without error
 ## Step 1 — Install (one command)
 
 ```bash
-curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.8/install.sh | bash
+curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.9/install.sh | bash
 ```
 
 The script creates `~/.agentworks/` with the Docker Compose configuration, starts all services, generates a tenant ID, and prints your admin password. Save the password.
@@ -54,7 +54,7 @@ curl http://localhost:7710/api/health
 Expected response:
 
 ```json
-{ "status": "ok", "version": "0.1.8" }
+{ "status": "ok", "version": "0.1.9" }
 ```
 
 > **Note:** v0.1.x does not bundle the Admin UI as a started service.
