@@ -36,7 +36,14 @@ codex -C /Users/2agents/Projects/agentworks-os-public
 >
 > **What v0.1.9 must deliver (verify each, GO/NO-GO per item):**
 >
-> 0. **Candidate identity.** Confirm the working tree is at `<CANDIDATE_SHA>`, `main` contains that SHA, and the tree is clean except for audit-output files. If the checked-out bytes do not match the declared candidate, NO-GO.
+> 0. **Candidate identity.** Confirm the working tree is at `<CANDIDATE_SHA>`, `main` contains that SHA, and the tracked tree is clean. The following untracked paths are operator scratch and MUST be ignored — their presence does NOT affect the verdict:
+>    - `docs/announcement-feature-inventory.md` (operator notes)
+>    - `docs/audits/` (audit outputs land here)
+>    - `rule-packs/nerc-cip-ferc-ceii/` (in-progress pack, not part of v0.1.9 scope)
+>
+>    If the checked-out bytes do not match the declared candidate, NO-GO.
+>
+>    **Pre-tag UNKNOWNs that are NOT blockers.** Some checks below ask about post-tag artifacts (the `:0.1.9` image on GHCR, the v0.1.9 GitHub release asset URL). Before the tag is pushed, those artifacts do not exist yet — that is by design. Mark these UNKNOWN with the note "pre-tag artifact, will be produced by release workflow" and treat them as GO for verdict purposes. The release workflow itself is what produces them; if its source bytes are correct, the artifacts are too. Do NOT downgrade to NO-GO on these alone.
 >
 > 1. **PR #7 / sha7 from tag commit.** `.github/workflows/release.yml` `resolve-tag` must read `sha7` from `git rev-parse HEAD` after `actions/checkout` at the resolved tag, not from `${GITHUB_SHA::7}`. Walk both paths: tag-push of `v0.1.9` and `workflow_dispatch` from main with `ref=v0.1.9`. Confirm the manifest's `:sha-*` tag identifies the tag commit in both.
 >

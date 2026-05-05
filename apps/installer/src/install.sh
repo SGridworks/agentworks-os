@@ -145,11 +145,21 @@ check_ports_free() {
     # with a generic port-busy error and confusing them into killing
     # their own daemon.
     if [[ -f "${AGENTWORKS_DIR}/source/docker-compose.yml" ]]; then
-      log_error "Required ports already in use: ${in_use[*]}"
-      log_error "An existing AgentWorks install was detected at ${AGENTWORKS_DIR}."
-      log_error "To upgrade in place, run:"
-      log_error "  agentworks update"
-      log_error "To start fresh (destructive — deletes data + config):"
+      log_warn "Required ports already in use: ${in_use[*]}"
+      log_warn "An existing AgentWorks install was detected at ${AGENTWORKS_DIR}."
+      log_warn "Re-running installer behaves as 'agentworks update' — handing off now."
+      local update_script="${AGENTWORKS_DIR}/source/apps/installer/src/agentworks.sh"
+      if [[ -x "$update_script" ]] || [[ -r "$update_script" ]]; then
+        exec bash "$update_script" update
+      fi
+      if command -v agentworks &>/dev/null; then
+        exec agentworks update
+      fi
+      log_error "Existing install detected but update entry point not found:"
+      log_error "  ${update_script}"
+      log_error "Run manually:"
+      log_error "  bash ${AGENTWORKS_DIR}/source/apps/installer/src/agentworks.sh update"
+      log_error "Or to start fresh (destructive — deletes data + config):"
       log_error "  agentworks uninstall && curl -fsSL <install-url> | bash"
       exit 1
     fi
@@ -355,10 +365,17 @@ AGENTWORKS_SESSION_SECRET=${session_secret}
 POSTGRES_PASSWORD=${db_password}
 POSTGRES_USER=agentworks
 POSTGRES_DB=agentworks
-AGENTOS_HOST=0.0.0.0
-AGENTOS_PORT=7710
 AGENTOS_LOG_LEVEL=info
 AGENTOS_AWCP_VERSION=awcp/v0.1
+# AGENTOS_HOST and AGENTOS_PORT used to be written here, but compose
+# hardcodes them in agentos-d's environment block (the daemon binds
+# inside the container, the host doesn't reach in). Removed in v0.1.9 to
+# avoid pretending they're tunable from .env.
+#
+# Override the default rule pack assigned at tenant creation by
+# uncommenting one of these:
+#   AGENTWORKS_DEFAULT_PACK_ID=utility-distribution-starter
+#   AGENTWORKS_DEFAULT_PACK_ID=                # disables auto-assignment
 EOF
   chmod 600 "${ENV_FILE}"
 

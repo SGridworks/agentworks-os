@@ -34,6 +34,12 @@ services:
       AGENTOS_AWCP_VERSION: ${AGENTOS_AWCP_VERSION:-awcp/v0.1}
       RULE_PACKS_DIR: /opt/agentworks/rule-packs
       VAULT_ROOT: /data/vault
+      # Default rule pack auto-assigned at tenant creation. Override in .env
+      # to ship with an industry pack (utility-distribution-starter,
+      # tcpa-real-estate, ...) or set to empty string to disable
+      # auto-assignment entirely. The TS daemon reads the env var directly;
+      # the smb-starter default lives here in compose, not in code.
+      AGENTWORKS_DEFAULT_PACK_ID: ${AGENTWORKS_DEFAULT_PACK_ID:-smb-starter}
       # Daemon reads AGENTOS_DATA_DIR (see packages/agentos-d/src/config.ts:50).
       # Without this, the daemon writes SQLite to /app/data (ephemeral inside the
       # container layer) instead of /data (the bind mount), and loses every tenant,

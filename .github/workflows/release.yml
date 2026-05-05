@@ -3,10 +3,15 @@ name: Release
 on:
   push:
     tags:
-      # Tightened from 'v*' to a strict semver shape so a stray non-release
+      # Tightened from 'v*' to a semver-shaped glob so a stray non-release
       # tag (e.g. 'vendored', 'v-old') cannot trigger a release run before
       # the resolve-tag validation fails downstream.
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      #
+      # GitHub Actions filter globs treat `*` as "zero or more chars except
+      # `/`", so `v[0-9]*` is "v then a digit then anything" — looser than
+      # a regex `v[0-9]+` would be, but resolve-tag's `case` validation
+      # below catches anything that isn't strict vN.N.N.
+      - 'v[0-9]*.[0-9]*.[0-9]*'
   workflow_dispatch:
     inputs:
       ref:
