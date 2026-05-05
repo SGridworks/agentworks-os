@@ -35,9 +35,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /root/.local /root/.local
 ENV PATH=/root/.local/bin:$PATH
 
-EXPOSE 8001
+EXPOSE 3101
 
+# 3101 must match SCANNER_WORKER_PORT in docker-compose.yml; both default to
+# 3101 if unset. Standalone `docker run scanner-worker` (no compose) lands on
+# this default — keep them in sync if you change one.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8001/health').raise_for_status()"
+    CMD python -c "import httpx, os; httpx.get(f\"http://localhost:{os.environ.get('SCANNER_WORKER_PORT', '3101')}/health\").raise_for_status()"
 
 ENTRYPOINT ["python", "-m", "scanner_worker.main"]

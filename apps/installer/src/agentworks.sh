@@ -28,7 +28,10 @@ readonly LOG_DIR="${AGENTWORKS_DIR}/logs"
 readonly DATA_DIR="${AGENTWORKS_DIR}/data"
 readonly SOURCE_DIR="${AGENTWORKS_SOURCE_DIR:-${AGENTWORKS_DIR}/source}"
 readonly COMPOSE_FILE="${SOURCE_DIR}/docker-compose.yml"
-readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.1.2}"
+# Bumped on every release. `agentworks update --check` compares this to the
+# GitHub releases API; a stale value means every fresh install reports
+# "update available" even when fully current. RELEASE CHECKLIST: bump.
+readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.1.7}"
 readonly REPO="SGridworks/agentworks-os"
 readonly GITHUB_RELEASES="https://api.github.com/repos/${REPO}/releases"
 
@@ -145,7 +148,9 @@ cmd_update() {
   log_step "Checking for updates..."
 
   local latest_version
-  latest_version=$(curl -s "$GITHUB_RELEASES/latest" 2>/dev/null | grep '"tag_name"' | grep -oP 'v\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+  # POSIX-portable extract: `grep -oP` (PCRE) is GNU-only — BSD grep on macOS
+  # does not have -P, so the original silently returned empty on every Mac.
+  latest_version=$(curl -s "$GITHUB_RELEASES/latest" 2>/dev/null | sed -n 's/.*"tag_name":[[:space:]]*"v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' | head -1 || true)
 
   if [[ -z "$latest_version" ]]; then
     log_warn "Could not fetch latest version from GitHub."

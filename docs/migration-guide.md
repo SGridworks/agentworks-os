@@ -17,7 +17,7 @@ If you are doing a greenfield install, go to the [Install Runbook](./install-run
 Run the installer on your target machine before beginning migration:
 
 ```bash
-curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.6/install.sh | bash
+curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.7/install.sh | bash
 ```
 
 Complete the onboarding wizard (or skip it — you can fill it in later from Settings). Make sure all services show `Up` before proceeding.

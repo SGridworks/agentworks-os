@@ -4,7 +4,7 @@
 
 **Operator hand-off:** point the agent at the repo root and say *"follow `docs/AI-AGENT-INSTALL-GUIDE.md` to install AgentWorks OS on this machine."*
 
-**Target version:** v0.1.6.
+**Target version:** v0.1.7.
 **Estimated wall-clock:** 10-20 minutes on a clean machine, mostly the first Docker build of agentos-d (TypeScript compile + `pnpm deploy`) and scanner-worker (sentence-transformers download).
 
 ---
@@ -46,7 +46,7 @@ Conventions:
 if test -f docker-compose.yml && grep -qE "packages/agentos-d/Dockerfile|agentos-d:" docker-compose.yml; then
   echo "Already in an agentworks-os checkout."
 else
-  git clone --depth=1 --branch v0.1.6 \
+  git clone --depth=1 --branch v0.1.7 \
     https://github.com/SGridworks/agentworks-os.git
   cd agentworks-os
 fi
@@ -150,10 +150,25 @@ Each tenant's content lives at `<VAULT_ROOT>/<tenant_id>/`. The default `VAULT_R
 > C) External vault path (`~/Documents/notes/`, etc.). I set `VAULT_ROOT` in the daemon env."*
 
 For (A), no action needed — the daemon creates the tenant dir on first write.
-For (B): see [docs/install-runbook.md §Vault](./install-runbook.md).
+
+For (B), in `$VAULT_ROOT/<tenant_id>/`, symlink the directories you want
+shared. Example:
+
+```bash
+TENANT_ID=$(curl -s http://127.0.0.1:7710/api/tenants | python3 -c 'import json,sys;print(json.load(sys.stdin)[0]["id"])')
+cd "${VAULT_ROOT:-$HOME/vault}/$TENANT_ID"
+ln -s ../wiki wiki
+ln -s ../shared-runbooks runbooks
+```
+
+The substrate's `FileVaultStore.list()` walks symlinks safely (cycle-detected
+via realpath dedup), so a tenant directory containing only symlinks resolves
+to the canonical files. Do NOT symlink the operator's `~/.claude/projects/.../memory/`
+directory unless they ask — that folder is operator-private memory and may
+include secrets.
+
 For (C): set `VAULT_ROOT=/absolute/path/to/vault` in `$AGENTWORKS_DIR/config/.env` and run `agentworks restart agentos-d`.
 
-**Important:** do NOT symlink the operator's `~/.claude/projects/.../memory/` directory unless they ask. That folder is operator-private memory and may include secrets.
 
 ---
 
@@ -186,7 +201,7 @@ If the failure does not match any row above, hand the failing line and the last 
 Post this back to the operator, filling the bracketed values:
 
 ```
-AgentWorks OS v0.1.6 install complete.
+AgentWorks OS v0.1.7 install complete.
 
 Install location:  [PATH from §1.2, default $HOME/.agentworks]
 Source clone:      [PATH, default $HOME/.agentworks/source]

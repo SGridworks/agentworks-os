@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] — 2026-05-04
+
+Patch release. The v0.1.6 install succeeded ("Smoke test PASSED") but
+the customer's post-install report surfaced one user-visible issue
+(scanner /health unreachable) and a deep audit of the install path
+turned up a cluster of latent bugs. v0.1.7 closes them.
+
+### Fixed
+
+- **scanner-worker /health unreachable for 5–15 min on first boot
+  (BLOCKER, customer-reported).** The FastAPI app's `lifespan()`
+  startup hook synchronously called `embed.preload()` and
+  `rerank.preload()` BEFORE `yield`, which downloaded
+  `BAAI/bge-base-en-v1.5` (~440 MB) and `BAAI/bge-reranker-base`
+  (~1 GB) from HuggingFace. Uvicorn refuses connections until lifespan
+  startup returns, so the scanner port was simply unbound for the
+  download window. The smoke test gave up after ~3s and warned. Fix:
+  `docker-compose.yml` now defaults `EMBEDDING_MODE=stub` and
+  `RERANKER_MODE=stub` for the scanner-worker service. `/health`
+  responds in <1s. Customers who want the real embedding models can
+  flip to `EMBEDDING_MODE=real` / `RERANKER_MODE=real` in
+  `~/.agentworks/config/.env` and restart.
+- **scanner-worker watch poller never started (BLOCKER, silent).**
+  `docker-compose.yml` set `SCANNER_WATCH_DIRS`, but
+  `packages/scanner-worker/src/scanner_worker/app.py:112` reads
+  `WATCH_DIRS`. The mismatch meant agent-config drift was silently
+  never scanned. Compose env renamed; separator changed from `,` to `:`
+  to match the parser.
+- **scanner-worker Dockerfile EXPOSE/HEALTHCHECK on wrong port
+  (BLOCKER, latent — masked by compose).** Dockerfile declared
+  `EXPOSE 8001` and ran `HEALTHCHECK ... :8001/health`. Compose
+  overrode the healthcheck to use 3101, hiding the bug; anyone running
+  the image standalone (`docker run scanner-worker`) got a
+  permanently-unhealthy container. Both lines now use 3101 (with the
+  HEALTHCHECK reading `SCANNER_WORKER_PORT` for parity with the
+  service env).
+- **`agentworks update --check` broken on macOS (HIGH).** The wrapper
+  used `grep -oP` (Perl-style regex), which is GNU-only. BSD grep on
+  macOS does not support `-P`, so every Mac install reported "Could
+  not fetch latest version" silently. Replaced with a portable `sed`
+  pattern. Same fix applied to two other `grep -oP` uses inside
+  `install.sh` (docker version + docker-compose version fallbacks).
+- **`agentworks update --check` lied on every fresh install (HIGH).**
+  The wrapper's default `AGENTWORKS_VERSION` was hard-pinned at
+  `0.1.2`, four releases stale. So a freshly-installed v0.1.6 reported
+  "Current 0.1.2 → Latest 0.1.6" and pulled an "update" the user
+  already had. Bumped to 0.1.7 and added a release-checklist comment
+  flagging it as a bump-on-every-tag value.
+- **Dead doc link `install-runbook.md §Vault` (HIGH,
+  customer-reported).** `docs/AI-AGENT-INSTALL-GUIDE.md §2.2 (B)`
+  pointed at a section that never existed in the runbook. Replaced
+  with an inline three-command symlink walkthrough, since that's all
+  Layout B actually needs.
+
+### Added
+
+- **`install.sh` automatically adds `~/.local/bin` to the user's
+  shell rc on Linux/WSL** when the `agentworks` CLI lands in
+  `~/.local/bin` (instead of the system `/usr/local/bin`).
+  Idempotent — won't re-append the line on re-runs. Detects bash
+  vs zsh from `$SHELL` and writes to `~/.bashrc`, `~/.bash_profile`,
+  or `~/.zshrc` accordingly. Friend's v0.1.6 report flagged this as
+  "minor / cosmetic"; bundled here so the next install is one shell
+  reload from a working CLI.
+
+### Known limitations carried forward
+
+- `admin-ui` image is published to GHCR but not started by
+  `docker-compose.yml`. README and `install-runbook.md` still
+  reference an admin UI on port 7710 that the daemon does not actually
+  serve. Decision pending on whether to add the service or drop the
+  reference; not a blocker for v0.1.7.
+- `postgres` runs by default and `agentos-d` `depends_on` it, despite
+  `install.sh`'s banner calling postgres "legacy / not used in v1."
+  Either docs or compose is wrong; non-blocking, deferred.
+
 ## [0.1.6] — 2026-05-04
 
 Patch release. Fixes the v0.1.5 install pipeline blocker that surfaced

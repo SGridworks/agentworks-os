@@ -2,8 +2,8 @@
 #
 # agentworks install — one-command setup for AgentWorks OS
 # Usage:
-#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.6/install.sh | bash
-#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.6/install.sh | bash -s -- --unattended
+#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.7/install.sh | bash
+#   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.7/install.sh | bash -s -- --unattended
 #
 # To install a different release, override INSTALLER_REF:
 #   curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.2.0/install.sh \
@@ -14,7 +14,7 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 # Constants
 # -----------------------------------------------------------------------------
-readonly INSTALLER_VERSION="0.1.6"
+readonly INSTALLER_VERSION="0.1.7"
 readonly REPO="SGridworks/agentworks-os"
 # Pin asset fetches to the release tag so v0.1.1 installer cannot silently
 # pull future main-branch changes. Override with INSTALLER_REF=<branch|tag|sha>
@@ -67,7 +67,8 @@ check_docker() {
   fi
 
   local docker_version
-  docker_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null || docker --version | grep -oP '\d+\.\d+' | head -1)
+  # `grep -oP` is GNU-only — fall back to a sed pattern that runs on BSD too
+  docker_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null || docker --version | sed -nE 's/.*[Vv]ersion[[:space:]]+([0-9]+\.[0-9]+).*/\1/p' | head -1)
   if [[ -z "$docker_version" ]]; then
     log_error "Could not determine Docker version. Is the Docker daemon running?"
     exit 1
@@ -82,7 +83,7 @@ check_docker_compose() {
     exit 1
   fi
   local compose_version
-  compose_version=$(docker compose version --short 2>/dev/null || docker-compose --version | grep -oP '\d+\.\d+' | head -1)
+  compose_version=$(docker compose version --short 2>/dev/null || docker-compose --version | sed -nE 's/.*[Vv]ersion[[:space:]]+([0-9]+\.[0-9]+).*/\1/p' | head -1)
   log_info "Docker Compose version: ${compose_version}"
 }
 
@@ -497,13 +498,38 @@ install_cli_wrapper() {
   chmod +x "$target" 2>/dev/null || true
   AGENTWORKS_CLI_PATH="$target"
 
-  if ! command -v agentworks &>/dev/null; then
-    log_warn "Installed agentworks at ${target}, but it is not on PATH."
-    log_warn "Add to your shell rc:  export PATH=\"${HOME}/.local/bin:\$PATH\""
-    log_warn "Or invoke directly: ${target} status"
-  else
+  if command -v agentworks &>/dev/null; then
     log_info "agentworks CLI installed: ${target}"
+    return 0
   fi
+
+  # CLI is not on PATH — try to add ~/.local/bin to the user's shell rc so
+  # the next shell picks it up automatically. Only touches the rc the
+  # current shell points at; idempotent (skips if the line already exists).
+  local rc=""
+  case "${SHELL:-}" in
+    *zsh)  rc="${HOME}/.zshrc" ;;
+    *bash)
+      if [[ -f "${HOME}/.bashrc" ]]; then rc="${HOME}/.bashrc"
+      elif [[ -f "${HOME}/.bash_profile" ]]; then rc="${HOME}/.bash_profile"
+      fi
+      ;;
+  esac
+
+  local path_line='export PATH="$HOME/.local/bin:$PATH"  # added by AgentWorks installer'
+  if [[ -n "$rc" ]] && [[ -w "$rc" || ! -e "$rc" ]]; then
+    if ! grep -qsF '$HOME/.local/bin:$PATH' "$rc" 2>/dev/null; then
+      printf '\n%s\n' "$path_line" >> "$rc"
+      log_info "agentworks CLI installed: ${target}"
+      log_info "Added ~/.local/bin to PATH in ${rc} — open a new shell, or run:"
+      log_info "  source ${rc}"
+      return 0
+    fi
+  fi
+
+  log_warn "Installed agentworks at ${target}, but it is not on PATH."
+  log_warn "Add to your shell rc:  export PATH=\"${HOME}/.local/bin:\$PATH\""
+  log_warn "Or invoke directly: ${target} status"
 }
 
 # -----------------------------------------------------------------------------
