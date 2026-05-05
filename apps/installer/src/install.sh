@@ -148,8 +148,31 @@ check_ports_free() {
       log_warn "Required ports already in use: ${in_use[*]}"
       log_warn "An existing AgentWorks install was detected at ${AGENTWORKS_DIR}."
       log_warn "Re-running installer behaves as 'agentworks update' — handing off now."
-      local update_script="${AGENTWORKS_DIR}/source/apps/installer/src/agentworks.sh"
-      if [[ -x "$update_script" ]] || [[ -r "$update_script" ]]; then
+
+      # Refresh the on-disk source clone to ${INSTALLER_REF} BEFORE exec'ing
+      # its update script. Without this we would run the previously-installed
+      # wrapper bytes — which on a v0.1.8 install still has `readonly
+      # AGENTWORKS_VERSION` and aborts under set -e when cmd_update tries to
+      # reassign it inline (Codex R3 BLOCKER, fixed in PR #18). Pulling the
+      # v0.1.9 wrapper first guarantees the fix is what runs.
+      local existing_source="${AGENTWORKS_DIR}/source"
+      if [[ -d "${existing_source}/.git" ]]; then
+        log_info "Refreshing source clone to ${INSTALLER_REF} before update..."
+        if ! git -C "${existing_source}" fetch --tags --depth=1 origin "${INSTALLER_REF}" 2>&1 | sed 's/^/  /'; then
+          log_error "Failed to fetch ${INSTALLER_REF} into ${existing_source}."
+          log_error "Run manually:"
+          log_error "  git -C ${existing_source} fetch --tags origin ${INSTALLER_REF} && git -C ${existing_source} checkout FETCH_HEAD"
+          log_error "Then: bash ${existing_source}/apps/installer/src/agentworks.sh update"
+          exit 1
+        fi
+        git -C "${existing_source}" checkout -q FETCH_HEAD
+      else
+        log_warn "Existing source at ${existing_source} is not a git clone — cannot refresh."
+        log_warn "Falling back to whatever wrapper bytes are on disk."
+      fi
+
+      local update_script="${existing_source}/apps/installer/src/agentworks.sh"
+      if [[ -r "$update_script" ]]; then
         exec bash "$update_script" update
       fi
       if command -v agentworks &>/dev/null; then
@@ -158,7 +181,7 @@ check_ports_free() {
       log_error "Existing install detected but update entry point not found:"
       log_error "  ${update_script}"
       log_error "Run manually:"
-      log_error "  bash ${AGENTWORKS_DIR}/source/apps/installer/src/agentworks.sh update"
+      log_error "  bash ${update_script} update"
       log_error "Or to start fresh (destructive — deletes data + config):"
       log_error "  agentworks uninstall && curl -fsSL <install-url> | bash"
       exit 1
