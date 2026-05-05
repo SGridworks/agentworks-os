@@ -129,11 +129,23 @@ function parseFrontmatter(text: string): { frontmatter: Record<string, string>; 
   return { frontmatter, body: fm[2] ?? "" };
 }
 
+function stripCodeBlocks(body: string): string {
+  // Drop fenced ```...``` blocks and inline `code` spans before extracting
+  // wikilinks. Doc/template files commonly contain example wikilinks like
+  // [[page-name]] or [[project-slug]] inside fences; those aren't real links
+  // and shouldn't surface as dead-link warnings.
+  return body
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/~~~[\s\S]*?~~~/g, "")
+    .replace(/`[^`\n]*`/g, "");
+}
+
 function extractWikilinks(body: string): string[] {
   const out: string[] = [];
   const re = /\[\[([^\]\n]+)\]\]/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(body)) !== null) {
+  const stripped = stripCodeBlocks(body);
+  while ((m = re.exec(stripped)) !== null) {
     if (!m[1]) continue;
     // Stripping any "|alias" — wikilinks can be [[Target|alias]]
     const target = m[1].split("|")[0]?.trim() ?? "";
@@ -232,9 +244,14 @@ export async function lintVault(
     if (pageSlugs.has(link)) return true;
     const norm = link.replace(/\\/g, "/").replace(/\.md$/i, "");
     if (pagePaths.has(norm)) return true;
-    // Suffix match: [[me/profile]] should resolve to wiki/me/profile.md.
+    // Match in either direction:
+    //   [[me/profile]] → wiki/me/profile.md (page path ends with link)
+    //   [[<tenantId>/me/profile]] or [[wiki/me/profile]] → me/profile.md
+    //     (link ends with page path — strips a prefix the author included)
     for (const path of pagePaths) {
-      if (path === norm || path.endsWith("/" + norm)) return true;
+      if (path === norm) return true;
+      if (path.endsWith("/" + norm)) return true;
+      if (norm.endsWith("/" + path)) return true;
     }
     return false;
   }
