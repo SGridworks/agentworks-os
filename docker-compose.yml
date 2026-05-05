@@ -22,7 +22,7 @@ services:
     # Published by .github/workflows/release.yml on every `v*` tag.
     # Override with AGENTWORKS_IMAGE_REGISTRY=docker.io/agentworks for a
     # private mirror, or AGENTWORKS_VERSION to pin a different release.
-    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/agentos-d:${AGENTWORKS_VERSION:-0.1.8}
+    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/agentos-d:${AGENTWORKS_VERSION:-0.1.9}
     container_name: agentos-d
     restart: unless-stopped
     ports:
@@ -52,7 +52,11 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:7710/api/health || exit 1"]
+      # 127.0.0.1 not localhost: Alpine resolves localhost to ::1 first,
+      # but the Node process binds IPv4 only, so wget hits "Connection
+      # refused" and Docker marks the container unhealthy even though
+      # the API is fine. Same trap on n8n and scanner-worker below.
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:7710/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -88,7 +92,7 @@ services:
     build:
       context: ./packages/scanner-worker
       dockerfile: Dockerfile
-    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/scanner-worker:${AGENTWORKS_VERSION:-0.1.8}
+    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/scanner-worker:${AGENTWORKS_VERSION:-0.1.9}
     container_name: scanner-worker
     restart: unless-stopped
     ports:
@@ -117,7 +121,8 @@ services:
       - ${AGENTWORKS_CONFIG_DIR:-./config}:/config:ro              # Agent configs to scan (CLAUDE.md, .cursorrules, etc.)
       - ${AGENTWORKS_DATA_DIR:-./data}/scanner:/var/lib/scanner    # Scan state + findings cache
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:3101/health').raise_for_status()"]
+      # 127.0.0.1 not localhost — see agentos-d health check for context.
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://127.0.0.1:3101/health').raise_for_status()"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -153,13 +158,39 @@ services:
     volumes:
       - ${AGENTWORKS_DATA_DIR:-./data}/n8n:/home/node/.n8n
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5678/healthz"]
+      # 127.0.0.1 not localhost — see agentos-d health check for context.
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:5678/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
     networks:
       - agentworks
+
+  # --------------------------------------------------------------------------
+  # admin-ui — Next.js browser dashboard. Opt-in.
+  #
+  # Not started by default. Uncomment this block to bring up the dashboard
+  # at http://localhost:3000. Image is built and pushed by the release
+  # workflow on every tag.
+  #
+  # The agentos-d API at port 7710 is sufficient for headless and MCP use;
+  # the dashboard is a convenience surface for tenant/policy/approval
+  # browsing. See docs/quickstart.md for the full opt-in path.
+  # --------------------------------------------------------------------------
+  # admin-ui:
+  #   image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/admin-ui:${AGENTWORKS_VERSION:-0.1.9}
+  #   container_name: agentworks-admin-ui
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     NEXT_PUBLIC_AGENTOS_URL: http://localhost:7710
+  #   depends_on:
+  #     agentos-d:
+  #       condition: service_healthy
+  #   networks:
+  #     - agentworks
 
 # ------------------------------------------------------------------------------
 # Networks

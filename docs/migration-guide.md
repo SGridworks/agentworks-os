@@ -17,7 +17,7 @@ If you are doing a greenfield install, go to the [Install Runbook](./install-run
 Run the installer on your target machine before beginning migration:
 
 ```bash
-curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.8/install.sh | bash
+curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.9/install.sh | bash
 ```
 
 Make sure all services show `Up` before proceeding. v0.1.x does not start the Admin UI from the default Docker Compose stack, so use the REST/MCP checks below unless you are running the UI package separately.

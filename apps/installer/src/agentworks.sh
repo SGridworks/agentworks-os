@@ -32,7 +32,7 @@ readonly COMPOSE_FILE="${SOURCE_DIR}/docker-compose.yml"
 # Bumped on every release. `agentworks update --check` compares this to the
 # GitHub releases API; a stale value means every fresh install reports
 # "update available" even when fully current. RELEASE CHECKLIST: bump.
-readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.1.8}"
+readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.1.9}"
 readonly REPO="SGridworks/agentworks-os"
 readonly GITHUB_RELEASES="https://api.github.com/repos/${REPO}/releases"
 
@@ -137,18 +137,25 @@ cmd_logs() {
 
 # -----------------------------------------------------------------------------
 # Command: restart [service ...]
-# `agentworks restart` with no args bounces every service.
-# `agentworks restart agentos-d` (or any subset) bounces only those.
-# Documented in docs/AI-AGENT-INSTALL-GUIDE.md §2.2(C).
+# `agentworks restart` with no args recreates every service.
+# `agentworks restart agentos-d` (or any subset) recreates only those.
+#
+# Why `up -d --force-recreate --remove-orphans` instead of `restart`:
+# `compose restart` does not pick up edits to docker-compose.yml — health
+# checks, env, bind mounts, image tags. Pre-v0.1.9 we used `restart`, which
+# meant changes silently never took effect and orphaned containers from
+# removed services lingered. `up -d --force-recreate --remove-orphans`
+# applies the current compose file's intent and cleans up stale containers,
+# at the cost of a slightly longer restart.
 # -----------------------------------------------------------------------------
 cmd_restart() {
   require_installed
   if (( $# > 0 )); then
-    log_info "Restarting: $*"
-    compose restart "$@"
+    log_info "Recreating: $*"
+    compose up -d --force-recreate --remove-orphans "$@"
   else
-    log_info "Restarting all services..."
-    compose restart
+    log_info "Recreating all services..."
+    compose up -d --force-recreate --remove-orphans
   fi
 }
 
@@ -317,36 +324,86 @@ cmd_uninstall() {
 }
 
 # -----------------------------------------------------------------------------
-# Command: mcp configure
+# Command: mcp configure [--target claude-desktop|claude-code|both]
+#
+# Writes an MCP server entry for AgentWorks OS into the chosen client's
+# config file. Detects WSL (via `uname -r` containing "microsoft") and
+# adjusts both the spawn command and the destination path accordingly,
+# because Claude on Windows must reach into WSL via `wsl -e <node> <bridge>`
+# rather than running `node` directly.
+#
+# Default target: claude-desktop. Pass --target claude-code or --target both
+# to write to Claude Code's `~/.claude.json` instead, or both files at once.
 # -----------------------------------------------------------------------------
 cmd_mcp_configure() {
+  # ---- Parse args ----------------------------------------------------------
+  # Arg validation and --help run before require_installed so that
+  #   `agentworks mcp configure --help`
+  # prints help on a fresh box where the install hasn't finished yet.
+  local target="claude-desktop"
+  while (( $# > 0 )); do
+    case "$1" in
+      --target)
+        shift
+        target="${1:-}"
+        case "$target" in
+          claude-desktop|claude-code|both) ;;
+          *)
+            log_error "Invalid --target: '${target}'. Must be one of: claude-desktop, claude-code, both."
+            exit 1
+            ;;
+        esac
+        ;;
+      --target=*)
+        target="${1#--target=}"
+        ;;
+      -h|--help)
+        cat <<USAGE
+Usage: agentworks mcp configure [--target claude-desktop|claude-code|both]
+
+Writes an AgentWorks MCP server entry to the chosen client's config file.
+
+  --target claude-desktop  (default) write to Claude Desktop's config
+  --target claude-code     write to ~/.claude.json (Claude Code CLI)
+  --target both            write to both
+USAGE
+        return 0
+        ;;
+      *)
+        log_error "Unknown argument: $1"
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
   require_installed
 
-  local config_file=""
+  # ---- Detect platform / WSL ----------------------------------------------
   local platform
   platform=$(uname -s)
+  local is_wsl="false"
+  if [[ "$platform" == "Linux" ]]; then
+    local kernel
+    kernel=$(uname -r 2>/dev/null || echo "")
+    # The standard signal for WSL2 is "microsoft" (case-insensitive) in the
+    # kernel string, e.g. "5.15.167.4-microsoft-standard-WSL2".
+    if printf '%s' "$kernel" | grep -qi "microsoft"; then
+      is_wsl="true"
+    fi
+  fi
 
-  case "$platform" in
-    Darwin)
-      config_file="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
-      ;;
-    Linux)
-      config_file="$HOME/.config/Claude/claude_desktop_config.json"
-      ;;
-    *)
-      log_error "Unsupported platform: ${platform}"
-      exit 1
-      ;;
-  esac
+  # ---- Resolve Node + bridge ----------------------------------------------
+  local node_path=""
+  if command -v node &>/dev/null; then
+    node_path=$(command -v node)
+  fi
+  if [[ -z "$node_path" || ! -x "$node_path" ]]; then
+    log_error "node executable not found on PATH."
+    log_error "Install Node.js (>=18) and re-run, or set node on PATH for the user that runs Claude."
+    exit 1
+  fi
 
-  log_step "Configuring Claude Desktop MCP..."
-
-  # Detect if config file exists
-  local config_dir
-  config_dir=$(dirname "$config_file")
-  mkdir -p "$config_dir"
-
-  local mcp_url="http://localhost:7710"
   # Bridge resolution order:
   #   1. install.sh extracts the bridge from the running container into
   #      ${CONFIG_DIR}/mcp-stdio-bridge.js — preferred (no source build needed).
@@ -371,38 +428,143 @@ cmd_mcp_configure() {
     exit 1
   fi
 
-  # Claude Desktop's claude_desktop_config.json speaks stdio MCP only.
-  # The bridge translates stdio JSON-RPC ↔ HTTP /api/mcp on the daemon.
-  python3 - <<EOF
-import json, sys, os
+  # ---- Resolve destination paths ------------------------------------------
+  local desktop_path="" code_path=""
+  case "$platform" in
+    Darwin)
+      desktop_path="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+      code_path="$HOME/.claude.json"
+      ;;
+    Linux)
+      if [[ "$is_wsl" == "true" ]]; then
+        # Try to find the Windows-side user profile under /mnt/c/Users.
+        # cmd.exe is reliable when interop is enabled. wslvar is sometimes
+        # available too. Fall back to scanning /mnt/c/Users for a single
+        # non-system directory.
+        local win_user=""
+        if command -v cmd.exe &>/dev/null; then
+          win_user=$(cmd.exe /c 'echo %USERNAME%' 2>/dev/null | tr -d '\r\n' || true)
+        fi
+        if [[ -z "$win_user" ]] && command -v wslvar &>/dev/null; then
+          win_user=$(wslvar USERNAME 2>/dev/null | tr -d '\r\n' || true)
+        fi
+        if [[ -z "$win_user" && -d /mnt/c/Users ]]; then
+          # Heuristic: pick the only non-system Users entry if there's exactly one.
+          local candidates
+          candidates=$(find /mnt/c/Users -mindepth 1 -maxdepth 1 -type d \
+            ! -name 'Default*' ! -name 'Public' ! -name 'All Users' \
+            ! -name 'WDAGUtilityAccount' ! -name 'desktop.ini' 2>/dev/null \
+            | head -2)
+          if [[ "$(echo "$candidates" | wc -l)" -eq 1 && -n "$candidates" ]]; then
+            win_user=$(basename "$candidates")
+          fi
+        fi
+        if [[ -n "$win_user" && -d "/mnt/c/Users/${win_user}" ]]; then
+          desktop_path="/mnt/c/Users/${win_user}/AppData/Roaming/Claude/claude_desktop_config.json"
+          code_path="/mnt/c/Users/${win_user}/.claude.json"
+        else
+          # Cannot resolve Windows-side path — print snippet and bail later.
+          desktop_path=""
+          code_path=""
+        fi
+      else
+        desktop_path="$HOME/.config/Claude/claude_desktop_config.json"
+        code_path="$HOME/.claude.json"
+      fi
+      ;;
+    *)
+      log_error "Unsupported platform: ${platform}"
+      exit 1
+      ;;
+  esac
 
-config_file = "$config_file"
-mcp_url = "$mcp_url"
-bridge_path = "$bridge_path"
+  # ---- Build the MCP server entry -----------------------------------------
+  # Two flavors:
+  #   normal:  {"command": "<node>",         "args": ["<bridge>"]}
+  #   WSL:     {"command": "wsl", "args": ["-e", "<node>", "<bridge>"]}
+  # The WSL form is required when the consumer is a Windows process (Claude
+  # Desktop or Claude Code on Windows) — Windows cannot run a WSL-side
+  # `node` binary directly. The Linux-side `node` is invoked through `wsl -e`.
+  local mcp_command mcp_args_json
+  if [[ "$is_wsl" == "true" ]]; then
+    mcp_command="wsl"
+    mcp_args_json="$(printf '["-e", %s, %s]' \
+      "$(printf '%s' "$node_path"   | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" \
+      "$(printf '%s' "$bridge_path" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')")"
+  else
+    mcp_command="$node_path"
+    mcp_args_json="$(printf '[%s]' \
+      "$(printf '%s' "$bridge_path" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')")"
+  fi
 
+  local mcp_url="http://localhost:7710"
+
+  # ---- Writer (idempotent merge) ------------------------------------------
+  # Helper: write the MCP entry into a JSON config file's mcpServers map.
+  # Reads existing JSON if present, replaces only the "agentworks" key,
+  # writes back with 2-space indent. If config_file is empty, prints the
+  # snippet to stdout instead.
+  _write_mcp_config() {
+    local cfg="$1"
+    local label="$2"
+    if [[ -z "$cfg" ]]; then
+      log_warn "${label}: cannot resolve a config path automatically — printing snippet to paste manually:"
+      cat <<JSON
+{
+  "mcpServers": {
+    "agentworks": {
+      "command": "${mcp_command}",
+      "args": ${mcp_args_json},
+      "env": { "AGENTOS_URL": "${mcp_url}" }
+    }
+  }
+}
+JSON
+      return 0
+    fi
+    mkdir -p "$(dirname "$cfg")"
+    AGENTWORKS_MCP_CFG="$cfg" \
+    AGENTWORKS_MCP_COMMAND="$mcp_command" \
+    AGENTWORKS_MCP_ARGS_JSON="$mcp_args_json" \
+    AGENTWORKS_MCP_URL="$mcp_url" \
+    python3 - <<'PY'
+import json, os
+cfg = os.environ["AGENTWORKS_MCP_CFG"]
+command = os.environ["AGENTWORKS_MCP_COMMAND"]
+args = json.loads(os.environ["AGENTWORKS_MCP_ARGS_JSON"])
+url = os.environ["AGENTWORKS_MCP_URL"]
 try:
-    with open(config_file) as f:
+    with open(cfg) as f:
         config = json.load(f)
 except (FileNotFoundError, json.JSONDecodeError):
     config = {}
-
 config.setdefault("mcpServers", {})
 config["mcpServers"]["agentworks"] = {
-    "command": "node",
-    "args": [bridge_path],
-    "env": {"AGENTOS_URL": mcp_url}
+    "command": command,
+    "args": args,
+    "env": {"AGENTOS_URL": url},
 }
-
-os.makedirs(os.path.dirname(config_file), exist_ok=True)
-with open(config_file, "w") as f:
+os.makedirs(os.path.dirname(cfg), exist_ok=True)
+with open(cfg, "w") as f:
     json.dump(config, f, indent=2)
+print("ok:", cfg)
+PY
+    log_info "${label} MCP configured: ${cfg}"
+  }
 
-print("MCP configured at:", config_file)
-print("Server: agentworks → bridge:", bridge_path, "→", mcp_url)
-EOF
+  log_step "Configuring MCP (target=${target}${is_wsl:+, wsl=$is_wsl})..."
+  log_info "Spawn: ${mcp_command} ${mcp_args_json}"
 
-  log_info "Claude Desktop MCP configured: ${config_file}"
-  log_info "Restart Claude Desktop to activate."
+  case "$target" in
+    claude-desktop) _write_mcp_config "$desktop_path" "Claude Desktop" ;;
+    claude-code)    _write_mcp_config "$code_path"    "Claude Code"    ;;
+    both)
+      _write_mcp_config "$desktop_path" "Claude Desktop"
+      _write_mcp_config "$code_path"    "Claude Code"
+      ;;
+  esac
+
+  log_info "Restart the Claude client(s) to activate."
 }
 
 # -----------------------------------------------------------------------------
@@ -479,7 +641,8 @@ Commands:
   agentworks backup [file]     Create a backup tarball (default: agentworks-backup-YYYYMMDD.tar.gz)
   agentworks restore --input <file>   Restore from a backup tarball
   agentworks uninstall         Remove AgentWorks OS and all data
-  agentworks mcp configure     Configure Claude Desktop MCP connection
+  agentworks mcp configure [--target claude-desktop|claude-code|both]
+                              Configure MCP connection (default: claude-desktop)
   agentworks support-bundle [file]   Collect diagnostics bundle
 
 Examples:
@@ -506,7 +669,15 @@ main() {
     backup)       cmd_backup "$@" ;;
     restore)      cmd_restore "$@" ;;
     uninstall)    cmd_uninstall ;;
-    mcp|configure) cmd_mcp_configure ;;
+    mcp)
+      local subcmd="${1:-configure}"
+      shift 2>/dev/null || true
+      case "$subcmd" in
+        configure) cmd_mcp_configure "$@" ;;
+        *) log_error "Unknown mcp subcommand: $subcmd"; exit 1 ;;
+      esac
+      ;;
+    configure)    cmd_mcp_configure "$@" ;;
     support-bundle) cmd_support_bundle "$@" ;;
     install)      cmd_install ;;
     -h|--help|help) show_help ;;

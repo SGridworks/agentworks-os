@@ -1,6 +1,6 @@
 {
   "name": "@agentworks/installer",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "AgentWorks OS one-command installer and CLI",
   "type": "module",
   "private": true,
