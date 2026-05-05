@@ -3,7 +3,10 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      # Tightened from 'v*' to a strict semver shape so a stray non-release
+      # tag (e.g. 'vendored', 'v-old') cannot trigger a release run before
+      # the resolve-tag validation fails downstream.
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       ref:
@@ -108,6 +111,11 @@ jobs:
           files: apps/installer/src/install.sh
           fail_on_unmatched_files: true
           generate_release_notes: true
+          # Explicit even though it's the action's default; locks the
+          # re-runnability contract into repo bytes so a future action
+          # default change doesn't silently break re-dispatching the
+          # same tag.
+          overwrite_files: true
 
   # ------------------------------------------------------------------
   # Build per-platform images on native runners.
@@ -274,7 +282,7 @@ jobs:
             echo "warn: PATCH visibility failed via both /user and /orgs (may already be public)"
           fi
           # Verify visibility is public; fail the job otherwise.
-          vis="$(gh api "/users/${{ github.repository_owner }}/packages/container/${enc}" --jq .visibility 2>/dev/null \
+          vis="$(gh api "/users/${owner_lc}/packages/container/${enc}" --jq .visibility 2>/dev/null \
               || gh api "/orgs/${owner_lc}/packages/container/${enc}" --jq .visibility 2>/dev/null \
               || echo "")"
           if [ "$vis" != "public" ]; then

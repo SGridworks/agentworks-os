@@ -107,7 +107,9 @@ describe("rule pack assignments", () => {
     expect(listAssignments(T1)).toEqual([]);
   });
 
-  it("DEFAULT_PACK_ID is smb-starter (the universal baseline)", () => {
+  it("DEFAULT_PACK_ID resolves to smb-starter when AGENTWORKS_DEFAULT_PACK_ID is unset", () => {
+    // The module reads process.env at load time; the test runner does not
+    // export AGENTWORKS_DEFAULT_PACK_ID, so smb-starter is the live default.
     expect(DEFAULT_PACK_ID).toBe("smb-starter");
   });
 });

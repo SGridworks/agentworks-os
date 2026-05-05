@@ -604,18 +604,53 @@ async function callMemoryHot(
 }
 
 // Lazy-load rule packs from RULE_PACKS_DIR (defaults to <repo>/rule-packs).
-// Each subdirectory's *.yaml is a candidate pack; loader rejects malformed
-// files with a thrown error, so we collect successes only.
+// Each subdirectory's *.yaml is a candidate pack. Successfully parsed packs
+// land in _rulePacks; per-file load errors land in _ruleLoadErrors so
+// operators can introspect via GET /api/policy/packs without having to dig
+// through container logs. POST /api/policy/packs/reload clears both and
+// rescans without bouncing the daemon.
+export interface RulePackLoadError {
+  /** Absolute path of the YAML file that failed to load. */
+  path: string;
+  /** Pack subdirectory name (best-effort identifier when pack_id can't be parsed). */
+  pack_dir: string;
+  /** Error message from the loader. */
+  error: string;
+}
+
 let _rulePacks: RulePack[] | null = null;
+let _ruleLoadErrors: RulePackLoadError[] = [];
+
+/**
+ * Clear the in-memory rule pack cache. Next getRulePacks() rescans the
+ * RULE_PACKS_DIR. Wired to POST /api/policy/packs/reload so an operator
+ * who edits a pack on disk can pick it up without recreating the daemon
+ * container.
+ */
+export function clearRulePackCache(): void {
+  _rulePacks = null;
+  _ruleLoadErrors = [];
+}
+
+/**
+ * Most-recent load errors. Surfaced in GET /api/policy/packs as `loadErrors[]`.
+ * Empty when every YAML under RULE_PACKS_DIR loaded cleanly.
+ */
+export function getRulePackLoadErrors(): readonly RulePackLoadError[] {
+  return _ruleLoadErrors;
+}
+
 export async function getRulePacks(): Promise<RulePack[]> {
   if (_rulePacks) return _rulePacks;
   const root = process.env.RULE_PACKS_DIR ?? join(process.cwd(), "rule-packs");
   const packs: RulePack[] = [];
+  const errors: RulePackLoadError[] = [];
   let entries: string[] = [];
   try {
     entries = readdirSync(root);
   } catch {
     _rulePacks = [];
+    _ruleLoadErrors = [];
     return _rulePacks;
   }
   for (const sub of entries) {
@@ -635,12 +670,17 @@ export async function getRulePacks(): Promise<RulePack[]> {
     }
     for (const f of files) {
       if (!/\.ya?ml$/.test(f)) continue;
+      const fullPath = join(subPath, f);
       try {
         // eslint-disable-next-line no-await-in-loop
-        const pack = await loadPackFromFile(join(subPath, f));
+        const pack = await loadPackFromFile(fullPath);
         packs.push(pack);
-      } catch {
-        // Skip malformed packs silently — surfaced via /api/policy/packs later.
+      } catch (e) {
+        errors.push({
+          path: fullPath,
+          pack_dir: sub,
+          error: e instanceof Error ? e.message : String(e),
+        });
       }
     }
   }
@@ -655,6 +695,7 @@ export async function getRulePacks(): Promise<RulePack[]> {
     return aSpecific - bSpecific;
   });
   _rulePacks = packs;
+  _ruleLoadErrors = errors;
   return _rulePacks;
 }
 

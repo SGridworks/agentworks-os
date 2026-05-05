@@ -139,6 +139,20 @@ check_ports_free() {
   done
 
   if (( ${#in_use[@]} > 0 )); then
+    # Idempotency: if AGENTWORKS_DIR already has a compose file, the
+    # ports are almost certainly in use BY a previous AgentWorks install.
+    # Tell the operator to use `agentworks update` instead of failing
+    # with a generic port-busy error and confusing them into killing
+    # their own daemon.
+    if [[ -f "${AGENTWORKS_DIR}/source/docker-compose.yml" ]]; then
+      log_error "Required ports already in use: ${in_use[*]}"
+      log_error "An existing AgentWorks install was detected at ${AGENTWORKS_DIR}."
+      log_error "To upgrade in place, run:"
+      log_error "  agentworks update"
+      log_error "To start fresh (destructive — deletes data + config):"
+      log_error "  agentworks uninstall && curl -fsSL <install-url> | bash"
+      exit 1
+    fi
     log_error "Required ports already in use: ${in_use[*]}"
     log_error "Substrate needs:"
     log_error "  7710  agentos-d daemon (REST + MCP)"
