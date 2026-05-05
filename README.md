@@ -18,6 +18,20 @@ If your lawyer has ever asked “who approved that outbound?” or “how do we 
 
 Requires Docker Desktop (macOS) or Docker Engine (Linux), git, ~10 GB free disk, and ~4 GB RAM. About 10‑20 minutes on a clean machine, mostly the first build.
 
+**One-liner (recommended):**
+
+```bash
+curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.9/install.sh | bash
+```
+
+Add `-s -- --unattended` to skip the confirmation prompt:
+
+```bash
+curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.9/install.sh | bash -s -- --unattended
+```
+
+**From source clone (equivalent):**
+
 ```bash
 git clone --depth=1 --branch v0.1.9 https://github.com/SGridworks/agentworks-os.git
 cd agentworks-os
@@ -26,6 +40,8 @@ cd agentworks-os
 ```
 
 If both scripts exit 0 — done. The installer prints `Smoke test PASSED` at the end; the standalone smoke run is a second gate that POSTs a tenant and a `policy.check` end‑to‑end.
+
+**Optional admin dashboard.** Default install is API-only. To bring up the browser dashboard at `http://localhost:3000`, uncomment the `admin-ui` block in `~/.agentworks/source/docker-compose.yml` and run `agentworks restart`. The image (`ghcr.io/sgridworks/agentworks/admin-ui:0.1.9`) is public and multi-arch.
 
 **Installing through an AI coding agent?** Point Claude Code (or Codex, or Cursor) at this repo and tell it to follow [`docs/AI-AGENT-INSTALL-GUIDE.md`](./docs/AI-AGENT-INSTALL-GUIDE.md). The guide is written for an LLM: numbered steps, explicit verify commands, enumerated failure modes with fixes, and a final report template. Pre‑flight in `install.sh` catches the things an agent can’t reason about (port conflicts, disk pressure, no internet, Docker daemon down) before wasting 10 minutes on a build.
 

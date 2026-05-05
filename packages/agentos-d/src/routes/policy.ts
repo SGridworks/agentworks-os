@@ -14,7 +14,12 @@ import { policyDecisions, type PolicyDecisionRow } from "../db/schema.js";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { Config } from "../config.js";
-import { callPolicyCheck, getRulePacks } from "./mcp.js";
+import {
+  callPolicyCheck,
+  getRulePacks,
+  getRulePackLoadErrors,
+  clearRulePackCache,
+} from "./mcp.js";
 import { isPaused } from "../pause-service.js";
 import { logDecision } from "../services/policy/decisionLog.js";
 import { broadcast } from "../websocket-server.js";
@@ -75,6 +80,7 @@ export function createPolicyRouter(_config: Config): Router {
 
   router.get("/packs", async (req, res) => {
     const packs = await getRulePacks();
+    const loadErrors = getRulePackLoadErrors();
     res.json({
       items: packs.map((p) => ({
         pack_id: p.pack_id,
@@ -86,6 +92,28 @@ export function createPolicyRouter(_config: Config): Router {
         industry: p.industry ?? null,
       })),
       total: packs.length,
+      // loadErrors[] surfaces YAML files that failed to parse, with the
+      // loader's error message. Empty when every pack loaded cleanly.
+      loadErrors,
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /api/policy/packs/reload
+  // Clears the in-memory rule pack cache and rescans RULE_PACKS_DIR.
+  // Operators use this after editing a YAML on disk so they don't have to
+  // recreate the daemon container to pick up the change.
+  // -------------------------------------------------------------------------
+
+  router.post("/packs/reload", async (req, res) => {
+    clearRulePackCache();
+    const packs = await getRulePacks();
+    const loadErrors = getRulePackLoadErrors();
+    res.json({
+      ok: true,
+      packs_loaded: packs.length,
+      load_errors: loadErrors.length,
+      loadErrors,
     });
   });
 

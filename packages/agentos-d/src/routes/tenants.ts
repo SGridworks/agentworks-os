@@ -91,10 +91,14 @@ export function createTenantsRouter(_config: Config): Router {
     const db = getDb();
     db.insert(tenants).values(row).run();
 
-    // Assign the universal baseline pack so a fresh tenant boots with at
-    // least one rule pack subscribed. Industry-specific packs (TCPA-RE,
-    // fair-housing, HIPAA) get assigned by the operator after onboarding.
-    assignPackToTenant(id, DEFAULT_PACK_ID, "enforce");
+    // Assign the configured default pack so a fresh tenant boots with at
+    // least one rule pack subscribed. DEFAULT_PACK_ID is null when the
+    // operator set AGENTWORKS_DEFAULT_PACK_ID="" — they want to assign
+    // industry-specific packs themselves and not have smb-starter
+    // auto-attached.
+    if (DEFAULT_PACK_ID) {
+      assignPackToTenant(id, DEFAULT_PACK_ID, "enforce");
+    }
 
     res.status(201).json(row);
   });

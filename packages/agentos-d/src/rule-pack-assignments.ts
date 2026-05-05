@@ -13,7 +13,22 @@ import {
 } from "./db/schema.js";
 import { getDb } from "./db/index.js";
 
-export const DEFAULT_PACK_ID = "smb-starter";
+/**
+ * Default pack auto-assigned at tenant creation. Configurable via env so
+ * non-SMB deployments (utility, healthcare, financial services) can ship
+ * with their own baseline, or opt out of auto-assignment entirely.
+ *
+ *   AGENTWORKS_DEFAULT_PACK_ID=utility-distribution-starter   # custom
+ *   AGENTWORKS_DEFAULT_PACK_ID=                               # disabled
+ *   (unset)                                                   # smb-starter
+ *
+ * An empty string explicitly disables the default-assignment hook —
+ * `tenants.ts` skips the call when this is null.
+ */
+export const DEFAULT_PACK_ID: string | null =
+  process.env.AGENTWORKS_DEFAULT_PACK_ID === ""
+    ? null
+    : (process.env.AGENTWORKS_DEFAULT_PACK_ID ?? "smb-starter");
 
 /**
  * Filter the loaded rule packs to those a tenant has subscribed to.
