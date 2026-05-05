@@ -13,12 +13,13 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/agentworks
 
 jobs:
   # ------------------------------------------------------------------
-  # Resolve tag/version/minor once. All downstream jobs read these
-  # outputs so we never reparse the ref in shell.
+  # Resolve tag/version/minor and the lowercased owner once. All
+  # downstream jobs read these outputs so we never reparse the ref
+  # in shell, and so the image-prefix is guaranteed lowercase
+  # (Docker rejects uppercase repository paths).
   # ------------------------------------------------------------------
   resolve-tag:
     runs-on: ubuntu-latest
@@ -27,6 +28,8 @@ jobs:
       version: ${{ steps.r.outputs.version }}
       minor: ${{ steps.r.outputs.minor }}
       sha7: ${{ steps.r.outputs.sha7 }}
+      owner_lc: ${{ steps.r.outputs.owner_lc }}
+      image_prefix: ${{ steps.r.outputs.image_prefix }}
     steps:
       - id: r
         run: |
@@ -45,13 +48,17 @@ jobs:
           version="${tag#v}"
           minor="${version%.*}"
           sha7="${GITHUB_SHA::7}"
+          owner_lc="$(printf '%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          image_prefix="ghcr.io/${owner_lc}/agentworks"
           {
             echo "tag=$tag"
             echo "version=$version"
             echo "minor=$minor"
             echo "sha7=$sha7"
+            echo "owner_lc=$owner_lc"
+            echo "image_prefix=$image_prefix"
           } >> "$GITHUB_OUTPUT"
-          echo "Resolved: tag=$tag version=$version minor=$minor sha7=$sha7"
+          echo "Resolved: tag=$tag version=$version minor=$minor sha7=$sha7 image_prefix=$image_prefix"
 
   # ------------------------------------------------------------------
   # Publish install.sh as a GitHub Release asset. Runs in its own job
@@ -128,9 +135,9 @@ jobs:
           platforms: ${{ matrix.platform.docker }}
           push: true
           provenance: false
-          tags: ${{ env.IMAGE_PREFIX }}/${{ matrix.image.name }}:${{ needs.resolve-tag.outputs.tag }}-${{ matrix.platform.suffix }}
-          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.image.name }}:buildcache-${{ matrix.platform.suffix }}
-          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.image.name }}:buildcache-${{ matrix.platform.suffix }},mode=max
+          tags: ${{ needs.resolve-tag.outputs.image_prefix }}/${{ matrix.image.name }}:${{ needs.resolve-tag.outputs.tag }}-${{ matrix.platform.suffix }}
+          cache-from: type=registry,ref=${{ needs.resolve-tag.outputs.image_prefix }}/${{ matrix.image.name }}:buildcache-${{ matrix.platform.suffix }}
+          cache-to: type=registry,ref=${{ needs.resolve-tag.outputs.image_prefix }}/${{ matrix.image.name }}:buildcache-${{ matrix.platform.suffix }},mode=max
 
   # ------------------------------------------------------------------
   # Merge per-platform tags into multi-arch manifests with the
@@ -158,7 +165,7 @@ jobs:
 
       - name: Create multi-arch manifest for ${{ matrix.image }}
         env:
-          IMG: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
+          IMG: ${{ needs.resolve-tag.outputs.image_prefix }}/${{ matrix.image }}
           TAG: ${{ needs.resolve-tag.outputs.tag }}
           VERSION: ${{ needs.resolve-tag.outputs.version }}
           MINOR: ${{ needs.resolve-tag.outputs.minor }}
@@ -206,7 +213,7 @@ jobs:
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
-          IMG: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
+          IMG: ${{ needs.resolve-tag.outputs.image_prefix }}/${{ matrix.image }}
           VERSION: ${{ needs.resolve-tag.outputs.version }}
         run: |
           set -euo pipefail
@@ -231,7 +238,7 @@ jobs:
           enc="${pkg//\//%2F}"
           if gh api -X PATCH "/user/packages/container/${enc}/visibility" -f visibility=public >/dev/null 2>&1; then
             echo "ok: flipped ${pkg} public via /user"
-          elif gh api -X PATCH "/orgs/${{ github.repository_owner }}/packages/container/${enc}/visibility" -f visibility=public >/dev/null 2>&1; then
+          elif gh api -X PATCH "/orgs/${{ needs.resolve-tag.outputs.owner_lc }}/packages/container/${enc}/visibility" -f visibility=public >/dev/null 2>&1; then
             echo "ok: flipped ${pkg} public via /orgs"
           else
             echo "warn: could not flip ${pkg} public (may already be public, or token lacks scope)"
