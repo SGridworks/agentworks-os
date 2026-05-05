@@ -32,7 +32,11 @@ readonly COMPOSE_FILE="${SOURCE_DIR}/docker-compose.yml"
 # Bumped on every release. `agentworks update --check` compares this to the
 # GitHub releases API; a stale value means every fresh install reports
 # "update available" even when fully current. RELEASE CHECKLIST: bump.
-readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.1.9}"
+#
+# NOT readonly: `cmd_update` re-exports it inline (`AGENTWORKS_VERSION=$x compose pull`)
+# so compose pulls the new tag's image. With `readonly` + `set -e`, that inline
+# assignment aborts the script before the pull, breaking re-install handoff.
+AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.1.9}"
 readonly REPO="SGridworks/agentworks-os"
 readonly GITHUB_RELEASES="https://api.github.com/repos/${REPO}/releases"
 
