@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import MorningBrief from './morning-brief';
 import * as api from '@/lib/api';
 
@@ -205,7 +205,7 @@ describe('MorningBrief', () => {
     });
 
     const dismissButton = screen.getByText('Dismiss until tomorrow');
-    dismissButton.click();
+    fireEvent.click(dismissButton);
 
     await waitFor(() => {
       expect(api.dismissMorningBrief).toHaveBeenCalledWith('test-tenant');
@@ -242,7 +242,7 @@ describe('MorningBrief', () => {
     });
 
     const actionButton = screen.getByText('Open queue');
-    actionButton.click();
+    fireEvent.click(actionButton);
 
     await waitFor(() => {
       expect(mockOnNav).toHaveBeenCalledWith('/approvals?filter=needs_review');
@@ -277,7 +277,7 @@ describe('MorningBrief', () => {
     });
 
     const actionButton = screen.getByText('Open queue');
-    actionButton.click();
+    fireEvent.click(actionButton);
 
     await waitFor(() => {
       expect(window.location.href).toBe('https://example.com/approvals');
@@ -349,7 +349,7 @@ describe('MorningBrief', () => {
     });
 
     const dismissButton = screen.getByText('Dismiss until tomorrow');
-    dismissButton.click();
+    fireEvent.click(dismissButton);
 
     await waitFor(() => {
       expect(api.dismissMorningBrief).toHaveBeenCalledWith('test-tenant');

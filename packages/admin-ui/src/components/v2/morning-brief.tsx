@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { getMorningBrief, dismissMorningBrief, type MorningBriefResponse, type MorningBriefItem } from '@/lib/api';
 import { Briefcase, ExternalLink } from 'lucide-react';
 
@@ -15,23 +15,23 @@ export default function MorningBrief({ tenantId, onNav }: MorningBriefProps) {
   const [dismissing, setDismissing] = useState(false);
 
   // localStorage key generation and checking
-  const getDismissalKey = (generatedAt: string): string => {
+  const getDismissalKey = useCallback((generatedAt: string): string => {
     const date = new Date(generatedAt);
     const dayKey = date.toISOString().split('T')[0]; // YYYY-MM-DD format
     return `dismissed-brief-${tenantId}-${dayKey}`;
-  };
+  }, [tenantId]);
 
-  const isDismissed = (generatedAt: string): boolean => {
+  const isDismissed = useCallback((generatedAt: string): boolean => {
     if (typeof window === 'undefined') return false;
     const key = getDismissalKey(generatedAt);
     return localStorage.getItem(key) === 'true';
-  };
+  }, [getDismissalKey]);
 
-  const markDismissed = (generatedAt: string): void => {
+  const markDismissed = useCallback((generatedAt: string): void => {
     if (typeof window === 'undefined') return;
     const key = getDismissalKey(generatedAt);
     localStorage.setItem(key, 'true');
-  };
+  }, [getDismissalKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,7 +61,7 @@ export default function MorningBrief({ tenantId, onNav }: MorningBriefProps) {
 
     loadBrief();
     return () => { cancelled = true; };
-  }, [tenantId]);
+  }, [tenantId, isDismissed]);
 
   const handleDismiss = async () => {
     if (!brief || dismissing) return;

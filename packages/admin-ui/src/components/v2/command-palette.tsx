@@ -187,10 +187,32 @@ export function CommandPalette({ isOpen, onClose, onSelect, registry = [], curre
   // Handle query changes
   const handleQueryChange = useCallback((newQuery: string) => {
     setQuery(newQuery);
+    setSelectedIndex(0);
     if (onQueryChange) {
       onQueryChange(newQuery);
     }
   }, [onQueryChange]);
+
+  // Handle select action
+  const handleSelect = useCallback((action: ActionRegistryItem) => {
+    // Add to recent actions
+    setRecentIds(prev => {
+      const updated = [action.id, ...prev.filter(id => id !== action.id)];
+      const trimmed = updated.slice(0, 10); // Keep only last 10
+
+      // Persist to localStorage
+      try {
+        localStorage.setItem('command-palette-recent', JSON.stringify(trimmed));
+      } catch {
+        // Ignore localStorage errors
+      }
+
+      return trimmed;
+    });
+
+    onSelect(action);
+    onClose();
+  }, [onSelect, onClose]);
 
   // Handle keyboard navigation
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -199,10 +221,12 @@ export function CommandPalette({ isOpen, onClose, onSelect, registry = [], curre
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
+        if (flatActions.length === 0) break;
         setSelectedIndex(prev => (prev + 1) % flatActions.length);
         break;
       case 'ArrowUp':
         e.preventDefault();
+        if (flatActions.length === 0) break;
         setSelectedIndex(prev => (prev - 1 + flatActions.length) % flatActions.length);
         break;
       case 'Enter':
@@ -216,28 +240,18 @@ export function CommandPalette({ isOpen, onClose, onSelect, registry = [], curre
         onClose();
         break;
     }
-  }, [isOpen, flatActions, selectedIndex, onClose]);
+  }, [isOpen, flatActions, selectedIndex, onClose, handleSelect]);
 
-  // Handle select action
-  const handleSelect = useCallback((action: ActionRegistryItem) => {
-    // Add to recent actions
-    setRecentIds(prev => {
-      const updated = [action.id, ...prev.filter(id => id !== action.id)];
-      const trimmed = updated.slice(0, 10); // Keep only last 10
-      
-      // Persist to localStorage
-      try {
-        localStorage.setItem('command-palette-recent', JSON.stringify(trimmed));
-      } catch {
-        // Ignore localStorage errors
-      }
-      
-      return trimmed;
-    });
-    
-    onSelect(action);
-    onClose();
-  }, [onSelect, onClose]);
+  useEffect(() => {
+    if (flatActions.length === 0) {
+      if (selectedIndex !== 0) setSelectedIndex(0);
+      return;
+    }
+
+    if (selectedIndex >= flatActions.length) {
+      setSelectedIndex(flatActions.length - 1);
+    }
+  }, [flatActions.length, selectedIndex]);
 
   // Focus input when opened
   useEffect(() => {

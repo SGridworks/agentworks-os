@@ -79,16 +79,23 @@ describe('Vault Search Actions', () => {
     });
 
     it('should handle search failure', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 500,
         statusText: 'Internal Server Error'
       });
 
-      await expect(executeVaultSearch('test query')).rejects.toThrow('Search failed: 500 Internal Server Error');
+      try {
+        await expect(executeVaultSearch('test query')).rejects.toThrow('Search failed: 500 Internal Server Error');
+        expect(consoleError).toHaveBeenCalled();
+      } finally {
+        consoleError.mockRestore();
+      }
     });
 
     it('should handle API error response', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -97,7 +104,12 @@ describe('Vault Search Actions', () => {
         })
       });
 
-      await expect(executeVaultSearch('test query')).rejects.toThrow('Search failed');
+      try {
+        await expect(executeVaultSearch('test query')).rejects.toThrow('Search failed');
+        expect(consoleError).toHaveBeenCalled();
+      } finally {
+        consoleError.mockRestore();
+      }
     });
   });
 

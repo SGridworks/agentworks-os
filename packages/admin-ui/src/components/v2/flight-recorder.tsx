@@ -113,7 +113,7 @@ function PolicyHitPopover({ hitId, tenantId, children }: PolicyHitPopoverProps) 
           setIsLoading(false);
         });
     }
-  }, [open, hitId, hitDetail]);
+  }, [open, hitId, hitDetail, tenantId]);
 
   const renderPolicyTab = () => (
     <div className="space-y-3">

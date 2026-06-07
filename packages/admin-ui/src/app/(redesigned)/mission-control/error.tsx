@@ -1,23 +1,21 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { StatusDot } from '@/components/v2/primitives';
 import { listTenants, listCompanies } from '@/lib/api';
-import { V2Shell } from '@/components/v2/shell';
 
-export default function MissionControlError({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
-  const router = useRouter();
+export default function MissionControlError({ error, reset }: { error: Error; reset: () => void }) {
   const [tenant, setTenant] = useState<any>(null);
   const [company, setCompany] = useState<any>(null);
 
   useEffect(() => {
     async function init() {
       try {
-        const t = await listTenants();
-        setTenant(t[0] ?? null);
-        if (tenant) {
-          const c = await listCompanies(tenant.id);
+        const tenants = await listTenants();
+        const firstTenant = tenants[0] ?? null;
+        setTenant(firstTenant);
+        if (firstTenant) {
+          const c = await listCompanies(firstTenant.id);
           setCompany(c[0] ?? null);
         }
       } catch (e) {
@@ -44,13 +42,13 @@ export default function MissionControlError({ error, resetErrorBoundary }: { err
         Error: <strong>{error.message}</strong>
       </p>
       <p>
-        Tenant: {tenant ? `${tenant.name} (<code>${tenant.id.slice(0, 6)}...</code>)` : 'Loading…'}
+        Tenant: {tenant ? <>{tenant.name} (<code>{tenant.id.slice(0, 6)}...</code>)</> : 'Loading...'}
       </p>
       <p>
-        Company: {company ? `${company.name} (<code>${company.id.slice(0, 6)}...</code>)` : 'Loading…'}
+        Company: {company ? <>{company.name} (<code>{company.id.slice(0, 6)}...</code>)</> : 'Loading...'}
       </p>
       <button
-        onClick={resetErrorBoundary}
+        onClick={reset}
         style={{
           marginTop: '24px',
           padding: '8px 16px',
