@@ -23,6 +23,8 @@ import { isPaused } from "../pause-service.js";
 import type { Config } from "../config.js";
 
 const ACTION_KIND_RE = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/;
+const DISPATCH_STATUSES = ["queued", "waiting", "dispatched", "completed", "failed", "dead_letter", "cancelled"] as const;
+type DispatchStatus = (typeof DISPATCH_STATUSES)[number];
 
 export function createDispatchRouter(_config: Config): Router {
   const router = Router();
@@ -38,19 +40,30 @@ export function createDispatchRouter(_config: Config): Router {
     targetAgentId: z.string().min(1),
     input: z.record(z.unknown()).default({}),
     policyDecisionId: z.string().uuid().optional(),
+    maxRetries: z.number().int().min(0).max(20).optional(),
+    contract: z.record(z.unknown()).optional(),
   });
 
   const TransitionSchema = z.object({
-    status: z.enum(["dispatched", "completed", "failed"]),
+    status: z.enum(DISPATCH_STATUSES),
+    error: z.string().optional(),
+    leaseExpiresAt: z.string().optional(),
+    acceptedAt: z.string().optional(),
+    acceptanceError: z.string().optional(),
+  });
+
+  const DispatchRepairSchema = z.object({
     error: z.string().optional(),
   });
 
-  // Valid state transitions: queued→dispatched|failed, dispatched→completed|failed
-  const VALID_TRANSITIONS: Record<string, string[]> = {
-    queued: ["dispatched", "failed"],
-    dispatched: ["completed", "failed"],
+  const VALID_TRANSITIONS: Record<DispatchStatus, DispatchStatus[]> = {
+    queued: ["waiting", "dispatched", "failed", "cancelled"],
+    waiting: ["queued", "dispatched", "failed", "dead_letter", "cancelled"],
+    dispatched: ["completed", "failed", "dead_letter", "cancelled"],
     completed: [],
-    failed: [],
+    failed: ["queued", "dead_letter"],
+    dead_letter: [],
+    cancelled: [],
   };
 
   router.post("/", (req, res) => {
@@ -79,6 +92,12 @@ export function createDispatchRouter(_config: Config): Router {
       createdAt: now,
       dispatchedAt: null,
       completedAt: null,
+      retryCount: 0,
+      maxRetries: body.maxRetries ?? 0,
+      leaseExpiresAt: null,
+      contractJson: body.contract ? JSON.stringify(body.contract) : null,
+      acceptedAt: null,
+      acceptanceError: null,
       error: null,
     };
     db.insert(dispatchQueue).values(row).run();
@@ -110,7 +129,15 @@ export function createDispatchRouter(_config: Config): Router {
       .groupBy(dispatchQueue.status)
       .all();
 
-    const byStatus: Record<string, number> = { queued: 0, dispatched: 0, completed: 0, failed: 0 };
+    const byStatus: Record<DispatchStatus, number> = {
+      queued: 0,
+      waiting: 0,
+      dispatched: 0,
+      completed: 0,
+      failed: 0,
+      dead_letter: 0,
+      cancelled: 0,
+    };
     for (const c of counts) byStatus[c.status] = Number(c.count);
 
     const oldestQueued = db
@@ -119,7 +146,7 @@ export function createDispatchRouter(_config: Config): Router {
       .where(
         and(
           ...baseConditions,
-          eq(dispatchQueue.status, "queued"),
+          sql`${dispatchQueue.status} IN ('queued','waiting','dispatched')`,
         )
       )
       .orderBy(dispatchQueue.createdAt)
@@ -128,7 +155,7 @@ export function createDispatchRouter(_config: Config): Router {
 
     const stuckConditions = [
       ...baseConditions,
-      eq(dispatchQueue.status, "queued"),
+      sql`${dispatchQueue.status} IN ('queued','waiting','dispatched')`,
       sql`${dispatchQueue.createdAt} < ${stuckCutoff}`,
     ];
     const stuck = db
@@ -140,6 +167,8 @@ export function createDispatchRouter(_config: Config): Router {
     res.json({
       byStatus,
       queuedTotal: byStatus.queued,
+      waitingTotal: byStatus.waiting,
+      dispatchedTotal: byStatus.dispatched,
       stuckCount: Number(stuck),
       stuckThresholdMinutes: stuckThreshold,
       oldestQueuedAt: oldestQueued?.createdAt ?? null,
@@ -156,7 +185,7 @@ export function createDispatchRouter(_config: Config): Router {
       conditions.push(
         eq(
           dispatchQueue.status,
-          status as "queued" | "dispatched" | "completed" | "failed",
+          status as DispatchStatus,
         ),
       );
     if (targetAgentId)
@@ -233,8 +262,13 @@ export function createDispatchRouter(_config: Config): Router {
 
     const update: Partial<NewDispatchQueueRow> = { status };
     if (status === "dispatched") update.dispatchedAt = now;
-    if (status === "completed" || status === "failed") update.completedAt = now;
+    if (status === "completed" || status === "failed" || status === "dead_letter" || status === "cancelled") {
+      update.completedAt = now;
+    }
     if (error !== undefined) update.error = error;
+    if (parsed.data.leaseExpiresAt !== undefined) update.leaseExpiresAt = parsed.data.leaseExpiresAt;
+    if (parsed.data.acceptedAt !== undefined) update.acceptedAt = parsed.data.acceptedAt;
+    if (parsed.data.acceptanceError !== undefined) update.acceptanceError = parsed.data.acceptanceError;
 
     db.update(dispatchQueue)
       .set(update)
@@ -246,6 +280,81 @@ export function createDispatchRouter(_config: Config): Router {
       .from(dispatchQueue)
       .where(eq(dispatchQueue.id, req.params.id))
       .get();
+    res.json({ ...updated, input: safeParseJson(updated?.input ?? "{}") });
+  });
+
+  router.post("/:id/retry", (req, res) => {
+    const parsed = DispatchRepairSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    const db = getDb();
+    const existing = db
+      .select()
+      .from(dispatchQueue)
+      .where(eq(dispatchQueue.id, req.params.id))
+      .get();
+    if (!existing) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    if (!VALID_TRANSITIONS[existing.status as DispatchStatus]?.includes("queued")) {
+      res.status(409).json({
+        error: "invalid_transition",
+        current_status: existing.status,
+        requested_status: "queued",
+      });
+      return;
+    }
+    db.update(dispatchQueue)
+      .set({
+        status: "queued",
+        retryCount: (existing.retryCount ?? 0) + 1,
+        dispatchedAt: null,
+        completedAt: null,
+        leaseExpiresAt: null,
+        error: parsed.data.error ?? null,
+      })
+      .where(eq(dispatchQueue.id, req.params.id))
+      .run();
+    const updated = db.select().from(dispatchQueue).where(eq(dispatchQueue.id, req.params.id)).get();
+    res.json({ ...updated, input: safeParseJson(updated?.input ?? "{}") });
+  });
+
+  router.post("/:id/dead-letter", (req, res) => {
+    const parsed = DispatchRepairSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    const db = getDb();
+    const existing = db
+      .select()
+      .from(dispatchQueue)
+      .where(eq(dispatchQueue.id, req.params.id))
+      .get();
+    if (!existing) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    if (!VALID_TRANSITIONS[existing.status as DispatchStatus]?.includes("dead_letter")) {
+      res.status(409).json({
+        error: "invalid_transition",
+        current_status: existing.status,
+        requested_status: "dead_letter",
+      });
+      return;
+    }
+    db.update(dispatchQueue)
+      .set({
+        status: "dead_letter",
+        completedAt: new Date().toISOString(),
+        error: parsed.data.error ?? existing.error ?? "Moved to dead letter by operator",
+      })
+      .where(eq(dispatchQueue.id, req.params.id))
+      .run();
+    const updated = db.select().from(dispatchQueue).where(eq(dispatchQueue.id, req.params.id)).get();
     res.json({ ...updated, input: safeParseJson(updated?.input ?? "{}") });
   });
 

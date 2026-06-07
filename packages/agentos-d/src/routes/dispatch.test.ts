@@ -228,7 +228,7 @@ describe("dispatch routes", () => {
       expect(blocked.status).toBe(409);
       expect(blocked.body.error).toBe("invalid_transition");
       expect(blocked.body.current_status).toBe("queued");
-      expect(blocked.body.allowed_transitions).toEqual(["dispatched", "failed"]);
+      expect(blocked.body.allowed_transitions).toEqual(["waiting", "dispatched", "failed", "cancelled"]);
     });
 
     it("captures error on failed transition", async () => {
@@ -286,7 +286,7 @@ describe("dispatch routes", () => {
       expect(forbidden.status).toBe(409);
       expect(forbidden.body.error).toBe("invalid_transition");
       expect(forbidden.body.current_status).toBe("failed");
-      expect(forbidden.body.allowed_transitions).toEqual([]);
+      expect(forbidden.body.allowed_transitions).toEqual(["queued", "dead_letter"]);
     });
 
     it("rejects completed→failed with 409", async () => {
@@ -338,6 +338,53 @@ describe("dispatch routes", () => {
         .send({ status: "failed" });
       expect(toFailed.status).toBe(200);
       expect(toFailed.body.status).toBe("failed");
+    });
+
+    it("allows waiting dispatch rows to move through completion", async () => {
+      const create = await request(app).post("/api/dispatch").send({
+        tenantId: TENANT,
+        taskKind: "workflow.handoff",
+        targetAgentId: "agent-1",
+        input: {},
+        contract: { objective: "return evidence" },
+        maxRetries: 2,
+      });
+      const toWaiting = await request(app)
+        .patch(`/api/dispatch/${create.body.taskId}`)
+        .send({ status: "waiting", leaseExpiresAt: new Date(Date.now() + 60_000).toISOString() });
+      expect(toWaiting.status).toBe(200);
+      expect(toWaiting.body.status).toBe("waiting");
+      expect(toWaiting.body.maxRetries).toBe(2);
+
+      const completed = await request(app)
+        .patch(`/api/dispatch/${create.body.taskId}`)
+        .send({ status: "dispatched" })
+        .then(() => request(app).patch(`/api/dispatch/${create.body.taskId}`).send({ status: "completed" }));
+      expect(completed.status).toBe(200);
+      expect(completed.body.status).toBe("completed");
+    });
+
+    it("retries failed dispatch rows and can move them to dead letter", async () => {
+      const create = await request(app).post("/api/dispatch").send({
+        tenantId: TENANT,
+        taskKind: "workflow.dispatch",
+        targetAgentId: "agent-1",
+        input: {},
+      });
+      await request(app).patch(`/api/dispatch/${create.body.taskId}`).send({ status: "failed", error: "adapter failed" });
+
+      const retry = await request(app).post(`/api/dispatch/${create.body.taskId}/retry`).send({});
+      expect(retry.status).toBe(200);
+      expect(retry.body.status).toBe("queued");
+      expect(retry.body.retryCount).toBe(1);
+
+      await request(app).patch(`/api/dispatch/${create.body.taskId}`).send({ status: "failed", error: "adapter failed again" });
+      const dead = await request(app)
+        .post(`/api/dispatch/${create.body.taskId}/dead-letter`)
+        .send({ error: "operator moved to dead letter" });
+      expect(dead.status).toBe(200);
+      expect(dead.body.status).toBe("dead_letter");
+      expect(dead.body.error).toBe("operator moved to dead letter");
     });
   });
 });
