@@ -1,7 +1,7 @@
 /**
  * Migration 0030: create empty AGENTS.md stubs for any AWOS agent that still
- * has NULL instructions_path after the role-folder match (0027) and the
- * name-alias match (0029).
+ * has NULL instructions_path after the role-folder match (0027), the
+ * legacy import (0028), and the name-alias match (0029).
  *
  * Without a stub file the user can't open the inline editor in admin-ui
  * because the instructions card refuses to render a textarea when no path

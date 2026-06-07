@@ -42,9 +42,9 @@ async function ensureDir(p: string) {
 
 async function main() {
   const payload = {
-    name: 'Sgridworks Local',
+    name: process.env.AWOS_TENANT_NAME ?? 'AgentWorks Local',
     industry: 'other',
-    vaultRoot: '~/vault/sgridworks-local',
+    vaultRoot: process.env.AWOS_TENANT_VAULT_ROOT ?? '~/vault/agentworks-local',
   };
   const response = await postJson(`${AGENTOS_URL}${TENANT_ENDPOINT}`, JSON.stringify(payload));
   const tenantId = response.id ?? response.tenantId ?? response.tenant?.id;
@@ -53,9 +53,9 @@ async function main() {
     process.exit(1);
   }
   const home = homedir();
-  const vaultRoot = resolve(home, 'vault', 'sgridworks-local', tenantId, 'wiki');
+  const vaultRoot = resolve(home, 'vault', 'agentworks-local', tenantId, 'wiki');
   await ensureDir(vaultRoot);
-  const configPath = resolve(home, '.agentworks', 'sgridworks-local.json');
+  const configPath = resolve(home, '.agentworks', 'agentworks-local.json');
   await ensureDir(dirname(configPath));
   await writeFile(configPath, JSON.stringify({ tenantId }, null, 2));
   console.log(`Tenant ${tenantId} provisioned, vault at ${vaultRoot}`);

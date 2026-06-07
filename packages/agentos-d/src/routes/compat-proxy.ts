@@ -1,8 +1,8 @@
 /**
- * Paperclip compatibility proxy.
+ * Legacy bridge proxy.
  *
- * This is a transition surface for daemon-critical legacy routes. It forwards
- * HTTP requests to the live Paperclip API without importing Paperclip code.
+ * Transition surface for daemon-critical upstream routes while native AWOS
+ * implementations land.
  */
 
 import { Router } from "express";
@@ -12,6 +12,7 @@ import {
   recordCompatProxyEvent,
   type CompatProxyAuditInput,
 } from "../services/compat-proxy-audit.js";
+import { requestBuffer, type HttpRequestOptions, type HttpResponseBuffer } from "../http-client.js";
 
 const ALLOWED_PREFIXES = [
   "/api/companies/",
@@ -46,15 +47,14 @@ function upstreamHeaders(req: Request, config: Config): Headers {
     if (Array.isArray(value)) headers.set(key, value.join(", "));
     else headers.set(key, value);
   }
-  headers.set("authorization", req.header("authorization") ?? `Bearer ${config.legacyAdapterApiKey}`);
-  headers.set("x-paperclip-api-key", req.header("x-paperclip-api-key") ?? config.legacyAdapterApiKey);
+  headers.set("authorization", req.header("authorization") ?? `Bearer ${config.legacyBridgeApiKey}`);
   headers.set("content-type", "application/json");
   headers.set("x-agentworks-compat-proxy", "agentos-d");
   return headers;
 }
 
-function responseHeaders(upstream: globalThis.Response, res: Response): void {
-  upstream.headers.forEach((value, key) => {
+function responseHeaders(upstream: HttpResponseBuffer, res: Response): void {
+  Object.entries(upstream.headers).forEach(([key, value]) => {
     if (HOP_BY_HOP_HEADERS.has(key.toLowerCase())) return;
     res.setHeader(key, value);
   });
@@ -62,37 +62,36 @@ function responseHeaders(upstream: globalThis.Response, res: Response): void {
 }
 
 async function forward(req: Request, res: Response, config: Config): Promise<void> {
-  const upstreamUrl = new URL(req.originalUrl, config.legacyAdapterUrl);
+  const upstreamUrl = new URL(req.originalUrl, config.legacyBridgeUrl);
   const hasBody = !["GET", "HEAD"].includes(req.method.toUpperCase());
   const requestBody = hasBody ? JSON.stringify(req.body ?? {}) : "";
-  const init: RequestInit = {
+  const init: HttpRequestOptions = {
     method: req.method,
     headers: upstreamHeaders(req, config),
   };
   if (hasBody) init.body = requestBody;
-  const upstream = await fetch(upstreamUrl, init);
+  const upstream = await requestBuffer(upstreamUrl, init);
 
-  const body = Buffer.from(await upstream.arrayBuffer());
   const audit: CompatProxyAuditInput = {
     method: req.method,
     path: req.originalUrl,
     statusCode: upstream.status,
     requestBody,
-    responseBody: body,
+    responseBody: upstream.body,
     forwardedTo: upstreamUrl.toString(),
   };
-  const runId = req.header("x-paperclip-run-id");
+  const runId = req.header("x-agentworks-run-id");
   if (runId) audit.runId = runId;
   recordCompatProxyEvent(audit);
   responseHeaders(upstream, res);
-  res.status(upstream.status).send(body);
+  res.status(upstream.status).send(upstream.body);
 }
 
 export function createCompatProxyRouter(config: Config): Router {
   const router = Router();
 
   router.use(async (req, res, next) => {
-    if (!config.legacyAdapterEnabled) {
+    if (!config.legacyBridgeEnabled) {
       next();
       return;
     }
@@ -108,10 +107,10 @@ export function createCompatProxyRouter(config: Config): Router {
         method: req.method,
         path: req.originalUrl,
         requestBody: JSON.stringify(req.body ?? {}),
-        forwardedTo: new URL(req.originalUrl, config.legacyAdapterUrl).toString(),
+        forwardedTo: new URL(req.originalUrl, config.legacyBridgeUrl).toString(),
         error: (error as Error).message,
       };
-      const runId = req.header("x-paperclip-run-id");
+      const runId = req.header("x-agentworks-run-id");
       if (runId) audit.runId = runId;
       recordCompatProxyEvent(audit);
       req.log?.error({ err: error }, "compat proxy failed");

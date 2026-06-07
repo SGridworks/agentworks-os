@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "repoRoot": "/Users/example/Projects/agentworks-os",
+  "dataDir": "/nonexistent/data",
+  "dbPath": "/nonexistent/agentworks.db",
+  "vaultRoot": "/Users/example/vault",
+  "tenantId": "00000000-0000-4000-8000-000000000001",
+  "tenantName": "Local",
+  "expectedCompanies": [
+    "AgentWorks",
+    "E2E-Test-Company"
+  ],
+  "alwaysKeepIssueIds": ["AWOS-STANDING"],
+  "ports": { "admin": 3000, "api": 7710 },
+  "launchdLabels": [
+    "com.agentworks.admin-ui-watchdog",
+    "com.agentworks.wake-on-assign",
+    "com.agentworks.automation-engine",
+    "com.agentworks.review-router",
+    "ai.agentworks.daemon",
+    "ai.agentworks.bridge"
+  ],
+  "backupDir": "/Users/example/backups/awos-local",
+  "allowedFallbackModel": "kimi-k2.6"
+}
