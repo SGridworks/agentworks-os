@@ -39,21 +39,17 @@ If `docker ps` returns a connection error, open Docker Desktop and wait for it t
 On the machine that will host AgentWorks OS:
 
 ```bash
-git clone --depth=1 --branch v0.1.9 https://github.com/SGridworks/agentworks-os.git
-cd agentworks-os
-./apps/installer/src/install.sh --unattended \
-  && ./apps/installer/scripts/smoke-test.sh
+curl -fsSL https://get.agentworks.os/install.sh | bash
 ```
 
 The script will:
 
-1. Run pre-flight (Docker daemon up, ports 7710/3101/5678 free, ≥10 GB disk, ≥4 GB RAM, internet to github.com).
-2. Create `~/.agentworks/` with `data/`, `config/`, and `logs/` subdirs (and pre-chmod `data/n8n` + `data/scanner` to 777 for the n8n+scanner uid mismatch).
-3. Re-use the local checkout if you ran from one; otherwise `git clone` into `~/.agentworks/source`.
-4. Generate secrets (admin password, session secret, hex DB password) into `~/.agentworks/config/{.env,secrets.json}` mode 600. **The admin password is in `~/.agentworks/config/secrets.json`.**
-5. `docker compose pull` (best effort — falls through to local build).
-6. `docker compose up -d --build`. First build is 5-15 minutes.
-7. Wait up to 120s for `/api/health` to return 200, then run the end-to-end smoke test (POST /api/tenants + POST /api/policy/check + assertions).
+1. Check for Docker
+2. Pull container images from GHCR
+3. Generate a tenant ID
+4. Create `~/.agentworks/` with the docker-compose.yml and data directories
+5. Start all services via Docker Compose
+6. Print the admin password — **save this now**
 
 If the script fails, see [Common Errors](#common-errors) at the end of this document.
 
@@ -62,7 +58,7 @@ If the script fails, see [Common Errors](#common-errors) at the end of this docu
 ## Step 2 — Verify All Services Are Running
 
 ```bash
-docker compose -f ~/.agentworks/source/docker-compose.yml ps
+docker compose -f ~/.agentworks/docker-compose.yml ps
 ```
 
 All services should show `Up` within 30 seconds of the installer completing.
@@ -77,16 +73,21 @@ The `postgres` service starts in `legacy` profile only (v1 uses SQLite). It show
 
 ---
 
-## Step 3 — Verify the daemon
+## Step 3 — Open the Admin UI
 
-v0.1.x does not start the Admin UI from the default Docker Compose stack.
-Verify the REST/MCP daemon instead:
+The admin UI is served by `agentos-d` at the same port as the REST API:
 
-```bash
-curl http://localhost:7710/api/health
+```
+http://localhost:7710
 ```
 
-Expected result: HTTP 200 with `"status":"ok"`.
+Log in with:
+- **Username:** `admin`
+- **Password:** the temporary password printed by the installer
+
+The first launch opens the **Onboarding Wizard**. Walk through it to set your company name, industry (which suggests relevant rule packs), approver email addresses, and which agents to connect.
+
+You can skip any step and fill it in later from Settings.
 
 ---
 
@@ -258,7 +259,7 @@ The `agentos-d` daemon couldn't bind to port 7710.
 lsof -i :7710
 ```
 
-Stop it, or edit `~/.agentworks/source/docker-compose.yml` to change the host port mapping (e.g., `7711:7710`) before reinstalling.
+Stop it, or edit `~/.agentworks/docker-compose.yml` to change the host port mapping (e.g., `7711:7710`) before reinstalling.
 
 ---
 
@@ -276,7 +277,7 @@ Claude Desktop can't reach the AgentWorks OS MCP server.
 
 **Fix (in order):**
 
-1. Confirm AgentWorks OS is running: `docker compose -f ~/.agentworks/source/docker-compose.yml ps` — `agentos-d` should show `Up`
+1. Confirm AgentWorks OS is running: `docker compose -f ~/.agentworks/docker-compose.yml ps` — `agentos-d` should show `Up`
 2. Confirm the machine can reach the host: `curl http://localhost:7710/api/health` from the machine running Claude Desktop
 3. If on different machines, use the IP address instead of `localhost`: `http://192.168.x.x:7710`
 4. Check your Claude Desktop config has the correct URL with no trailing slash
@@ -301,7 +302,7 @@ See [Rule Pack Authoring](./rule-pack-authoring.md) for the schema reference.
 
 The policy engine started but no packs are active.
 
-**Fix:** Use the REST API to load and activate a rule pack. If you are running the Admin UI package separately, you can also use **Policy** → **Rule Packs**.
+**Fix:** Admin UI → **Policy** → **Rule Packs** → activate a pack. Or use the REST API to load one.
 
 ---
 
@@ -309,7 +310,7 @@ The policy engine started but no packs are active.
 
 Agents can connect but `/memory read` returns nothing.
 
-**Fix:** Seed the vault through the memory API. If you are running the Admin UI package separately, you can also use **Memory** → **Seed from Text**.
+**Fix:** The vault seeds from your onboarding wizard answers. If you skipped the seeding step, use Admin UI → **Memory** → **Seed from Text**, or POST directly to the memory API.
 
 ---
 
@@ -318,7 +319,7 @@ Agents can connect but `/memory read` returns nothing.
 To remove AgentWorks OS and all data:
 
 ```bash
-docker compose -f ~/.agentworks/source/docker-compose.yml down -v
+docker compose -f ~/.agentworks/docker-compose.yml down -v
 rm -rf ~/.agentworks
 rm -rf ~/Library/Application\ Support/agentworks   # macOS
 rm -rf ~/.config/agentworks                        # Linux

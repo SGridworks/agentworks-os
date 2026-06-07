@@ -28,7 +28,7 @@
     "check:version": "node scripts/check-version-consistency.mjs",
     "check:product-surfaces": "node scripts/check-product-surface-references.mjs",
     "check:public-release": "node scripts/check-public-release-safety.mjs",
-    "validate:release": "pnpm check:version && pnpm check:product-surfaces && pnpm check:public-release && pnpm -r typecheck && pnpm -r build",
+    "validate:release": "pnpm check:version && pnpm check:product-surfaces && pnpm check:public-release && pnpm -r build && pnpm -r typecheck",
     "vault:export:dry-run": "node scripts/awos-vault-export-dry-run.mjs",
     "migrate:legacy": "node scripts/import-legacy-orchestration-to-awos.mjs",
     "db:migrate": "pnpm --filter @agentworks/agentos-d db:migrate"

@@ -3,21 +3,21 @@ import { validateYaml } from './yaml-schema';
 
 describe('validateYaml', () => {
   it('returns valid for a well-formed minimal rule pack', () => {
-    // Schema requires rules: minItems 1 — a pack with zero rules is meaningless.
     const yaml = [
       'pack_id: test-pack',
       'pack_version: "1.0.0"',
       'schema_version: "awcp/v1.0"',
       'rules:',
       '  - rule_id: r1',
-      '    name: n',
-      '    description: d',
-      '    required_data: ["x"]',
+      '    name: Test rule',
+      '    description: Test description',
+      '    required_data:',
+      '      - customer.status',
       '    conditions:',
       '      - when: {}',
       '        then:',
       '          decision: allow',
-      '          reason: ok',
+      '          reason: Complete test fixture',
     ].join('\n');
 
     const result = validateYaml(yaml);
@@ -42,10 +42,8 @@ describe('validateYaml', () => {
   });
 
   it('returns a parse error marker for malformed YAML syntax', () => {
-    // Use a tab-indent + flow-mode mismatch the YAML parser actually rejects.
     const yaml = [
-      'pack_id: test',
-      'pack_version: [unterminated',
+      'pack_id: [unterminated',
     ].join('\n');
 
     const result = validateYaml(yaml);
@@ -60,12 +58,17 @@ describe('validateYaml', () => {
       'pack_version: "1.0.0"',
       'schema_version: "awcp/v1.0"',
       'unknown_field: true',
-      'rules:',   // empty rules will be caught by minItems
+      'rules:',
       '  - rule_id: r1',
       '    name: n',
       '    description: d',
-      '    required_data: []',
-      '    conditions: []',
+      '    required_data:',
+      '      - customer.status',
+      '    conditions:',
+      '      - when: {}',
+      '        then:',
+      '          decision: allow',
+      '          reason: ok',
     ].join('\n');
 
     const result = validateYaml(yaml);

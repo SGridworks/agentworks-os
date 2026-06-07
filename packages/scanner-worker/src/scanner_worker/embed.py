@@ -51,7 +51,7 @@ def _stub_vector(text: str, dim: int = DEFAULT_DIM) -> list[float]:
                 break
             f = struct.unpack("<f", block[i : i + 4])[0]
             # Normalise to roughly [-1, 1] without NaN/inf for numerical safety
-            if not (f == f) or abs(f) == float("inf"):  # NaN or inf
+            if f != f or abs(f) == float("inf"):  # NaN or inf
                 f = 0.0
             else:
                 # squash to a stable range
@@ -93,7 +93,9 @@ class _EmbeddingService:
             if self._model is not None:
                 return self._model
             try:
-                from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
+                from sentence_transformers import (
+                    SentenceTransformer,
+                )
             except ImportError as e:
                 raise RuntimeError(
                     "EMBEDDING_MODE=real but sentence-transformers is not installed; "

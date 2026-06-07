@@ -24,7 +24,7 @@ docker ps          # should run without error
 ## Step 1 — Install (one command)
 
 ```bash
-curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.9/install.sh | bash
+curl -fsSL https://get.agentworks.os/install.sh | bash
 ```
 
 The script creates `~/.agentworks/` with the Docker Compose configuration, starts all services, generates a tenant ID, and prints your admin password. Save the password.
@@ -37,31 +37,25 @@ AgentWorks OS installer
 ✓ Pulling images...
 ✓ Generating tenant ID: ...
 ✓ Starting services...
-✓ agentos-d API: http://localhost:7710 (REST + MCP)
-✓ Admin password saved at ~/.agentworks/config/secrets.json
+✓ Admin UI: http://localhost:7710
+✓ Admin password: Aw-XXXXXXXXXXXX
 ```
 
 If the script completes without error, the stack is running.
 
 ---
 
-## Step 2 — Verify the daemon is up
+## Step 2 — Open the Admin UI
 
-```bash
-curl http://localhost:7710/api/health
+```
+http://localhost:7710
 ```
 
-Expected response:
+Log in with:
+- Username: `admin`
+- Password: the password from Step 1
 
-```json
-{ "status": "ok", "version": "0.1.9" }
-```
-
-> **Note:** v0.1.x does not bundle the Admin UI as a started service.
-> The `admin-ui` package builds and is published to GHCR, but
-> `docker-compose.yml` does not start it (decision pending). Use the
-> REST API and `agentworks` CLI for now. Track the decision at
-> https://github.com/SGridworks/agentworks-os/issues
+The onboarding wizard opens on first launch. You can walk through it or skip to Settings to fill it in later.
 
 ---
 

@@ -7,6 +7,7 @@
  */
 
 import { runMemoryRead, type MemoryReadParams } from "./memory-core.js";
+import { defaultAgentWorksBaseUrl } from "../runtime.js";
 
 interface N8nNodeProperty {
   displayName: string;
@@ -63,7 +64,7 @@ const description: N8nNodeDescription = {
       type: "string",
       required: true,
       default: "",
-      description: "Forward-slash key, e.g. projects/sgridworks",
+      description: "Forward-slash key, e.g. projects/acme",
     },
     {
       displayName: "Detail Tier",
@@ -82,7 +83,7 @@ const description: N8nNodeDescription = {
       name: "baseUrl",
       type: "string",
       required: false,
-      default: "http://127.0.0.1:3100",
+      default: defaultAgentWorksBaseUrl(),
     },
   ],
 };
@@ -101,8 +102,8 @@ export class MemoryRead {
         tier: this.getNodeParameter("tier", i, "detail") as "index" | "detail",
       };
       const baseUrl =
-        (this.getNodeParameter("baseUrl", i, "http://127.0.0.1:3100") as string) ||
-        "http://127.0.0.1:3100";
+        (this.getNodeParameter("baseUrl", i, defaultAgentWorksBaseUrl()) as string) ||
+        defaultAgentWorksBaseUrl();
       const result = await runMemoryRead(params, { baseUrl });
       out.push({ json: { ...items[i]?.json, memoryRead: result } });
     }

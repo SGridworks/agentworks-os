@@ -17,12 +17,9 @@ services:
   # --------------------------------------------------------------------------
   agentos-d:
     build:
-      context: .
+      context: ${AGENTWORKS_SOURCE_DIR:-.}
       dockerfile: packages/agentos-d/Dockerfile
-    # Published by .github/workflows/release.yml on every `v*` tag.
-    # Override with AGENTWORKS_IMAGE_REGISTRY=docker.io/agentworks for a
-    # private mirror, or AGENTWORKS_VERSION to pin a different release.
-    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/agentos-d:${AGENTWORKS_VERSION:-0.1.9}
+    image: agentworks/agentos-d:${AGENTWORKS_VERSION:-0.1.0}
     container_name: agentos-d
     restart: unless-stopped
     ports:
@@ -34,23 +31,9 @@ services:
       AGENTOS_AWCP_VERSION: ${AGENTOS_AWCP_VERSION:-awcp/v0.1}
       RULE_PACKS_DIR: /opt/agentworks/rule-packs
       VAULT_ROOT: /data/vault
-      # Default rule pack auto-assigned at tenant creation. Override in .env
-      # to ship with an industry pack (utility-distribution-starter,
-      # tcpa-real-estate, ...) or set to empty string to disable
-      # auto-assignment entirely. The TS daemon reads the env var directly;
-      # the smb-starter default lives here in compose, not in code.
-      AGENTWORKS_DEFAULT_PACK_ID: ${AGENTWORKS_DEFAULT_PACK_ID:-smb-starter}
-      # Daemon reads AGENTOS_DATA_DIR (see packages/agentos-d/src/config.ts:50).
-      # Without this, the daemon writes SQLite to /app/data (ephemeral inside the
-      # container layer) instead of /data (the bind mount), and loses every tenant,
-      # vault page, and audit-log row on the next 'docker compose down'.
-      AGENTOS_DATA_DIR: /data
+      AGENTWORKS_DATA_DIR: /data
       AGENTWORKS_SESSION_SECRET: ${AGENTWORKS_SESSION_SECRET}
       AGENTOS_EXECUTION_DATABASE_URL: postgres://agentworks:${POSTGRES_PASSWORD:-agentworks-local}@postgres:5432/agentworks
-      # Scanner sidecar URL (config.ts reads SCANNER_SIDECAR_URL; default
-      # http://127.0.0.1:3101 is unreachable from inside the agentos-d
-      # container — the sidecar is reachable as the docker network hostname).
-      SCANNER_SIDECAR_URL: http://scanner-worker:3101
     volumes:
       - ${AGENTWORKS_DATA_DIR:-./data}:/data            # SQLite DB, WAL, vault, uploads
       - ${AGENTWORKS_CONFIG_DIR:-./config}:/config:ro    # .env and secrets (read-only at runtime)
@@ -58,11 +41,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      # 127.0.0.1 not localhost: Alpine resolves localhost to ::1 first,
-      # but the Node process binds IPv4 only, so wget hits "Connection
-      # refused" and Docker marks the container unhealthy even though
-      # the API is fine. Same trap on n8n and scanner-worker below.
-      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:7710/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:7710/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -96,39 +75,24 @@ services:
   # --------------------------------------------------------------------------
   scanner-worker:
     build:
-      context: ./packages/scanner-worker
-      dockerfile: Dockerfile
-    image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/scanner-worker:${AGENTWORKS_VERSION:-0.1.9}
+      context: ${AGENTWORKS_SOURCE_DIR:-.}
+      dockerfile: packages/scanner-worker/Dockerfile
+    image: agentworks/scanner-worker:${AGENTWORKS_VERSION:-0.1.0}
     container_name: scanner-worker
     restart: unless-stopped
     ports:
       - "3101:3101"   # Health + findings API
     environment:
       SCANNER_WORKER_PORT: "3101"
-      # NB: scanner-worker does not call back into agentos-d in v0.1.x —
-      # it answers HTTP requests but is not a producer. SCANNER_SIDECAR_URL
-      # was set here in v0.1.0–v0.1.7 but the Python code never read it.
-      # Removed in v0.1.8.
+      SCANNER_SIDECAR_URL: "http://agentos-d:7710"
       SCANNER_POLL_INTERVAL_MS: "30000"
-      # Paths watched by the scanner. The Python module reads WATCH_DIRS
-      # (packages/scanner-worker/src/scanner_worker/app.py), and expects
-      # ':' separators (not ','). The poller never starts otherwise.
-      WATCH_DIRS: "/config/claude:/config/cursor"
-      # Default to stub embedding/rerank so /health responds in <1s on first
-      # boot. The "real" modes (BAAI/bge-base-en-v1.5 + bge-reranker-base)
-      # download ~1.4 GB from HuggingFace synchronously inside the FastAPI
-      # lifespan startup, blocking Uvicorn from accepting connections for
-      # 5-15 min on a fresh install. The smoke test gives up after ~3s and
-      # warns "scanner-worker /health unreachable". Customers can opt into
-      # real models by setting these to "real" in ~/.agentworks/config/.env.
-      EMBEDDING_MODE: ${EMBEDDING_MODE:-stub}
-      RERANKER_MODE: ${RERANKER_MODE:-stub}
+      # Paths watched by the scanner
+      SCANNER_WATCH_DIRS: "/config/claude,/config/cursor"
     volumes:
-      - ${AGENTWORKS_CONFIG_DIR:-./config}:/config:ro              # Agent configs to scan (CLAUDE.md, .cursorrules, etc.)
-      - ${AGENTWORKS_DATA_DIR:-./data}/scanner:/var/lib/scanner    # Scan state + findings cache
+      - ${AGENTWORKS_CONFIG_DIR:-./config}:/config:ro        # Agent configs to scan (CLAUDE.md, .cursorrules, etc.)
+      - ${AGENTWORKS_DATA_DIR:-./data}/scanner:/var/lib/scanner  # Scan state + findings cache
     healthcheck:
-      # 127.0.0.1 not localhost — see agentos-d health check for context.
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://127.0.0.1:3101/health').raise_for_status()"]
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:3101/health').raise_for_status()"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -137,22 +101,43 @@ services:
       - agentworks
 
   # --------------------------------------------------------------------------
-  # n8n — workflow automation
-  # Builds AgentWorks custom nodes into the n8n image at image build time.
-  # Runs: PolicyCheck, MemoryRead, MemoryWrite, Dispatch.
+  # admin-ui — Next.js admin interface
+  # --------------------------------------------------------------------------
+  admin-ui:
+    build:
+      context: ${AGENTWORKS_SOURCE_DIR:-.}
+      dockerfile: packages/admin-ui/Dockerfile
+    image: agentworks/admin-ui:${AGENTWORKS_VERSION:-0.1.0}
+    container_name: agentworks-admin-ui
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    depends_on:
+      agentos-d:
+        condition: service_healthy
+    networks:
+      - agentworks
+
+  # --------------------------------------------------------------------------
+  # n8n — workflow automation (admin-only; port not exposed by default)
+  # --------------------------------------------------------------------------
   n8n:
     build:
-      context: .
+      context: ${AGENTWORKS_SOURCE_DIR:-.}
       dockerfile: packages/n8n-nodes/Dockerfile
     container_name: agentworks-n8n
     restart: unless-stopped
     ports:
-      - "5678:5678"   # n8n UI
+      - "127.0.0.1:5678:5678"
     environment:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - WEBHOOK_URL=http://localhost:5678/
+      - N8N_CUSTOM_EXTENSIONS=/opt/agentworks/n8n-custom
       - EXECUTIONS_DATA_SAVE_ON_ERROR=all
       - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
       - EXECUTIONS_DATA_SAVE_ON_VOLATICAL_ERROR=all
@@ -161,42 +146,19 @@ services:
       - N8N_DATABASE_TYPE=sqlite
       - N8N_DATABASE_SQLITE_VACUUM_ON_STARTUP=true
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false
+      - N8N_SECURE_COOKIE=false
+      - AGENTWORKS_API_URL=http://host.docker.internal:7710
+      - AGENTOS_API_URL=http://host.docker.internal:7710
     volumes:
       - ${AGENTWORKS_DATA_DIR:-./data}/n8n:/home/node/.n8n
     healthcheck:
-      # 127.0.0.1 not localhost — see agentos-d health check for context.
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:5678/healthz"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5678/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
     networks:
       - agentworks
-
-  # --------------------------------------------------------------------------
-  # admin-ui — Next.js browser dashboard. Opt-in.
-  #
-  # Not started by default. Uncomment this block to bring up the dashboard
-  # at http://localhost:3000. Image is built and pushed by the release
-  # workflow on every tag.
-  #
-  # The agentos-d API at port 7710 is sufficient for headless and MCP use;
-  # the dashboard is a convenience surface for tenant/policy/approval
-  # browsing. See docs/quickstart.md for the full opt-in path.
-  # --------------------------------------------------------------------------
-  # admin-ui:
-  #   image: ${AGENTWORKS_IMAGE_REGISTRY:-ghcr.io/sgridworks/agentworks}/admin-ui:${AGENTWORKS_VERSION:-0.1.9}
-  #   container_name: agentworks-admin-ui
-  #   restart: unless-stopped
-  #   ports:
-  #     - "3000:3000"
-  #   environment:
-  #     NEXT_PUBLIC_AGENTOS_URL: http://localhost:7710
-  #   depends_on:
-  #     agentos-d:
-  #       condition: service_healthy
-  #   networks:
-  #     - agentworks
 
 # ------------------------------------------------------------------------------
 # Networks

@@ -13,25 +13,7 @@ import {
 } from "./db/schema.js";
 import { getDb } from "./db/index.js";
 
-/**
- * Default pack auto-assigned at tenant creation. Driven entirely by the
- * AGENTWORKS_DEFAULT_PACK_ID environment variable. The smb-starter default
- * lives in `docker-compose.yml` (interpolated as
- * `${AGENTWORKS_DEFAULT_PACK_ID:-smb-starter}`) so industry-specific
- * deployments can override or disable auto-assignment without touching
- * code.
- *
- *   AGENTWORKS_DEFAULT_PACK_ID=utility-distribution-starter   # custom
- *   AGENTWORKS_DEFAULT_PACK_ID=                               # disabled
- *   (unset in container)                                      # disabled
- *
- * `tenants.ts` skips the auto-assign call when this is null.
- */
-export const DEFAULT_PACK_ID: string | null = (() => {
-  const v = process.env.AGENTWORKS_DEFAULT_PACK_ID;
-  if (v === undefined || v === "") return null;
-  return v;
-})();
+export const DEFAULT_PACK_ID = "smb-starter";
 
 /**
  * Filter the loaded rule packs to those a tenant has subscribed to.

@@ -1,14 +1,19 @@
-'use client';
+"use client";
 
 import { useRouter } from 'next/navigation';
 import { useCallback } from 'react';
+import { LucideIcon } from 'lucide-react';
 
 export type NavKey =
   | 'mission-control'
   | 'memory-vault'
   | 'vault-health'
   | 'insights'
+  | 'autopilot'
+  | 'automations'
   | 'approvals'
+  | 'issues'
+  | 'review-queue'
   | 'triage-queue'
   | 'agents'
   | 'rule-packs'
@@ -16,16 +21,21 @@ export type NavKey =
   | 'process-health'
   | 'activity'
   | 'evidence'
-  | 'autopilot'
   | 'map'
-  | 'settings';
+  | 'settings'
+  | 'trust'
+  | 'active-work';
 
 export const NAV_TO_PATH: Record<NavKey, string> = {
   'mission-control': '/mission-control',
   'memory-vault':    '/memory-vault',
   'vault-health':    '/vault-health',
   'insights':        '/insights',
+  'autopilot':       '/autopilot',
+  'automations':     '/automations',
   'approvals':       '/approvals',
+  'issues':          '/issues',
+  'review-queue':    '/review-queue',
   'triage-queue':    '/triage-queue',
   'agents':          '/agents',
   'rule-packs':      '/rule-packs',
@@ -33,9 +43,10 @@ export const NAV_TO_PATH: Record<NavKey, string> = {
   'process-health':  '/process-health',
   'activity':        '/activity',
   'evidence':        '/evidence',
-  'autopilot':       '/autopilot',
   'map':             '/map',
   'settings':        '/settings',
+  'trust':           '/trust',
+  'active-work':     '/active-work',
 };
 
 export function useV2Nav() {

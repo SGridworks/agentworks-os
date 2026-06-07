@@ -80,9 +80,9 @@ class TestEmbedRoute:
         assert r1["vectors"] == r2["vectors"]
 
     def test_real_mode_503_when_dep_missing(self):
-        # sentence-transformers is now a base dep so real mode usually
-        # succeeds, but if the dep ever goes missing the endpoint must
-        # return 503 with a helpful message rather than 500.
+        # sentence-transformers is an optional "real" extra. If it is not
+        # installed, the endpoint must return 503 with a helpful message
+        # rather than 500.
         with patch.dict("os.environ", {"EMBEDDING_MODE": "real"}, clear=False):
             reset_service_for_testing()
             client = self._client()

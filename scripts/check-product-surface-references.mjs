@@ -13,28 +13,30 @@ const targetPaths = [
   "scripts",
   "tests",
   "docs",
+  "n8n-nodes-packages",
+  "rule-packs",
   "AGENTS.md",
   "CLAUDE.md",
   "CLAUDE-ONBOARDING.md",
   "PLAN.md",
   "README.md",
+  "docker-compose.dev.yml",
+  "docker-compose.yml",
+  "mkdocs.yml",
   "package.json",
+  "playwright.config.ts",
+  "pnpm-workspace.yaml",
+  "tsconfig.base.json",
+  "vitest.config.ts",
+  "vitest.shared.ts",
 ];
 
 const allowedExact = new Set([
   "scripts/check-product-surface-references.mjs",
   "apps/installer/tests/scaffold-workspace.test.sh",
-  "docs/internal-PLAN-snapshot.md",
-  "docs/brand-naming-convention.md",
-  "docs/agentic-memory-recommendations.md",
-  "packages/agentos-d/src/db/migrations/0028_agent_instructions_paperclip_import.ts",
-  "packages/agentos-d/src/db/migrations/index.ts",
 ]);
 
-const allowedPrefixes = [
-  "docs/rfc/",
-  "tests/plans/",
-];
+const allowedPrefixes = [];
 
 const ignoredPathSegments = new Set([
   "node_modules",

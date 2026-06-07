@@ -17,12 +17,21 @@
 import { Router } from "express";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, rmSync } from "node:fs";
+import { isAbsolute, join, relative } from "node:path";
 import { homedir } from "node:os";
 import { eq, desc } from "drizzle-orm";
 import { getDb } from "../db/index.js";
-import { tenants, type NewTenantRow } from "../db/schema.js";
+import {
+  actionLog,
+  approvalQueue,
+  policyDecisions,
+  tenantProviderConfigs,
+  tenantRulePackAssignments,
+  tenantWebhooks,
+  tenants,
+  type NewTenantRow,
+} from "../db/schema.js";
 import {
   assignPackToTenant,
   listAssignments,
@@ -41,6 +50,12 @@ const CreateTenantSchema = z.object({
 
 function defaultVaultRoot(): string {
   return process.env.VAULT_ROOT ?? join(homedir(), "vault");
+}
+
+function isSafeTenantVaultRoot(vaultRoot: string): boolean {
+  if (!isAbsolute(vaultRoot)) return false;
+  const rel = relative(defaultVaultRoot(), vaultRoot);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
 export function createTenantsRouter(_config: Config): Router {
@@ -91,14 +106,10 @@ export function createTenantsRouter(_config: Config): Router {
     const db = getDb();
     db.insert(tenants).values(row).run();
 
-    // Assign the configured default pack so a fresh tenant boots with at
-    // least one rule pack subscribed. DEFAULT_PACK_ID is null when the
-    // operator set AGENTWORKS_DEFAULT_PACK_ID="" — they want to assign
-    // industry-specific packs themselves and not have smb-starter
-    // auto-attached.
-    if (DEFAULT_PACK_ID) {
-      assignPackToTenant(id, DEFAULT_PACK_ID, "enforce");
-    }
+    // Assign the universal baseline pack so a fresh tenant boots with at
+    // least one rule pack subscribed. Industry-specific packs (TCPA-RE,
+    // fair-housing, HIPAA) get assigned by the operator after onboarding.
+    assignPackToTenant(id, DEFAULT_PACK_ID, "enforce");
 
     res.status(201).json(row);
   });
@@ -115,6 +126,52 @@ export function createTenantsRouter(_config: Config): Router {
       return;
     }
     res.json(row);
+  });
+
+  router.delete("/:id", (req, res) => {
+    const id = req.params.id;
+    if (!id) {
+      res.status(400).json({ error: "invalid_request" });
+      return;
+    }
+
+    const db = getDb();
+    const row = db
+      .select({ id: tenants.id, vaultRoot: tenants.vaultRoot })
+      .from(tenants)
+      .where(eq(tenants.id, id))
+      .get();
+    if (!row) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+
+    if (!isSafeTenantVaultRoot(row.vaultRoot)) {
+      res.status(409).json({ error: "unsafe_vault_root" });
+      return;
+    }
+    try {
+      rmSync(row.vaultRoot, { recursive: true, force: true });
+    } catch (err) {
+      res.status(500).json({ error: "vault_delete_failed", message: String(err) });
+      return;
+    }
+
+    db
+      .delete(tenantRulePackAssignments)
+      .where(eq(tenantRulePackAssignments.tenantId, id))
+      .run();
+    db.delete(tenantWebhooks).where(eq(tenantWebhooks.tenantId, id)).run();
+    db
+      .delete(tenantProviderConfigs)
+      .where(eq(tenantProviderConfigs.tenantId, id))
+      .run();
+    db.delete(actionLog).where(eq(actionLog.tenantId, id)).run();
+    db.delete(approvalQueue).where(eq(approvalQueue.tenantId, id)).run();
+    db.delete(policyDecisions).where(eq(policyDecisions.tenantId, id)).run();
+    db.delete(tenants).where(eq(tenants.id, id)).run();
+
+    res.status(204).send();
   });
 
   // -------------------------------------------------------------------------

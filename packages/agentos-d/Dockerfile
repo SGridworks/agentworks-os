@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1
 #
-# agentos-d Dockerfile.
-# Multi-stage: build TypeScript, bundle a self-contained deployment with
-# `pnpm deploy`, then ship a lightweight Node runtime image.
+# AgentWorks OS — agentos-d Dockerfile
+# Multi-stage: build TypeScript, then run as lightweight Node runtime image.
 #
 FROM node:22-alpine AS builder
 
@@ -10,22 +9,12 @@ WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
-# Workspace root + every workspace package.json. pnpm needs to see the full
-# workspace to resolve `workspace:*` protocols, including ones declared in
-# devDependencies of the root package.json (e.g. @agentworks/n8n-nodes).
-# Copying every package.json keeps the install contract independent of which
-# package we are deploying, at a cost of ~10 KB.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/shared/package.json ./packages/shared/package.json
 COPY packages/policy-engine/package.json ./packages/policy-engine/package.json
 COPY packages/memory/package.json ./packages/memory/package.json
 COPY packages/pdf/package.json ./packages/pdf/package.json
 COPY packages/agentos-d/package.json ./packages/agentos-d/package.json
-COPY packages/n8n-nodes/package.json ./packages/n8n-nodes/package.json
-COPY packages/admin-ui/package.json ./packages/admin-ui/package.json
-COPY packages/awcp/package.json ./packages/awcp/package.json
-COPY packages/agent-adapters/package.json ./packages/agent-adapters/package.json
-COPY apps/installer/package.json ./apps/installer/package.json
 
 RUN pnpm install --frozen-lockfile --prod=false
 
@@ -46,12 +35,6 @@ RUN pnpm --filter @agentworks/shared build \
  && pnpm --filter @agentworks/pdf build \
  && pnpm --filter @agentworks/agentos-d build
 
-# `pnpm deploy` materializes a flat, self-contained node_modules tree at
-# /deploy. This avoids the trap of copying packages/agentos-d/node_modules
-# directly: pnpm uses relative symlinks into the virtual store at
-# .pnpm/<pkg>@<ver>, and those break the moment the directory is moved.
-RUN pnpm deploy --filter @agentworks/agentos-d --prod /deploy
-
 # ------------------------------------------------------------------------------
 # Runtime image
 # ------------------------------------------------------------------------------
@@ -61,13 +44,22 @@ WORKDIR /app
 
 RUN apk add --no-cache curl && rm -rf /var/cache/apk/*
 
-COPY --from=builder /deploy/node_modules ./node_modules
-COPY --from=builder /deploy/dist ./dist
-COPY --from=builder /deploy/package.json ./package.json
+COPY --from=builder /app/packages/agentos-d/dist ./dist
+COPY --from=builder /app/packages/agentos-d/node_modules ./node_modules
+COPY --from=builder /app/packages/policy-engine/dist ./node_modules/@agentworks/policy-engine/dist
+COPY --from=builder /app/packages/policy-engine/package.json ./node_modules/@agentworks/policy-engine/package.json
+COPY --from=builder /app/packages/shared/dist ./node_modules/@agentworks/shared/dist
+COPY --from=builder /app/packages/shared/package.json ./node_modules/@agentworks/shared/package.json
+COPY --from=builder /app/packages/memory/dist ./node_modules/@agentworks/memory/dist
+COPY --from=builder /app/packages/memory/package.json ./node_modules/@agentworks/memory/package.json
+COPY --from=builder /app/packages/pdf/dist ./node_modules/@agentworks/pdf/dist
+COPY --from=builder /app/packages/pdf/package.json ./node_modules/@agentworks/pdf/package.json
 
 # Bundle rule packs into the image so policy.check works out of the box.
 # Customers can override with RULE_PACKS_DIR pointing at a host volume.
 COPY rule-packs /opt/agentworks/rule-packs
+
+COPY --from=builder /app/packages/agentos-d/package.json ./package.json
 
 ENV NODE_ENV=production \
     AGENTOS_HOST=0.0.0.0 \
@@ -78,6 +70,6 @@ ENV NODE_ENV=production \
 EXPOSE 7710
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:${AGENTOS_PORT}/api/health || exit 1
+    CMD curl -f http://127.0.0.1:${AGENTOS_PORT}/api/health || exit 1
 
 ENTRYPOINT ["node", "dist/cli.js"]

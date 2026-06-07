@@ -120,8 +120,8 @@ export async function rebuildHotMd(deps: HotMdBuilderDeps): Promise<{ path: stri
   if (vault.list) {
     vaultKeys = await vault.list(tenantId);
   }
-  // Exclude hot.md itself
-  vaultKeys = vaultKeys.filter((k) => k !== HOT_KEY);
+  // Exclude hot.md itself; stores may report either canonical key shape.
+  vaultKeys = vaultKeys.filter((k) => k !== HOT_KEY && k !== `${HOT_KEY}.md`);
   const topKeys = vaultKeys.slice(0, 20);
   if (topKeys.length === 0) {
     lines.push("_No vault pages yet._");

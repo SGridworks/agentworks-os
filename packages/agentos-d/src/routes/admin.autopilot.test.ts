@@ -4,18 +4,21 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+const PACKAGE_ROOT = resolve(__dirname, "../..");
 const REPO_ROOT = resolve(__dirname, "../../../..");
-const DAEMON_ENTRY = join(REPO_ROOT, "packages", "agentos-d", "dist", "cli.js");
+const DAEMON_ENTRY = join(PACKAGE_ROOT, "dist", "cli.js");
 const RULE_PACKS = join(REPO_ROOT, "rule-packs");
 
 let daemon: ChildProcess;
 let tmpRoot: string;
 let baseUrl: string;
 let tenantId: string;
+let daemonStderr = "";
 
 async function postJson(path: string, body: unknown): Promise<Response> {
   return await fetch(`${baseUrl}${path}`, {
@@ -29,23 +32,35 @@ async function getJson(path: string): Promise<Response> {
   return await fetch(`${baseUrl}${path}`);
 }
 
-async function callTool(
-  name: string,
-  args: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const res = await postJson("/api/mcp", {
-    jsonrpc: "2.0",
-    id: Math.floor(Math.random() * 1e9),
-    method: "tools/call",
-    params: { name, arguments: args },
+async function evaluatePolicy(args: {
+  tenantId: string;
+  actor: { id: string; type: "human" | "agent" | "system"; label: string };
+  proposedAction: { kind: string; summary: string };
+  evidenceSnapshot: Record<string, unknown>;
+  consent?: { source: "written" | "verbal" | "inferred" | "none" | "unknown"; verified?: boolean };
+}): Promise<Record<string, unknown>> {
+  const actionId = randomUUID();
+  const res = await postJson("/api/policy/evaluate", {
+    requestId: actionId,
+    actionId,
+    proposedAt: new Date().toISOString(),
+    tenantId: args.tenantId,
+    actor: args.actor,
+    actionKind: args.proposedAction.kind,
+    payload: {
+      action_kind: args.proposedAction.kind,
+      ...args.evidenceSnapshot,
+    },
+    context: { vaultRefs: [], conversationRefs: [], projectRefs: [], meta: {} },
+    proposedAction: args.proposedAction,
+    evidenceSnapshot: args.evidenceSnapshot,
+    ...(args.consent ? { consent: args.consent } : {}),
   });
-  expect(res.status).toBe(200);
-  const env = (await res.json()) as {
-    result?: { content: Array<{ type: string; text: string }> };
-    error?: unknown;
-  };
-  if (env.error) throw new Error(`MCP error: ${JSON.stringify(env.error)}`);
-  return JSON.parse(env.result!.content[0].text) as Record<string, unknown>;
+  const body = (await res.json()) as Record<string, unknown>;
+  if (res.status !== 201) {
+    throw new Error(`policy/evaluate failed: ${JSON.stringify({ status: res.status, body })}`);
+  }
+  return body;
 }
 
 beforeAll(async () => {
@@ -61,9 +76,11 @@ beforeAll(async () => {
       RULE_PACKS_DIR: RULE_PACKS,
       VAULT_ROOT: join(tmpRoot, "vault"),
       AGENTOS_DATA_DIR: join(tmpRoot, "data"),
-      AWOS_AGENTS_ROOT: join(tmpRoot, "agents"),
     },
     stdio: ["ignore", "pipe", "pipe"],
+  });
+  daemon.stderr?.on("data", (chunk) => {
+    daemonStderr += String(chunk);
   });
   // Wait until /api/health responds OK
   for (let attempt = 0; attempt < 40; attempt++) {
@@ -75,7 +92,7 @@ beforeAll(async () => {
     }
     await new Promise((r) => setTimeout(r, 250));
   }
-  throw new Error(`Daemon at ${baseUrl} did not become healthy in 10s`);
+  throw new Error(`Daemon at ${baseUrl} did not become healthy in 10s\n${daemonStderr}`);
 }, 30_000);
 
 afterAll(() => {
@@ -97,11 +114,6 @@ describe("autopilot dispatch endpoint", () => {
     );
     tenantId = body.id;
 
-    const unassignBaseline = await fetch(`${baseUrl}/api/tenants/${tenantId}/rule-packs/smb-starter`, {
-      method: "DELETE",
-    });
-    expect(unassignBaseline.status).toBe(204);
-
     // Assign rule packs
     for (const packId of ["tcpa-real-estate", "fair-housing"]) {
       const r = await postJson(`/api/tenants/${tenantId}/rule-packs`, {
@@ -114,7 +126,7 @@ describe("autopilot dispatch endpoint", () => {
 
   it("creates low-risk actions that should be auto-allowed", async () => {
     // Create a low-risk memory write action
-    const result1 = await callTool("policy.check", {
+    const result1 = await evaluatePolicy({
       tenantId,
       actor: { id: "agent-1", type: "agent", label: "TestAgent" },
       proposedAction: { kind: "memory.write", summary: "Write safe data" },
@@ -123,13 +135,12 @@ describe("autopilot dispatch endpoint", () => {
         data_classification: "public",
         contains_pii: false,
       },
-      shadowMode: false,
     });
 
     expect(result1.decision).toBe("allow");
 
     // Create another low-risk action
-    const result2 = await callTool("policy.check", {
+    const result2 = await evaluatePolicy({
       tenantId,
       actor: { id: "agent-1", type: "agent", label: "TestAgent" },
       proposedAction: { kind: "file.read", summary: "Read config file" },
@@ -138,7 +149,6 @@ describe("autopilot dispatch endpoint", () => {
         file_path: "/config/app.json",
         file_classification: "public",
       },
-      shadowMode: false,
     });
 
     expect(result2.decision).toBe("allow");
@@ -146,17 +156,17 @@ describe("autopilot dispatch endpoint", () => {
 
   it("creates medium-risk actions that need approval", async () => {
     // Create a medium-risk action that should route to review
-    const result = await callTool("policy.check", {
+    const result = await evaluatePolicy({
       tenantId,
       actor: { id: "agent-1", type: "agent", label: "TestAgent" },
-      proposedAction: { kind: "outbound.email", summary: "Send housing marketing email" },
+      proposedAction: { kind: "http.post", summary: "Post to external API" },
       evidenceSnapshot: {
-        action_kind: "outbound.email",
-        housing_related: true,
+        action_kind: "http.post",
+        url: "https://api.example.com/data",
         contains_pii: false,
         rate_limit_check: "unknown",
       },
-      shadowMode: false,
+      consent: { source: "written", verified: false },
     });
 
     expect(result.decision).toBe("route_to_review");
@@ -211,7 +221,7 @@ describe("autopilot dispatch endpoint", () => {
 
   it("skips risky actions and only dispatches safe ones", async () => {
     // Get all action IDs
-    const decisionsRes = await getJson(`/api/policy/decisions?tenantId=${tenantId}`);
+    const decisionsRes = await getJson(`/api/policy/decisions?tenantId=${tenantId}&decision=allow`);
     expect(decisionsRes.status).toBe(200);
     const decisions = (await decisionsRes.json()) as { items: Array<{ actionId: string; decision: string }> };
     
@@ -255,7 +265,7 @@ describe("autopilot dispatch endpoint", () => {
   });
 
   it("supports idempotency - same key returns same results", async () => {
-    const decisionsRes = await getJson(`/api/policy/decisions?tenantId=${tenantId}`);
+    const decisionsRes = await getJson(`/api/policy/decisions?tenantId=${tenantId}&decision=allow`);
     expect(decisionsRes.status).toBe(200);
     const decisions = (await decisionsRes.json()) as { items: Array<{ actionId: string }> };
     

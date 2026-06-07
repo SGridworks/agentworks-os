@@ -24,7 +24,10 @@ packages/*/data/*.db-wal
 # Per-package runtime scratch + signing keys must never be committed
 packages/*/data/
 packages/*/data.relocated-*/
+packages/*/logs/
 .gstack/
+.agentworks/secrets.env
+.agentworks/*.env
 
 # Top-level db scratch
 data/
@@ -36,3 +39,18 @@ packages/*/test-results/
 
 # Personal dev helpers
 _build_jwt.py
+
+# Session / E2E report artifacts (not code; quarantined from per-session
+# audits, may be reviewed on disk but never tracked in git)
+AWOS_*.md
+AWOS_*.json
+AWOS_E2E_*.json
+AWOS_E2E_*.md
+CURRENT_STATE_AUDIT.md
+FINAL_REPORT.md
+FIX_LOG.md
+SYSTEM_MAP.md
+TRIM_CANDIDATES.md
+
+# Test scratch dirs (created by db-identity + related tests at runtime)
+packages/*/tmp-test-db-identity/

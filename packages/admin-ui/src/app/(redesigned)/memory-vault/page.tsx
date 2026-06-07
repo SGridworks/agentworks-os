@@ -3,8 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { V2Shell } from '@/components/v2/shell';
 import { useV2Nav } from '@/components/v2/nav';
-import { getMemoryGraph, getMemoryProvenance, type VaultGraph, type VaultGraphNote, type ProvenanceMeta } from '@/lib/api';
-import { useActiveTenant } from '@/lib/use-active-tenant';
+import { listTenants, getMemoryGraph, getMemoryProvenance, type Tenant, type VaultGraph, type VaultGraphNote, type ProvenanceMeta } from '@/lib/api';
 import { ChevronDown, ChevronRight, Folder, X } from 'lucide-react';
 import GraphCanvas from '@/components/v2/graph-canvas';
 
@@ -35,7 +34,7 @@ function relTime(iso: string): string {
 
 export default function MemoryVaultV2() {
   const navigate = useV2Nav();
-  const { tenant } = useActiveTenant();
+  const [tenant, setTenant] = useState<Tenant | null>(null);
   const [graph, setGraph] = useState<VaultGraph | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
@@ -43,9 +42,20 @@ export default function MemoryVaultV2() {
   const [filterKinds, setFilterKinds] = useState<Set<string>>(new Set(Object.keys(KIND_META)));
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // Handle selected note from URL query parameter
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const selected = urlParams.get('selected');
+      if (selected) {
+        setSelectedId(decodeURIComponent(selected));
+      }
+    }
+  }, []);
+
+  useEffect(() => { listTenants().then((ts) => setTenant(ts[0] ?? null)).catch((e) => setError(String(e))); }, []);
   useEffect(() => {
     if (!tenant) return;
-    setSelectedId(null);
     getMemoryGraph(tenant.id).then(setGraph).catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [tenant]);
 
@@ -282,6 +292,7 @@ function Canvas({ notes, edges, selectedId, onSelect }:
         selectedId={selectedId}
         onSelectNode={onSelect}
         nodeKindMeta={nodeKindMeta}
+        layout={{ type: 'cluster' }} // Using cluster layout to maintain existing behavior
         width={1000}
         height={700}
       />
@@ -356,12 +367,15 @@ function ProvenanceTab({ provenance }: { provenance: ProvenanceMeta | null }) {
         <div className="eyebrow" style={{ marginBottom: 6 }}>LAST READERS</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {provenance.lastUsedBy.length > 0 ? (
-            provenance.lastUsedBy.map((readerId, index) => (
+            provenance.lastUsedBy.map((reader, index) => (
               <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span className="mono" style={{ fontSize: 11, padding: '2px 6px', background: 'var(--bg-2)', color: 'var(--ink)', borderRadius: 2 }}>
-                  {readerId.slice(0, 8)}
+                  {reader.agentId.slice(0, 8)}
                 </span>
                 <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)' }}>Agent</span>
+                <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)' }}>
+                  {relTime(reader.usedAt)}
+                </span>
               </div>
             ))
           ) : (
@@ -390,6 +404,20 @@ function ProvenanceTab({ provenance }: { provenance: ProvenanceMeta | null }) {
               FRESH
             </span>
           )}
+        </div>
+      </div>
+
+      <div>
+        <div className="eyebrow" style={{ marginBottom: 6 }}>USAGE STATS</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 14px', background: 'var(--bg-2)', borderRadius: 2, border: '1px solid var(--rule)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>Read count</span>
+            <span className="mono tabular" style={{ fontSize: 11, color: 'var(--ink)' }}>{provenance.readCount}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>Write count</span>
+            <span className="mono tabular" style={{ fontSize: 11, color: 'var(--ink)' }}>{provenance.writeCount}</span>
+          </div>
         </div>
       </div>
 

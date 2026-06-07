@@ -1,6 +1,6 @@
 # AgentWorks `packages/agentos-d`
 
-The substrate daemon. REST + MCP server, DB migrations, paperclip adapter integration, and the core orchestration service that routes agent actions through policy checks before execution. This is the runtime heart of AgentWorks OS.
+The substrate daemon. REST + MCP server, DB migrations, legacy bridge integration, and the core orchestration service that routes agent actions through policy checks before execution. This is the runtime heart of AgentWorks OS.
 
 ## Your lane
 
@@ -24,12 +24,12 @@ Other packages must NOT import:
 - `packages/scanner-worker/**` (PythonEngineer)
 - `packages/admin-ui/**` (FrontendEngineer)
 - `docs/**` (TechnicalWriter)
-- `/Users/example/Projects/paperclip/**` (orchestrator runtime — read-only)
+- External orchestration runtimes (read-only unless explicitly assigned)
 
 ## Relevant LEARNINGS
 
 - §4 — Schema drift without migrations = comments break instance-wide. Add a migration in the SAME commit as any schema change.
-- §6 — Repo-boundary violations. agentos-d is NEW code in agentworks-os, NOT a fork of paperclip.
+- §6 — Repo-boundary violations. agentos-d is NEW code in agentworks-os, not a fork of upstream runtime code.
 - §16 — Substrate idempotency: one POST can create two tickets. Use unique constraints and retries.
 - §17 — Auto-commit + off-scope work = noise on `main`. Keep commits scoped to the ticket.
 

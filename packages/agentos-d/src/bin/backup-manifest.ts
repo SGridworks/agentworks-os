@@ -14,7 +14,7 @@ export interface BackupManifest {
   vaults: string[]; // tenant IDs whose vault dirs are included
   rulePackAssignments: boolean; // whether tenant_rule_pack_assignments data is included
   tenantConfigs: string[]; // tenant IDs whose config is included
-  checksumSha256: string; // SHA-256 of payload/agentworks.db
+  checksumSha256: string; // SHA-256 of the payload (set after encryption / before tar)
 }
 
 /**

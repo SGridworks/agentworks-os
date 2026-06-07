@@ -59,7 +59,7 @@ export interface NodeMeta {
   
   // evidence
   rule_pack_id?: string;
-  severity?: "critical" | "block" | "high" | "medium" | "low" | "info";
+  severity?: "critical" | "high" | "medium" | "low" | "info";
   verdict?: string;
   scanner?: string;
   sha256?: string;
@@ -125,13 +125,13 @@ function computeNodeColor(node: {
     switch (node.status) {
       case "done":  return "#10b981"; // green-500
       case "review":return "#8b5cf6"; // purple-500
-      case "blocked":return "#ef4444"; // red-500: danger; red-900 is reserved for severe evidence
+      case "blocked":return "#991b1b"; // red-900 for blocked severity
     }
   }
   
   if (node.kind === "run" && node.status === "failed") return "#ef4444"; // red-500
   
-  if (node.kind === "evidence" && (node.meta.severity === "critical" || node.meta.severity === "block")) return "#991b1b"; // red-900
+  if (node.kind === "evidence" && node.meta.severity === "critical") return "#991b1b"; // red-900
   
   return PALETTE[node.kind].default;
 }

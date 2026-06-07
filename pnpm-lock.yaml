@@ -260,6 +260,9 @@ importers:
 
   packages/awcp:
     dependencies:
+      '@agentworks/shared':
+        specifier: workspace:*
+        version: link:../shared
       zod:
         specifier: ^3.23.8
         version: 3.25.76

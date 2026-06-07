@@ -74,17 +74,24 @@ export async function getProvenance(
   db?: Database,
   embedClient?: EmbedClient
 ): Promise<ProvenanceResult | null> {
-  const sqlite = db || getSqlite();
-  
   try {
     // For now, we'll always return provenance data without checking if the document exists
     // This is because the vault store integration isn't complete yet
     // In a real implementation, we would check if the document exists first
     
     // Get the database queries for citations, decisions, and conflicts
-    const citations = await getCitations(sqlite, tenantId, key);
-    const decisions = await getDecisions(sqlite, tenantId, key);
-    const conflicts = await getConflicts(sqlite, tenantId, key, embedClient);
+    let sqlite: Database | null = db ?? null;
+    if (!sqlite) {
+      try {
+        sqlite = getSqlite();
+      } catch {
+        sqlite = null;
+      }
+    }
+
+    const citations = sqlite ? await getCitations(sqlite, tenantId, key) : [];
+    const decisions = sqlite ? await getDecisions(sqlite, tenantId, key) : [];
+    const conflicts = sqlite ? await getConflicts(sqlite, tenantId, key, embedClient) : [];
 
     // Read lastUsedBy directly from the vault store — no mock, no TODO
     // VaultReadResult flattens frontmatter fields (lastUsedBy, lastUpdatedBy, etc.)
@@ -99,14 +106,29 @@ export async function getProvenance(
       const store = getVaultStore() as FileVaultStore;
       const result = await store.read(tenantId, key);
       if (result.existed) {
-        const lastUsedBy = (result.lastUsedBy ?? []).filter(
-          (u): u is { agentId: string; usedAt: string } => Boolean(u.agentId),
-        );
+        const lastUsedBy = Array.isArray(result.lastUsedBy)
+          ? result.lastUsedBy.flatMap((u): Array<{ agentId: string; usedAt: string }> => {
+              if (typeof u === "string") return [{ agentId: u, usedAt: "" }];
+              if (
+                u &&
+                typeof u === "object" &&
+                "agentId" in u &&
+                typeof (u as { agentId?: unknown }).agentId === "string"
+              ) {
+                const usedAt =
+                  "usedAt" in u && typeof (u as { usedAt?: unknown }).usedAt === "string"
+                    ? (u as { usedAt: string }).usedAt
+                    : "";
+                return [{ agentId: (u as { agentId: string }).agentId, usedAt }];
+              }
+              return [];
+            })
+          : [];
         frontmatter = {
           ...(result.authoringAgent !== undefined && { authoringAgent: result.authoringAgent }),
           ...(result.lastUpdatedBy !== undefined && { lastUpdatedBy: result.lastUpdatedBy }),
           ...(result.lastUpdatedAt !== undefined && { lastUpdatedAt: result.lastUpdatedAt }),
-          ...(lastUsedBy.length > 0 && { lastUsedBy }),
+          lastUsedBy,
         };
       }
     } catch (_err) {
@@ -115,7 +137,7 @@ export async function getProvenance(
 
     const importance = determineImportance(citations);
     const lastUsedAt = citations.length > 0 ? citations[0]?.loggedAt : undefined;
-    const staleRisk = isStale(lastUsedAt, importance);
+    const staleRisk = isStale({ lastUsedAt, importance });
     
     return {
       key,
@@ -302,18 +324,15 @@ async function checkDocumentExists(
 
 /**
  * Check if a document is stale based on usage and importance.
- * Pure function: isStale(meta) = (now - lastUsedAt > 30d) AND importance >= 3
+ * Pure function: isStale = (now - lastUsedAt > 30d) AND importance >= 3
  */
-function isStale(lastUsedAt: string | undefined, importance: number): boolean {
-  if (!lastUsedAt) return false; // No usage data, can't determine staleness
-  
-  const now = new Date();
-  const lastUsed = new Date(lastUsedAt);
+export function isStale(meta: { lastUsedAt?: string | undefined; importance: number; now?: Date }): boolean {
+  if (!meta.lastUsedAt) return false;
+  const now = meta.now ?? new Date();
+  const lastUsed = new Date(meta.lastUsedAt);
   const daysSinceLastUse = (now.getTime() - lastUsed.getTime()) / (1000 * 60 * 60 * 24);
-  
-  return daysSinceLastUse > 30 && importance >= 3;
+  return daysSinceLastUse > 30 && meta.importance >= 3;
 }
-
 /**
  * Determine importance of a document based on available data.
  * For now, we'll use a default importance of 3 for documents that have citations.

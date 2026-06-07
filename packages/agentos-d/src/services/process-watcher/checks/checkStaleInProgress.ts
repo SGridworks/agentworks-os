@@ -1,4 +1,3 @@
-// packages/agentos-d/src/services/process-watcher/checks/checkStaleInProgress.ts
 import type { CheckResult, Finding } from "../types.js";
 
 export interface StaleInProgressInput {
@@ -13,6 +12,12 @@ export interface StaleInProgressInput {
   thresholdMin: number;
 }
 
+/**
+ * Checks for stale in_progress tickets that exceed a given threshold.
+ *
+ * @param input - Input configuration for checking stale in_progress issues
+ * @returns Object containing findings and errors
+ */
 export async function checkStaleInProgress(
   input: StaleInProgressInput
 ): Promise<CheckResult> {

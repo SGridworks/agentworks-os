@@ -251,6 +251,7 @@ interface MemoryWriteNodeParams {
   tenantId: string;
   key: string;
   body: string;
+  actorId?: string;
 }
 interface PolicyCheckNodeParams {
   tenantId: string;
@@ -345,6 +346,48 @@ liveDescribe("agentworks.memory.read + write — live API", () => {
       body: JSON.stringify(params),
     });
     expect(res.status).toBe(400);
+  });
+
+  it("write with actorId stamps provenance metadata", async () => {
+    const key = `notes/provenance/${randomUUID()}`;
+    const actorId = randomUUID();
+    const params: MemoryWriteNodeParams = {
+      tenantId: "test-tenant",
+      key,
+      body: "provenance test content",
+      actorId,
+    };
+    const wRes = await api("/api/memory/write", {
+      method: "POST",
+      body: JSON.stringify(params),
+    });
+    expect(wRes.ok).toBe(true);
+
+    // Read the page back and verify provenance metadata is present
+    const readParams: MemoryReadNodeParams = { tenantId: "test-tenant", key };
+    const rRes = await api("/api/memory/read", {
+      method: "POST",
+      body: JSON.stringify(readParams),
+    });
+    expect(rRes.ok).toBe(true);
+    const rBody = (await rRes.json()) as {
+      ok: boolean;
+      data: { 
+        body: string; 
+        existed: boolean; 
+        lastUpdatedBy?: string; 
+        lastUpdatedAt?: string;
+      };
+    };
+    expect(rBody.data.body).toBe("provenance test content");
+    expect(rBody.data.existed).toBe(true);
+    expect(rBody.data.lastUpdatedBy).toBe(actorId);
+    expect(rBody.data.lastUpdatedAt).toBeDefined();
+    
+    // Verify lastUpdatedAt is a valid ISO timestamp
+    const timestamp = new Date(rBody.data.lastUpdatedAt!);
+    expect(timestamp.getTime()).toBeGreaterThan(Date.now() - 60000); // Within last minute
+    expect(timestamp.getTime()).toBeLessThanOrEqual(Date.now()); // Not in future
   });
 });
 

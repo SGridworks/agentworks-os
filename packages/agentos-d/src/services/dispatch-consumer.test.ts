@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import { migrate } from "../db/migrations/index.js";
 import {
   DispatchConsumer,
+  claimHermesLocalDispatch,
   stubAdapter,
   dispatchConsumerEnabled,
   dispatchConsumerOptionsFromEnv,
@@ -12,10 +13,11 @@ import {
 
 const TENANT = "11111111-1111-1111-1111-111111111111";
 const COMPANY = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const PROJECT = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 
 let sqlite: Database.Database;
 
-function seedAgent(id: string, status = "active"): void {
+function seedAgent(id: string, status = "active", adapterType: string | null = null): void {
   const now = new Date().toISOString();
   sqlite
     .prepare(
@@ -26,25 +28,61 @@ function seedAgent(id: string, status = "active"): void {
   sqlite
     .prepare(
       `INSERT INTO execution_agents
-         (id, tenant_id, company_id, name, role, status, config_json, model, created_at, updated_at)
-       VALUES (?, ?, ?, 'A', 'BackendEngineer', ?, '{}', 'kimi-k2', ?, ?)`
+         (id, tenant_id, company_id, name, role, status, config_json, adapter_type, model, created_at, updated_at)
+       VALUES (?, ?, ?, 'A', 'BackendEngineer', ?, '{}', ?, 'kimi-k2', ?, ?)`
     )
-    .run(id, TENANT, COMPANY, status, now, now);
+    .run(id, TENANT, COMPANY, status, adapterType, now, now);
 }
 
-function enqueue(opts: { id: string; tenantId?: string; targetAgentId: string; taskKind?: string }): void {
+function seedIssue(id: string, status = "in_progress"): void {
+  const now = new Date().toISOString();
+  sqlite
+    .prepare(
+      `INSERT OR IGNORE INTO execution_projects (id, tenant_id, company_id, name, status, metadata_json, created_at, updated_at)
+       VALUES (?, ?, ?, 'Project', 'active', '{}', ?, ?)`
+    )
+    .run(PROJECT, TENANT, COMPANY, now, now);
+  sqlite
+    .prepare(
+      `INSERT INTO execution_issues
+         (id, tenant_id, company_id, project_id, identifier, title, description, status,
+          priority, assignee_agent_id, parent_issue_id, blocked_on_json, metadata_json,
+          created_at, updated_at, completed_at)
+       VALUES (?, ?, ?, ?, 'AGE-T', 'Test issue', NULL, ?, 'medium', NULL, NULL, '[]', '{}', ?, ?, NULL)`
+    )
+    .run(id, TENANT, COMPANY, PROJECT, status, now, now);
+}
+
+function enqueue(opts: {
+  id: string;
+  tenantId?: string;
+  targetAgentId: string;
+  taskKind?: string;
+  input?: Record<string, unknown>;
+}): void {
   const now = new Date().toISOString();
   sqlite
     .prepare(
       `INSERT INTO dispatch_queue
          (id, tenant_id, task_kind, target_agent_id, input, status, created_at)
-       VALUES (?, ?, ?, ?, '{"hello":"world"}', 'queued', ?)`
+       VALUES (?, ?, ?, ?, ?, 'queued', ?)`
     )
-    .run(opts.id, opts.tenantId ?? TENANT, opts.taskKind ?? "test.task", opts.targetAgentId, now);
+    .run(
+      opts.id,
+      opts.tenantId ?? TENANT,
+      opts.taskKind ?? "test.task",
+      opts.targetAgentId,
+      JSON.stringify(opts.input ?? { hello: "world" }),
+      now,
+    );
 }
 
 function getDispatch(id: string): Record<string, unknown> {
   return sqlite.prepare("SELECT * FROM dispatch_queue WHERE id = ?").get(id) as Record<string, unknown>;
+}
+
+function getIssue(id: string): Record<string, unknown> {
+  return sqlite.prepare("SELECT * FROM execution_issues WHERE id = ?").get(id) as Record<string, unknown>;
 }
 
 beforeEach(() => {
@@ -76,6 +114,52 @@ describe("DispatchConsumer.tick", () => {
     expect(row.status).toBe("completed");
     expect(row.dispatched_at).not.toBeNull();
     expect(row.completed_at).not.toBeNull();
+  });
+
+  it("moves linked in-progress issues to review when dispatch completes", async () => {
+    const agentId = "aaaaaaaa-1111-1111-1111-111111111111";
+    const issueId = "cccccccc-1111-1111-1111-111111111111";
+    seedAgent(agentId);
+    seedIssue(issueId);
+    enqueue({ id: "d-linked", targetAgentId: agentId, input: { issueId } });
+
+    const consumer = new DispatchConsumer({ sqlite });
+    const r = await consumer.tick();
+    expect(r.completed).toBe(1);
+
+    const issue = getIssue(issueId);
+    expect(issue.status).toBe("review");
+    expect(issue.completed_at).toBeNull();
+    const comment = sqlite
+      .prepare("SELECT body FROM execution_issue_comments WHERE issue_id = ? ORDER BY created_at DESC LIMIT 1")
+      .get(issueId) as { body: string };
+    expect(comment.body).toContain("Dispatch d-linked finished");
+    expect(comment.body).toContain("Issue moved to review");
+  });
+
+  it("moves linked issues to blocked when dispatch fails", async () => {
+    const agentId = "aaaaaaaa-1111-1111-1111-111111111111";
+    const issueId = "cccccccc-2222-2222-2222-222222222222";
+    seedAgent(agentId);
+    seedIssue(issueId);
+    enqueue({ id: "d-linked-fail", targetAgentId: agentId, input: { payload: { issueId } } });
+
+    const failing: AgentAdapter = {
+      async run() {
+        return { status: "failed", error: "adapter failure" };
+      },
+    };
+    const consumer = new DispatchConsumer({ sqlite, adapter: failing });
+    const r = await consumer.tick();
+    expect(r.failed).toBe(1);
+
+    const issue = getIssue(issueId);
+    expect(issue.status).toBe("blocked");
+    const comment = sqlite
+      .prepare("SELECT body FROM execution_issue_comments WHERE issue_id = ? ORDER BY created_at DESC LIMIT 1")
+      .get(issueId) as { body: string };
+    expect(comment.body).toContain("Dispatch d-linked-fail finished");
+    expect(comment.body).toContain("Dispatch failed: adapter failure");
   });
 
   it("marks failed when target agent is missing", async () => {
@@ -261,6 +345,20 @@ describe("DispatchConsumer.tick", () => {
     const second = await consumer.tick();
     expect(second).toEqual({ scanned: 0, claimed: 0, completed: 0, failed: 0 });
   });
+
+  it("leaves hermes_local rows queued unless explicitly opted in", async () => {
+    const agentId = "aaaaaaaa-1111-1111-1111-111111111111";
+    seedAgent(agentId, "active", "hermes_local");
+    enqueue({ id: "d-hermes", targetAgentId: agentId });
+
+    const defaultConsumer = new DispatchConsumer({ sqlite });
+    expect(await defaultConsumer.tick()).toEqual({ scanned: 0, claimed: 0, completed: 0, failed: 0 });
+    expect(getDispatch("d-hermes").status).toBe("queued");
+
+    const optInConsumer = new DispatchConsumer({ sqlite, claimHermesLocal: true });
+    expect(await optInConsumer.tick()).toEqual({ scanned: 1, claimed: 1, completed: 1, failed: 0 });
+    expect(getDispatch("d-hermes").status).toBe("completed");
+  });
 });
 
 describe("DispatchConsumer.start/stop", () => {
@@ -282,8 +380,9 @@ describe("DispatchConsumer.start/stop", () => {
 });
 
 describe("env helpers", () => {
-  it("dispatchConsumerEnabled defaults ON, can be disabled with explicit 'false'", () => {
-    expect(dispatchConsumerEnabled({})).toBe(true);
+  it("dispatchConsumerEnabled defaults OFF, can be enabled explicitly", () => {
+    expect(dispatchConsumerEnabled({})).toBe(false);
+    expect(dispatchConsumerEnabled({ AWOS_NATIVE_DISPATCH_ENABLED: "1" })).toBe(true);
     expect(dispatchConsumerEnabled({ AGENTOS_DISPATCH_CONSUMER_ENABLED: "true" })).toBe(true);
     expect(dispatchConsumerEnabled({ AGENTOS_DISPATCH_CONSUMER_ENABLED: "false" })).toBe(false);
   });
@@ -301,6 +400,12 @@ describe("env helpers", () => {
         AGENTOS_DISPATCH_CONSUMER_INTERVAL_MS: "not-a-number",
       })
     ).toEqual({ intervalMs: 5000, batchSize: 5 });
+  });
+
+  it("claimHermesLocalDispatch requires explicit opt-in", () => {
+    expect(claimHermesLocalDispatch({})).toBe(false);
+    expect(claimHermesLocalDispatch({ AWOS_CLAIM_HERMES_LOCAL_DISPATCH: "1" })).toBe(true);
+    expect(claimHermesLocalDispatch({ AWOS_CLAIM_HERMES_LOCAL_DISPATCH: "true" })).toBe(true);
   });
 });
 

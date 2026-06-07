@@ -23,6 +23,9 @@ import { useV2Nav } from '@/components/v2/nav';
 import { ArrowLeft, Pause, Zap, Plus, Power, Edit } from 'lucide-react';
 
 const POLL_MS = 5000;
+const RECENT_DONE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const RECENT_RUN_WINDOW_MS = 24 * 60 * 60 * 1000;
+const HEARTBEAT_STALE_MS = 5 * 60_000;
 
 type Selection =
   | { kind: 'agent'; id: string }
@@ -66,8 +69,13 @@ export default function CompanyDetailV2({ params }: { params: { companyId: strin
           setIssues(i);
           setRuns(r);
           setError(null);
-          // Default selection: first agent if nothing chosen
-          setSelected((prev) => (prev.kind === 'none' && a[0] ? { kind: 'agent', id: a[0].id } : prev));
+          setSelected((prev) => {
+            const nextAgent = a.find((agent) => agent.status !== 'retired');
+            if (prev.kind === 'agent' && !a.some((agent) => agent.status !== 'retired' && agent.id === prev.id)) {
+              return nextAgent ? { kind: 'agent', id: nextAgent.id } : { kind: 'none' };
+            }
+            return prev.kind === 'none' && nextAgent ? { kind: 'agent', id: nextAgent.id } : prev;
+          });
         }
       } catch (err) {
         if (!cancelled) setError(String(err));
@@ -83,8 +91,15 @@ export default function CompanyDetailV2({ params }: { params: { companyId: strin
   }, [params.companyId]);
 
   const triageCount = issues.filter((i) => i.status === 'triage').length;
-  const selectedAgent = selected.kind === 'agent' ? agents.find((a) => a.id === selected.id) ?? null : null;
+  const operationalAgents = agents.filter((a) => a.status !== 'retired');
+  const retiredAgentCount = agents.length - operationalAgents.length;
+  const selectedAgent = selected.kind === 'agent' ? operationalAgents.find((a) => a.id === selected.id) ?? null : null;
   const selectedIssue = selected.kind === 'issue' ? issues.find((i) => i.id === selected.id) ?? null : null;
+  const doneIssues = issues.filter((i) => i.status === 'done');
+  const recentDoneIssues = doneIssues.filter(isRecentDoneIssue);
+  const hiddenDoneCount = doneIssues.length - recentDoneIssues.length;
+  const recentRuns = runs.filter(isRecentRun);
+  const hiddenRunCount = runs.length - recentRuns.length;
 
   return (
     <V2Shell
@@ -141,14 +156,20 @@ export default function CompanyDetailV2({ params }: { params: { companyId: strin
         {/* LEFT — agent roster */}
         <div style={{ borderRight: '1px solid var(--rule)', overflowY: 'auto', background: 'var(--bg-card)' }}>
           <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--rule)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div className="eyebrow">AGENT ROSTER · {agents.length}</div>
+            <div className="eyebrow">AGENT ROSTER · {operationalAgents.length}</div>
             <button className="icon-btn"><Plus size={13} strokeWidth={1.6} /></button>
           </div>
+          {retiredAgentCount > 0 && (
+            <div className="mono" style={{ padding: '8px 16px', borderBottom: '1px solid var(--rule)', color: 'var(--ink-4)', fontSize: 10 }}>
+              {retiredAgentCount} retired duplicate{retiredAgentCount === 1 ? '' : 's'} hidden
+            </div>
+          )}
           <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-            {agents.map((a) => {
+            {operationalAgents.map((a) => {
               const isActive = selected.kind === 'agent' && selected.id === a.id;
               const isHover = hoverAgentId === a.id;
               const k = agentStatusKind(a.status);
+              const readiness = agentReadiness(a);
               return (
                 <li
                   key={a.id}
@@ -166,6 +187,9 @@ export default function CompanyDetailV2({ params }: { params: { companyId: strin
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <StatusDot kind={k} pulse={a.status === 'running'} />
                     <span className="mono" style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 500 }}>{a.name}</span>
+                    <StatusPill kind={readiness.kind}>
+                      {readiness.label}
+                    </StatusPill>
                   </div>
                   <div
                     style={{
@@ -204,7 +228,7 @@ export default function CompanyDetailV2({ params }: { params: { companyId: strin
                 </li>
               );
             })}
-            {agents.length === 0 && (
+            {operationalAgents.length === 0 && (
               <li style={{ padding: 16, color: 'var(--ink-3)', fontSize: 12 }}>No agents registered.</li>
             )}
           </ul>
@@ -224,13 +248,21 @@ export default function CompanyDetailV2({ params }: { params: { companyId: strin
               // status from POST /api/companies/:id/issues isn't invisible.
               const laneStatuses: string[] =
                 col === 'inbox' ? ['inbox', 'todo'] : [col];
+              const laneIssues = issues.filter((i) => laneStatuses.includes(i.status));
+              const visibleIssues = col === 'done' ? recentDoneIssues : laneIssues;
               return (
                 <Lane
                   key={col}
                   label={col}
-                  issues={issues.filter((i) => laneStatuses.includes(i.status))}
+                  issues={visibleIssues}
+                  hiddenCount={col === 'done' ? hiddenDoneCount : 0}
                   selectedId={selected.kind === 'issue' ? selected.id : null}
                   onPick={(i) => setSelected({ kind: 'issue', id: i.id })}
+                  onOpenActivity={(i) => {
+                    if (i.status === 'in_progress') {
+                      router.push(`/mission-control/${params.companyId}/issues/${i.id}/activity`);
+                    }
+                  }}
                 />
               );
             })}
@@ -238,10 +270,15 @@ export default function CompanyDetailV2({ params }: { params: { companyId: strin
 
           <div style={{ padding: '24px 20px 20px' }}>
             <div className="eyebrow" style={{ marginBottom: 10 }}>
-              RUN HISTORY · LAST {Math.min(runs.length, 12)}
+              RUN HISTORY · LAST {Math.min(recentRuns.length, 12)}
             </div>
+            {hiddenRunCount > 0 && (
+              <div className="mono" style={{ marginBottom: 8, fontSize: 10, color: 'var(--ink-4)' }}>
+                {hiddenRunCount} historical run{hiddenRunCount === 1 ? '' : 's'} hidden
+              </div>
+            )}
             <div className="card" style={{ padding: 0 }}>
-              {runs.slice(0, 12).map((r, i) => {
+              {recentRuns.slice(0, 12).map((r, i) => {
                 const agent = agents.find((a) => a.id === r.agentId);
                 const issue = r.contextSnapshot?.issueId ? issues.find((x) => x.id === r.contextSnapshot?.issueId) : null;
                 return (
@@ -268,7 +305,7 @@ export default function CompanyDetailV2({ params }: { params: { companyId: strin
                   </div>
                 );
               })}
-              {runs.length === 0 && (
+              {recentRuns.length === 0 && (
                 <div className="mono" style={{ padding: 14, fontSize: 12, color: 'var(--ink-4)' }}>No recent runs.</div>
               )}
             </div>
@@ -299,9 +336,10 @@ function CompanyWakeAllButton({ agents }: { agents: ExecutionAgent[] }) {
   const [result, setResult] = useState<string | null>(null);
 
   const idle = agents.filter((a) => {
+    if (a.status === 'retired') return false;
     if (a.status !== 'active' && a.status !== 'running') return false;
     if (!a.lastHeartbeatAt) return true;
-    return Date.now() - new Date(a.lastHeartbeatAt).getTime() > 5 * 60_000;
+    return Date.now() - new Date(a.lastHeartbeatAt).getTime() > HEARTBEAT_STALE_MS;
   });
 
   async function onClick() {
@@ -348,6 +386,38 @@ function agentStatusKind(s: string): StatusKind {
   return 'muted';
 }
 
+function isRecentDoneIssue(issue: ExecutionIssue): boolean {
+  const terminalAt = issue.completedAt ?? issue.updatedAt;
+  const terminalTime = new Date(terminalAt).getTime();
+  if (!Number.isFinite(terminalTime)) return false;
+  return Date.now() - terminalTime <= RECENT_DONE_WINDOW_MS;
+}
+
+function isRecentRun(run: ExecutionRun): boolean {
+  const runAt = run.startedAt ?? run.createdAt;
+  const runTime = new Date(runAt).getTime();
+  if (!Number.isFinite(runTime)) return false;
+  return Date.now() - runTime <= RECENT_RUN_WINDOW_MS;
+}
+
+function agentReadiness(agent: ExecutionAgent): { kind: StatusKind; label: string; detail: string } {
+  if (agent.status === 'paused') return { kind: 'muted', label: 'Paused', detail: 'paused' };
+  if (agent.status === 'error') return { kind: 'error', label: 'Error', detail: 'errored' };
+  if (agent.status === 'running') return { kind: 'info', label: 'Running', detail: 'running' };
+
+  if (!agent.lastHeartbeatAt) {
+    const mode = agent.wakeOnDemand || !agent.heartbeatIntervalSec ? 'on demand' : 'cron only';
+    return { kind: 'muted', label: 'Idle', detail: mode };
+  }
+
+  const heartbeatAge = Date.now() - new Date(agent.lastHeartbeatAt).getTime();
+  if (!Number.isFinite(heartbeatAge)) return { kind: 'muted', label: 'Idle', detail: 'heartbeat unknown' };
+  if (heartbeatAge > HEARTBEAT_STALE_MS && agent.heartbeatIntervalSec) {
+    return { kind: 'warn', label: 'Late', detail: 'heartbeat late' };
+  }
+  return { kind: 'success', label: 'Ready', detail: 'recent heartbeat' };
+}
+
 function KvRow({ k, v, err = false }: { k: string; v: string; err?: boolean }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
@@ -373,12 +443,14 @@ const LANE_TITLES: Record<string, string> = {
 };
 
 function Lane({
-  label, issues, selectedId, onPick,
+  label, issues, hiddenCount = 0, selectedId, onPick, onOpenActivity,
 }: {
   label: 'triage' | 'inbox' | 'in_progress' | 'blocked' | 'done';
   issues: ExecutionIssue[];
+  hiddenCount?: number;
   selectedId: string | null;
   onPick: (i: ExecutionIssue) => void;
+  onOpenActivity: (i: ExecutionIssue) => void;
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
@@ -386,16 +458,39 @@ function Lane({
         <span className="mono" style={{ fontSize: 10, letterSpacing: '.12em', color: 'var(--ink-3)' }}>{LANE_TITLES[label]}</span>
         <span className="mono tabular" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{issues.length}</span>
       </div>
+      {label === 'done' && hiddenCount > 0 && (
+        <div className="mono" style={{ fontSize: 10, color: 'var(--ink-4)', lineHeight: 1.35, padding: '0 2px' }}>
+          {hiddenCount} older done hidden
+        </div>
+      )}
       {issues.length === 0 ? (
         <div style={{ height: 32, fontSize: 11, color: 'var(--ink-4)', display: 'grid', placeItems: 'center', border: '1px dashed var(--rule)' }}>—</div>
       ) : (
-        issues.map((i) => <IssueCard key={i.id} i={i} onClick={() => onPick(i)} active={selectedId === i.id} />)
+        issues.map((i) => (
+          <IssueCard
+            key={i.id}
+            i={i}
+            onClick={() => onPick(i)}
+            onDoubleClick={() => onOpenActivity(i)}
+            active={selectedId === i.id}
+          />
+        ))
       )}
     </div>
   );
 }
 
-function IssueCard({ i, onClick, active }: { i: ExecutionIssue; onClick: () => void; active: boolean }) {
+function IssueCard({
+  i,
+  onClick,
+  onDoubleClick,
+  active,
+}: {
+  i: ExecutionIssue;
+  onClick: () => void;
+  onDoubleClick: () => void;
+  active: boolean;
+}) {
   const pri = i.priority || 'low';
   const priColor =
     pri === 'critical' ? 'var(--err)'
@@ -405,7 +500,9 @@ function IssueCard({ i, onClick, active }: { i: ExecutionIssue; onClick: () => v
   return (
     <div
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
       className="card"
+      title={i.status === 'in_progress' ? 'Double-click to view live agent activity' : undefined}
       style={{
         padding: '8px 10px',
         cursor: 'pointer',
@@ -425,7 +522,7 @@ function IssueCard({ i, onClick, active }: { i: ExecutionIssue; onClick: () => v
 
 function RunStatusTag({ status }: { status: string }) {
   const c =
-    status === 'completed' || status === 'success' ? 'var(--ok)'
+    status === 'completed' || status === 'success' || status === 'succeeded' ? 'var(--ok)'
     : status === 'failed' || status === 'error' ? 'var(--err)'
     : status === 'running' ? 'var(--info)'
     : 'var(--ink-3)';
@@ -438,6 +535,7 @@ function RunStatusTag({ status }: { status: string }) {
 
 function AgentDetail({ agent }: { agent: ExecutionAgent }) {
   const k = agentStatusKind(agent.status);
+  const readiness = agentReadiness(agent);
   const pct = agent.budgetMonthlyCents > 0
     ? Math.round((agent.spentMonthlyCents / agent.budgetMonthlyCents) * 100)
     : 0;
@@ -453,10 +551,11 @@ function AgentDetail({ agent }: { agent: ExecutionAgent }) {
         </div>
       </div>
       <div style={{ padding: '14px 20px' }}>
-        <div className="eyebrow" style={{ marginBottom: 8 }}>HEARTBEAT</div>
+        <div className="eyebrow" style={{ marginBottom: 8 }}>RUNTIME</div>
+        <StatusPill kind={readiness.kind}>{readiness.label}</StatusPill>
         <div className="mono tabular" style={{ fontSize: 13, color: 'var(--ink)' }}>{relTime(agent.lastHeartbeatAt)}</div>
         <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
-          interval {agent.heartbeatIntervalSec ?? '—'}s · {agent.wakeOnDemand ? 'wake on demand' : 'cron only'}
+          {agent.heartbeatIntervalSec ? `interval ${agent.heartbeatIntervalSec}s` : 'no heartbeat interval'} · {readiness.detail}
         </div>
       </div>
       <div style={{ padding: '14px 20px', borderTop: '1px solid var(--rule)' }}>
@@ -482,11 +581,11 @@ function AgentDetail({ agent }: { agent: ExecutionAgent }) {
         </div>
       )}
       {agent.pauseReason && (
-        <div style={{ margin: '14px 20px', padding: '10px 12px', background: 'var(--err-soft)', border: '1px solid var(--err)', borderRadius: 2 }}>
-          <div className="mono" style={{ fontSize: 10, color: 'var(--err)', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 4 }}>
-            LAST ERROR
+        <div style={{ margin: '14px 20px', padding: '10px 12px', background: agent.status === 'retired' ? 'var(--bg-2)' : 'var(--err-soft)', border: `1px solid ${agent.status === 'retired' ? 'var(--rule-2)' : 'var(--err)'}`, borderRadius: 2 }}>
+          <div className="mono" style={{ fontSize: 10, color: agent.status === 'retired' ? 'var(--ink-3)' : 'var(--err)', letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 4 }}>
+            {agent.status === 'retired' ? 'RETIREMENT NOTE' : 'LAST ERROR'}
           </div>
-          <div className="mono" style={{ fontSize: 11, color: 'var(--err)' }}>{agent.pauseReason}</div>
+          <div className="mono" style={{ fontSize: 11, color: agent.status === 'retired' ? 'var(--ink-2)' : 'var(--err)' }}>{agent.pauseReason}</div>
         </div>
       )}
       <div style={{ padding: '14px 20px', borderTop: '1px solid var(--rule)', display: 'flex', gap: 8 }}>

@@ -12,7 +12,7 @@ The implementation consists of:
 
 1. **CircuitBreaker class** - Core state machine implementation
 2. **API routes** - REST endpoints for monitoring and control
-3. **Integration points** - Where external adapters should call the circuit breaker
+3. **Integration points** - Where Hermes or cost-meter proxy should call the circuit breaker
 
 ## State Machine
 
@@ -100,9 +100,9 @@ GET /api/providers/:provider/should-allow?tenantId=<tenant-id>
 
 Check if a call should be allowed based on circuit state.
 
-## Integration
+## Integration with Hermes
 
-The circuit breaker should be integrated into adapter implementations at the provider level:
+The circuit breaker should be integrated into Hermes at the provider adapter level:
 
 1. Before making an LLM call, check `shouldAllow(provider, tenantId)`
 2. If not allowed, use fallback provider immediately

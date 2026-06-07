@@ -35,7 +35,7 @@ function buildConfig(): ProcessWatcherConfig {
     criticalMentionTarget: getEnv("PW_CRITICAL_MENTION", "ceo"),
     standingIssueId: getEnv("AGENTOS_STANDING_ISSUE_ID", "standing"),
     heartbeatIntervalMin: getEnvInt("PW_HEARTBEAT_INTERVAL_MIN", 30),
-    digestTargetIssueId: getEnv("PW_DIGEST_ISSUE_ID", ""),
+    digestTargetIssueId: getEnv("PW_DIGEST_ISSUE_ID", getEnv("AGENTOS_STANDING_ISSUE_ID", "standing")),
     agentosApiUrl: getEnv("AGENTOS_API_URL", "http://127.0.0.1:7710"),
     agentosApiKey: getEnv("AGENTOS_API_KEY", "local-trusted"),
   };

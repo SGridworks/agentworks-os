@@ -51,8 +51,6 @@ function makeConfig(overrides: Partial<ProcessWatcherConfig> = {}): ProcessWatch
     failedRunThresholdHrs: 2,
     blockedStuckThresholdHrs: 24,
     commitScopeLogPath: "/nonexistent/commit-scope.log",
-    awosApiUrl: "http://127.0.0.1:3100",
-    awosApiKey: "test-key",
     companyId: "test-company",
     criticalMentionTarget: "ceo",
     standingIssueId: "standing-issue-001",
@@ -484,7 +482,7 @@ describe("ProcessWatcher runHeartbeat", () => {
 
 describe("ProcessWatcher checkOffLaneCommits integration", () => {
   // Off-lane commit check requires a real log path. These tests use a
-  // temp file to verify parsing without needing the actual upstream setup.
+  // temp file to verify parsing without needing the live setup.
 
   it("parses OFF-LANE entries from a commit-scope log", async () => {
     const { checkOffLaneCommits } = await import(

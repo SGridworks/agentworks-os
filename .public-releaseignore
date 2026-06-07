@@ -21,6 +21,10 @@ docs/first-customer-learnings.md
 docs/kill-criterion-checkpoint.md
 docs/naming-ab-test.md
 docs/local-native-automation-runbook.md
+docs/agentic-memory-recommendations.md
+docs/rfc/**
+docs/rfcs/**
+tests/plans/**
 
 # Generated/runtime output and local state.
 AWOS_*.md

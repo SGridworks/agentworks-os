@@ -615,7 +615,7 @@ export default function AgentsV2() {
           <FormRow label="Adapter type">
             <input
               className="form-input"
-              placeholder="e.g. claude_local"
+              placeholder="e.g. hermes_local"
               value={createForm.adapterType}
               onChange={(e) => setCreateForm({ ...createForm, adapterType: e.target.value })}
             />

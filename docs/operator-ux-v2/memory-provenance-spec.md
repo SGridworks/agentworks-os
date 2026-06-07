@@ -1,98 +1,115 @@
-# Memory Provenance Overlay – Design Specification
+# Memory Provenance Overlay — Design Spec
 
 ## Goal
-Give tenant administrators an always-visible audit trail that shows who created, last modified, and last read every memory document stored in the tenant-scoped vault. The overlay is surfaced as optional frontmatter fields on every `.md` file and exposed through a lightweight REST endpoint for dashboard and programmatic consumption.
+Add an immutable, queryable provenance layer to every tenant-scoped memory page so operators can answer “who touched this, when, and how often?” without opening the vault. The overlay is stored as frontmatter in the markdown file and exposed through a lightweight REST endpoint. No UI changes in v1.
 
 ## Surfaces
 
-### 1. File-level frontmatter (markdown vault)
-Every memory document MAY carry the following YAML frontmatter block immediately after the opening `---`:
-
+### 1. Frontmatter fields (append-only)
 ```yaml
 ---
-authoringAgent: <uuid>        # agent that first wrote the file
-lastUpdatedBy: <uuid>         # agent that most recently mutated content
-lastUpdatedAt: <ISO-8601>     # wall-clock time of last mutation
-lastUsedBy:                   # agents that read the doc in last 30 d
-  - <uuid>
-  - <uuid>
+authoringAgent: <uuid>          # first writer
+lastUpdatedBy: <uuid>           # most recent writer
+lastUpdatedAt: <iso8601>        # wall-clock of last write
+lastUsedBy:                     # rolling window of last 10 readers
+  - { agentId: <uuid>, usedAt: <iso8601> }
+  - ...
 ---
 ```
 
-- Fields are additive; omission is legal and means “no data yet.”
-- `lastUsedBy` is a rolling window: on read, append reader UUID if not present; older than 30 d entries are silently dropped on next write.
-- All UUIDs are the canonical agent identifier issued by the substrate at registration time.
+Rules
+- All fields are optional on create; the substrate injects any missing ones.
+- `lastUsedBy` is a FIFO ring buffer capped at 10 entries; older drops off.
+- Timestamps are UTC, millisecond precision, ISO-8601 string.
+- Agent IDs must be valid v4 UUIDs; invalid IDs are rejected with 400.
 
-### 2. REST endpoint
-`GET /api/memory/provenance?path=<url-encoded-vault-path>`
+### 2. Capacity bounds (per tenant)
+- Max 10 entries in `lastUsedBy` array; excess is truncated on write.
+- Max 4 KB for the entire frontmatter block (YAML only). Oversized writes return 413.
+- No limit on number of memory pages per tenant (existing vault behavior unchanged).
 
-**Auth:** tenant-scoped JWT required (same guard as memory CRUD).
+### 3. GET /api/memory/provenance
+Return provenance metadata for a single page without returning the body.
 
-**Response 200**
+**Request**
+```
+GET /api/memory/provenance?tenantId=<uuid>&pageId=<uuid>
+Authorization: Bearer <tenant-scoped-token>
+```
+
+**Success 200**
 ```json
 {
-  "path": "campaigns/2026-spring/newsletter.md",
-  "authoringAgent": "018f...",
-  "lastUpdatedBy": "018f...",
-  "lastUpdatedAt": "2026-04-27T18:12:34.444Z",
-  "lastUsedBy": ["018f...", "019a..."],
-  "readWindowDays": 30
+  "tenantId": "uuid",
+  "pageId": "uuid",
+  "authoringAgent": "uuid",
+  "lastUpdatedBy": "uuid",
+  "lastUpdatedAt": "2026-05-19T14:23:45.123Z",
+  "lastUsedBy": [
+    { "agentId": "uuid", "usedAt": "2026-05-19T14:20:01.000Z" },
+    ...
+  ],
+  "readCount": 7,        // derived: length of lastUsedBy
+  "writeCount": 3        // derived: number of distinct agents in lastUpdatedBy history (future)
 }
 ```
 
-**Response 404** – path does not exist in tenant vault.
+**Errors**
+- 401: missing or invalid bearer token
+- 403: token scope does not include requested tenant
+- 404: page not found
+- 422: missing or malformed query params
 
-**Response 400** – missing or malformed path parameter.
-
-### 3. Capacity & performance invariants
-- Frontmatter is inline; no secondary index. File count scaling follows existing vault limits (≤ 50 k files per tenant).
-- `lastUsedBy` array capped at 100 UUIDs; overflow drops oldest.
-- Endpoint latency target ≤ 25 ms p99 on cold file (single disk stat + read). Cached reads (memory layer) ≤ 5 ms.
-- No pagination needed – single document scope.
+**Caching**
+- `Cache-Control: private, max-age=0, must-revalidate` (no caching; always fresh)
 
 ## Backend
 
-### FileVaultStore extension (`packages/memory`)
-- `writeProvenance(meta: ProvenanceMeta, content: string): Promise<void>`
-  - Reads existing frontmatter if present, merges new meta, writes atomically.
-- `readProvenance(path: string): Promise<ProvenanceMeta | null>`
-  - Parses YAML frontmatter; returns null if none.
-- `touchProvenance(path: string, readerId: string): Promise<void>`
-  - Updates `lastUsedBy` array only; no content mutation.
+### File layout
+No new tables. Provenance lives inside the existing markdown file:
+```
+/Users/example/vault/tenants/<tenantId>/memory/<pageId>.md
+```
 
-### Policy engine integration
-- Scanner rules may reference provenance fields (`lastUpdatedAt` older than X, `authoringAgent` in deny-list, etc.).
-- No new severity level; provenance is treated as context meta inside ActionEnvelope.
+### Write path (append-only)
+1. Any write (PUT /memory/:pageId) loads existing frontmatter.
+2. If `authoringAgent` absent, set to current agent.
+3. Always overwrite `lastUpdatedBy` and `lastUpdatedAt`.
+4. Append current agent to `lastUsedBy` (reader side does this on GET).
+5. Truncate `lastUsedBy` to 10 entries.
+6. Re-serialize YAML frontmatter; fail if > 4 KB.
+7. Atomically replace file (same fsync guarantees as today).
 
-### Migration strategy
-- Backfill not required. Files without frontmatter return `null` fields from endpoint; UI renders “—”.
-- Frontmatter added lazily on first mutation or explicit touch.
+### Read path
+1. GET /memory/:pageId parses frontmatter, appends caller to `lastUsedBy`, and writes back immediately (read-side update).
+2. GET /memory/provenance only reads frontmatter; no body, no read-side update.
+
+### Migration
+- Existing pages without provenance block return empty object (all fields null).
+- First write backfills `authoringAgent` and `lastUpdatedBy` with the writing agent.
+- No bulk migration job; provenance appears lazily.
 
 ## Frontend
-
-### Admin UI – Memory viewer pane
-- New sub-heading “Provenance” under document meta.
-- Fields rendered as read-only chips: Author, Last Updated, Last Readers (avatars + timestamp on hover).
-- If all fields null, show “No provenance data” with subtle icon; no call-to-action.
-
-### No auto-merge UI
-- Out of scope for v1. Human resolves merge conflicts; provenance updated on final write.
+Out of scope for v1. The admin-ui continues to show raw markdown; provenance is API-only.
 
 ## Out of scope
+- Auto-merge UI or three-way merge logic.
 - Cross-tenant provenance (tenant boundary remains hard).
-- Provenance for non-markdown vault objects (binary blobs, JSON configs).
-- Cryptographic signing or tamper-evidence (deferred to v1.1).
-- Historical timeline view (full changelog) – only latest snapshot kept.
-- Bulk provenance export; single-document endpoint only.
+- Historical write log beyond the single “last updated” slot.
+- Cryptographic signatures or tamper evidence.
+- Size limits on the markdown body itself (only frontmatter is capped).
 
 ## Open questions
-1. Do we need a `createdAt` field separate from `lastUpdatedAt`? (Currently derivable from git if repo-backed vault is enabled.)
-2. Should `lastUsedBy` preserve ordering by recency or alphabetical for determinism?
-3. Retention policy for `lastUsedBy` when a document is archived (moved to `.archive/` folder)?
+1. Do we need a separate “createdAt” field or is “first write” sufficient?
+   → Deferred; can add later without breaking shape.
+2. Should `lastUsedBy` deduplicate the same agent within the window?
+   → No; keep every touch for now (simple FIFO).
+3. Future eviction policy when vault nears disk quota?
+   → Not in v1; revisit with cost-meter work.
 
-## Acceptance checklist (GATE ticket)
-- FileVaultStore supports provenance read/write/touch.
-- Endpoint returns correct JSON shape, 400/404 handling.
-- Admin UI renders provenance panel without layout shift.
-- E2E test: write doc → touch → read provenance → assert fields.
-- No regression on existing memory CRUD latency budget.
+## End-state verification
+- `npx vitest run tests/substrate-e2e.test.ts` includes a provenance probe:
+  - create page → verify frontmatter injected
+  - two agents read → verify `lastUsedBy` length 2
+  - 12 agents read → verify `lastUsedBy` length 10, correct eviction order
+  - GET /api/memory/provenance returns expected JSON without body

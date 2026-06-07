@@ -200,7 +200,7 @@ export function createCircuitBreakerRouter(config: Config): Router {
    * POST /api/providers/:provider/record-result
    * 
    * Record a call result (success or failure) for circuit breaker logic
-   * This would be called by an external adapter
+   * This would be called by the Hermes adapter or cost-meter proxy
    * Body:
    * - tenantId: required, the tenant ID
    * - success: required, boolean indicating if call succeeded

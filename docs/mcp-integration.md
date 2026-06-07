@@ -51,7 +51,7 @@ If you changed `AGENTOS_PORT` in your environment, use that value instead.
 
 ### Bearer token
 
-The same token you use for the Admin UI. If you are running a managed install through sgridworks, your token was provided during onboarding. Self-hosted token generation is not yet available via CLI; ask your sgridworks contact for a token.
+Use the same token you use for the Admin UI. Self-hosted token generation is not yet available via CLI, so keep the token provided during setup and rotate it if it may have been exposed.
 
 > **Auth status:** the MCP bridge does not yet forward bearer tokens to the daemon. The `/api/mcp` route is currently open on localhost. This is acceptable for local-only installs but is not suitable for production exposure. Auth forwarding is tracked in AWO-152.
 

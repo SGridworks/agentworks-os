@@ -4,7 +4,7 @@
 
 - Before upgrading AgentWorks OS
 - Before changing rule pack configuration
-- Before reseeding or bulk-writing vault content
+- Before running the onboarding wizard a second time (it seeds the vault)
 - Weekly as part of normal operations
 
 ## What gets backed up
@@ -74,18 +74,18 @@ scp backup.tar.gz user@backup-server:/path/to/backups/
 
 Or use any file copy tool. The archive is encrypted, so copying it over an untrusted channel is safe as long as the passphrase is not transmitted over the same channel.
 
-## Backup to Google Drive
+## Backup to cloud storage
 
-If you use the sgridworks managed tier:
+If you use a cloud storage provider:
 
 ```
 agentworks backup --output /path/to/backup.tar.gz
 ```
 
-Then upload manually to the Google Drive folder your sgridworks account manager gave you. The managed tier does not currently automate cloud backup.
+Then upload the archive manually to the destination you control. AgentWorks OS does not currently automate cloud backup.
 
 ## What is not included and why
 
 - **Container images**: backed up separately via Docker's own mechanisms if needed. Re-pull from GHCR.
-- **`agentworks.yml`**: this file contains credentials for connecting to the sgridworks update service. Regenerate it with `agentworks init` if lost.
+- **`agentworks.yml`**: this file contains local install credentials. Regenerate it with `agentworks init` if lost.
 - **Agent configs (CLAUDE.md, .cursorrules)**: these live on the agents themselves, not on the AgentWorks OS server. Back them up as part of your normal agent configuration backup.

@@ -1,132 +1,147 @@
 # Autopilot With Guardrails – Design Spec
 
+**Project:** F7 · Autopilot With Guardrails  
+**Wave:** 3  
+**Author:** CEO  
+**Status:** Draft → Review → Locked  
+**File:** `docs/operator-ux-v2/autopilot-spec.md`
+
 ## Goal
-Give regulated-SMB operators a single “Autopilot” toggle that lets the substrate automatically execute low-risk agent actions while escalating the rest for human review. The feature must surface a clear risk-score (0..1) and a human-readable reasons[] list so operators can audit every decision without reading YAML.
 
-## Surfaces
+Give regulated-SMB operators a single “Autopilot” toggle that lets the substrate automatically execute low-risk agent actions while keeping humans in the loop for anything that could create compliance exposure.  
+The feature surfaces three buckets—`safe`, `needsApproval`, `risky`—and a deterministic `riskScore` (0..1) plus machine-readable `reasons[]` so the admin UI can render concise explanations and bulk-dispatch controls.
 
-### 1. Operator-facing toggle
-- Location: Admin UI → Tenant Settings → Autopilot
-- States: OFF | ON (default OFF for new tenants)
-- Help text: “When ON the substrate will auto-execute actions scored ≤ 0.3 and queue the rest for approval.”
+## Surfaces (user-visible)
 
-### 2. Action card in approval queue
-- Tag: “Autopilot” (color = slate-400)
-- Badge overlay: “Auto-allowed” | “Needs approval” | “Risky”
-- Tooltip shows riskScore + top-3 reasons
+1. **Admin UI / Settings / Autopilot**
+   - Toggle: “Enable Autopilot” (tenant-scoped, default OFF)
+   - Read-only summary card when ON:
+     - Last 30 days: N actions auto-executed, M routed for approval
+     - Highest risk score seen: 0.73 (example)
+   - No per-rule-pack knobs in v1; one global toggle only.
 
-### 3. Bulk-dispatch endpoint (internal)
-`POST /api/tenants/:id/autopilot/dispatch`
-```json
-{
-  "actionIds": ["<uuid>", …],
-  "dryRun": false
-}
-```
-Returns 207 multi-status:
-```json
-{
-  "results": [
-    {
-      "actionId": "<uuid>",
-      "decision": "allow" | "needsApproval" | "risky",
-      "riskScore": 0.25,
-      "reasons": ["tcpa.time_of_day", "fair_housing.keyword_match"]
-    }
-  ]
-}
-```
-Dry-run skips side-effects; live run updates approval queue and audit log.
+2. **Approval Queue (existing page)**
+   - New chip filter: “Autopilot routed” vs “Manual review”
+   - Batch actions: “Approve all safe”, “Reject all risky”
+   - Column addition: “Risk score” + hover tooltip showing `reasons[]`
 
-## Backend
+3. **Activity Log (existing page)**
+   - New column: “Autopilot decision” (safe | needsApproval | risky)
+   - Click-through to see full `riskScore` & `reasons[]`
 
-### Bucketing rules (evaluated in order)
-1. **Safe** → auto-allow
-   - riskScore ≤ 0.30
-   - No rule returned “block”
-   - Action type is in allow-listed set: memory_write, file_read, http_get, shell_read_only
-2. **Risky** → block + alert
-   - Any rule returned “block”
-   - riskScore ≥ 0.70
-3. **NeedsApproval** → queue for human review
-   - Everything else
+## Backend (substrate changes)
 
-### riskScore formula (0..1)
-```
-riskScore = max(ruleSeverityScore, actionTypeScore, contentScore)
+### 1. Bucketing rules (deterministic, order matters)
 
-where
-ruleSeverityScore = 0.0 if all rules allow
-                    0.4 if any rule returns route_to_review
-                    1.0 if any rule returns block
-
-actionTypeScore = lookup in action-type-risk-table (see below)
-
-contentScore = 0.0 if no pattern matches
-               0.3 if Fair-Housing keyword match
-               0.5 if TCPA phone/time match
-               0.6 if HIPAA identifier detected
-               1.0 if PII regex high-confidence match
-```
-
-action-type-risk-table (YAML fragment shipped in rule-packs/smb-starter/autopilot.yml):
 ```yaml
-action_type_scores:
-  memory_write: 0.10
-  file_read: 0.05
-  http_get: 0.10
-  http_post: 0.35
-  shell_read_only: 0.10
-  shell_mutating: 0.50
-  email_send: 0.45
-  sms_send: 0.55
-  db_write: 0.40
+# pseudocode – lives in policy-engine, not YAML
+if any rule-pack returns BLOCK:
+    bucket = risky
+    riskScore = max(0.7, 0.9 if PII-leak OR fair-housing-violation else 0.8)
+    reasons += rule.reasons
+elif any rule-pack returns ROUTE_TO_REVIEW:
+    bucket = needsApproval
+    riskScore = max(0.4, 0.6 if TCPA-violation else 0.5)
+    reasons += rule.reasons
+elif tenant.autopilotEnabled and all packs return ALLOW:
+    bucket = safe
+    riskScore = 0.0
+    reasons = ["within policy"]
+else
+    bucket = needsApproval   # human must decide
+    riskScore = 0.3
+    reasons = ["autopilot disabled or mixed signals"]
 ```
 
-### reasons[] vocabulary (canonical strings)
-- `tcpa.time_of_day` – TCPA quiet-hours violation
-- `tcpa.phone_invalid` – malformed US phone
-- `fair_housing.keyword_match` – protected-class keyword detected
-- `fair_housing.steering` – geographic steering language
-- `hipaa.phi_detected` – PHI pattern matched
-- `pii.high_confidence` – SSN, DL, CCN regex hit
-- `action_type.high_risk` – action type score ≥ 0.5
-- `rule_pack.block` – explicit block rule fired
-- `content.unsafe_url` – URL deny-list match
-- `approval_history.recent_deny` – same agent denied ≤ 24 h ago
+Hard constants are version-locked; no ML in v1.
 
-Reasons are deduplicated and capped at 5 per action.
+### 2. Risk-score formula (0..1 continuous)
 
-### Implementation notes
-- New column `autopilot_decision` on `approval_queue` table: enum(allow, needsApproval, risky)
-- New column `risk_score` numeric(3,2)
-- New column `reasons` jsonb
-- Policy engine evaluator returns the above three fields in addition to legacy verdict
-- Bulk-dispatch worker runs in agentos-d process, 50 actions per batch, 5 concurrent batches max
-- Audit log entries tagged `autopilot=true` when decision source = autopilot
+```
+riskScore = clamp(0, 1, base + Σ pack_contribution)
+base = 0.0 if all ALLOW else 0.3
+pack_contribution:
+  BLOCK   → +0.6 (fair-housing) | +0.5 (PII-leak) | +0.4 (other)
+  ROUTE   → +0.2 (TCPA) | +0.1 (other)
+```
 
-## Frontend
+Rounding: two decimals stored, two decimals surfaced.
 
-### Toggle switch
-- React component `<AutopilotToggle tenantId={id} />`
-- Mutates via `PATCH /api/tenants/:id/settings { autopilotEnabled: boolean }`
-- Shows inline confirmation toast: “Autopilot is ON. Actions scored ≤ 0.3 will auto-execute.”
+### 3. Reasons vocabulary (machine-readable, never user-facing raw)
 
-### Queue filters
-- New filter pill “Autopilot” with sub-options: Auto-allowed / Needs approval / Risky
-- Column “Risk” added to queue table (sortable, 0→1)
-- Expandable row shows full reasons[] list and contributing score breakdown
+| reason code | human template (en) |
+|-------------|---------------------|
+| `fair-housing-discrimination` | Fair Housing: discriminatory language detected |
+| `tcpa-no-consent` | TCPA: missing documented consent |
+| `pii-leak-ssn` | PII: Social Security number exposure |
+| `within-policy` | Within allowed policy |
+| `autopilot-off` | Autopilot disabled by administrator |
 
-### Telemetry banner
-- If ≥ 3 “risky” decisions in last 24 h, show yellow banner: “Autopilot blocked 3 high-risk actions – review settings.” CTA links to tenant settings.
+Admin UI maps code → template at render time; no i18n in v1.
 
-## Out of scope
-- Rollback / undo of auto-executed actions (v2)
-- Per-agent autopilot overrides
-- Custom risk-score thresholds per tenant (v1.1)
-- Real-time operator chat before escalation
+### 4. Bulk-dispatch contract (HTTP POST)
+
+**Endpoint:** `POST /api/tenants/:id/autopilot/dispatch`  
+**Auth:** same JWT as policy check  
+**Body:**
+
+```json
+{
+  "actionIds": ["uuid", ...],
+  "decision": "approve|reject"   // applies only to needsApproval bucket
+}
+```
+
+**Response:**
+
+```json
+{
+  "processed": 15,
+  "skipped": 2,   // already decided or bucket=safe/risky
+  "errors": []
+}
+```
+
+Idempotent: duplicate calls return same counts.
+
+### 5. DB schema additions (forward-only migration)
+
+```sql
+ALTER TABLE action_log ADD COLUMN autopilot_bucket   text;   -- safe|needsApproval|risky
+ALTER TABLE action_log ADD COLUMN risk_score         numeric(3,2);
+ALTER TABLE action_log ADD COLUMN reasons            text[]; -- array of reason codes
+ALTER TABLE tenants    ADD COLUMN autopilot_enabled  boolean default false;
+```
+
+## Frontend (admin-ui)
+
+- No new pages; reuse existing Approval & Activity pages.
+- Chips and tooltips use the mapping table above.
+- Batch toolbar disabled until ≥1 needsApproval row selected.
+- Toggle switch hits `PATCH /api/tenants/:id` `{autopilotEnabled: boolean}`.
+
+## Out of scope (v2)
+
+- Rollback / undo of auto-executed actions
+- Per-rule-pack autopilot knobs
+- ML-based risk-score tuning
+- Email digest of autopilot activity
+- Time-based autopilot schedules
 
 ## Open questions
-1. Do we persist the risk-score & reasons for manually approved actions? (Proposed: yes, for future ML.)
-2. Should we expose the action-type-risk-table as UI-editable? (Deferred to v1.1.)
-3. Kill-switch behavior when autopilot mis-classifies – manual disable only, or automatic backoff? (Manual only for v1.)
+
+1. Do we cap the number of safe actions a single agent can trigger per hour? (CEO: defer to v1.1)
+2. Do we expose the raw numeric constants to tenants? (CEO: no, keep opaque)
+3. Do we allow attorneys to add custom reason codes? (CEO: no, locked enum)
+
+## Milestone linkage
+
+- Blocked by: F4 policy-engine severity aggregation (must land first)
+- Blocks: F8 bulk-approval UI polish
+- Ship criterion: substrate E2E test `autopilot-bucket-flow.test.ts` passes
+
+## Revision history
+
+| date | author | change |
+|------|--------|--------|
+| 2026-05-19 | CEO | initial spec |

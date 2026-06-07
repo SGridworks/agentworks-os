@@ -1,113 +1,100 @@
 # Trust Layer – design spec
 
 ## Goal
-Surface real-time trust signals for every external dependency the substrate touches (LLM provider, vector store, scanner side-car, policy-engine rule packs, vault store, audit log). A single GET `/api/admin/trust` endpoint returns a normalized “traffic-light” view that the admin-ui topbar polls every 30 s. The UX shows a green / amber / red shield icon plus a one-line summary; clicking opens a pop-over with the full table of providers, last-seen timestamps, and failure reasons when present.
+Surface real-time trust signals for every external dependency the substrate touches (LLM provider, scanner sidecar, vault store, rule-pack loader). The UI shows a compact topbar badge that is green when every provider reports healthy, yellow when any dependency degrades, red when any is down. Admins can open a tray to see per-provider status, last-seen timestamp, and a one-click “re-check” button. The backend polls each provider on a configurable cadence (default 30 s) and exposes the aggregated view at `GET /api/admin/trust`.
 
 ## Surfaces
-1. REST endpoint – GET `/api/admin/trust` (tenant-scoped, admin cookie required)
-2. WebSocket status stream – same payload pushed when any provider flips state (optional v1.1)
-3. Admin-ui topbar widget – left of the user avatar, always visible
-4. Pop-over card – on click, full provider table with copy-able diagnostics
+1. Topbar badge (always visible while admin-ui is open)
+2. Trust tray (slide-out panel triggered by badge click)
+3. `GET /api/admin/trust` – JSON contract consumed by admin-ui
+4. `POST /api/admin/trust/refresh` – on-demand re-poll (idempotent)
 
 ## Backend
-### GET `/api/admin/trust` – response schema
+
+### Provider inventory (hard-coded list v1)
+- `openai` – OpenAI API (chat completions endpoint HEAD)
+- `anthropic` – Anthropic API (messages endpoint HEAD)
+- `scanner` – AgentGuard sidecar (`/health` on internal port 8001)
+- `vault` – local FileVaultStore (stat `$VAULT_ROOT/.aw-ok`)
+- `rules` – rule-pack loader (verify every pack dir has valid `manifest.yaml`)
+
+### Poll cadence
+- Default 30 s, override via `TRUST_POLL_SEC` env var
+- Jitter ±10 % to avoid thundering herd after restart
+- Failed polls back-off 2× up to 5 min, reset on success
+
+### Aggregate rules
+- `status: "healthy"` – every provider last poll == 200/OK
+- `status: "degraded"` – ≥1 provider non-critical failure (4xx, timeout ≤10 s)
+- `status: "down"` – ≥1 provider critical failure (5xx, timeout >10 s, unreachable)
+- `lastUpdated` – ISO-8601 timestamp of most recent finished poll round
+
+### JSON contract – `GET /api/admin/trust`
 ```json
 {
-  "schema_version": 1,
-  "summary": "all_ok | degraded | critical",
+  "status": "healthy | degraded | down",
+  "lastUpdated": "2026-05-20T17:04:33Z",
   "providers": [
     {
       "id": "openai",
+      "displayName": "OpenAI",
       "category": "llm",
-      "display_name": "OpenAI",
-      "status": "ok | slow | error | unknown",
-      "last_check": "2026-05-20T14:23:45Z",
-      "last_success": "2026-05-20T14:23:45Z",
-      "fail_reason": "", // empty when status ≠ error
-      "latency_ms": 234, // -1 when unknown
-      "region": "us-east-1"
+      "status": "healthy",
+      "lastSeen": "2026-05-20T17:04:31Z",
+      "latencyMs": 123,
+      "error": null
     },
     {
       "id": "scanner",
+      "displayName": "AgentGuard Scanner",
       "category": "sidecar",
-      "display_name": "AgentGuard Scanner",
-      "status": "ok",
-      "last_check": "2026-05-20T14:23:43Z",
-      "last_success": "2026-05-20T14:23:43Z",
-      "fail_reason": "",
-      "latency_ms": 89,
-      "region": "local"
-    },
-    {
-      "id": "vault",
-      "category": "storage",
-      "display_name": "FileVault",
-      "status": "ok",
-      "last_check": "2026-05-20T14:23:42Z",
-      "last_success": "2026-05-20T14:23:42Z",
-      "fail_reason": "",
-      "latency_ms": 12,
-      "region": "local"
+      "status": "degraded",
+      "lastSeen": "2026-05-20T17:03:58Z",
+      "latencyMs": 5020,
+      "error": "timeout after 5 s"
     }
   ]
 }
 ```
 
-### Provider categories (extensible)
-- `llm` – any model endpoint the substrate calls
-- `sidecar` – scanner-worker, future enrichers
-- `storage` – vault store, audit log writer
-- `policy` – rule-pack loader / evaluator
-- `memory` – vector store (v1.1)
-
-### Status mapping
-| Provider status | Summary color | Icon |
-|-----------------|---------------|------|
-| all providers = ok | green | shield-check |
-| any slow, none error | amber | shield-exclamation |
-| any error | red | shield-x |
-| all unknown | gray | shield-question |
-
-### Polling cadence
-- Admin-ui polls every 30 s when window is focused
-- Daemon runs background checks every 60 s per provider (jittered ±5 s)
-- On any state change daemon pushes WebSocket frame (if client connected)
-
-### Failure handling
-- After 3 consecutive failures provider flips to `error`
-- Recovery requires 2 consecutive successes
-- `fail_reason` must be safe to render (no secrets, ≤120 chars)
-- Latency > 2 s threshold marks `slow`, > 10 s marks `error`
+### Idempotent refresh – `POST /api/admin/trust/refresh`
+- Returns same shape as GET
+- Triggers immediate poll round, waits for completion, then responds
+- No-op if another poll is already running (returns current data)
 
 ## Frontend
-### Topbar widget (shell.tsx)
-- 24 × 24 icon, same height as avatar
-- Accessible label: “Trust status: all_ok”
-- Badge dot when summary ≠ all_ok
-- Click opens pop-over, ESC or click-outside closes
 
-### Pop-over card (TrustPanel.tsx)
-- Table with columns: Provider | Region | Status | Latency | Last check
-- Sort: error → slow → ok → unknown, then alphabetically
-- Copy button on fail_reason row (if present)
-- Auto-refresh every 30 s while open
-- Footer timestamp: “Updated just now / 2 min ago”
+### Topbar badge component
+- Icon: shield-check (healthy), shield-alert (degraded), shield-xmark (down)
+- Color: green-500, yellow-500, red-500 (Tailwind)
+- Badge shows dot only; no text to conserve space
+- Hover tooltip: “Trust status: healthy” (or degraded/down)
+- Click opens trust tray (slide-out from right, 320 px wide)
+
+### Trust tray contents
+- Header: “Trust Layer” + close (×) button
+- List of providers (same order as backend JSON)
+- Each row: provider displayName, status pill (colored), lastSeen relative time (“30 s ago”), latency badge (“123 ms”), refresh spinner while polling
+- Footer: “Last updated: <absolute timestamp>” + “Re-check now” button (triggers POST refresh, disables while in-flight)
+- Auto-refreshes every poll cadence via SWR `refreshInterval` set to value returned in `Cache-Control: max-age=<trust-poll-sec>` header
 
 ### State management
-- React query key: `['trust', tenantId]`
-- Stale time: 25 s (allows 5 s grace before next poll)
-- Retry: 2 attempts, exponential back-off 1 s → 3 s
-- On HTTP 401/403 redirect to login
+- SWR key: `/api/admin/trust`
+- Mutate key after manual refresh or when WebSocket push arrives (v1.1)
+- Tray mounts/unmounts → no persistent state beyond SWR cache
 
 ## Out of scope
-- Provider credential rotation UI
-- Historical metrics / SLAs page
-- Pager-duty style alerting (v1.1)
-- Non-admin visibility (operators see only summary icon, no pop-over)
-- Mobile responsive tweaks (admin-ui desktop-first)
+- WebSocket push of status changes (v1.1)
+- Provider config UI (add/remove/edit endpoints) – static list for v1
+- PagerDuty/Slack alerting on state changes – pilot uses UI only
+- Historical metrics or uptime graphs – v1.1
+- Non-admin visibility – trust layer is admin-only
 
 ## Open questions
-1. Do we need a “snooze” button for known outages? (deferred to v1.1)
-2. Should latency histograms be surfaced in pop-over? (risk of clutter)
-3. WebSocket push – worth the infra cost for v1 or keep polling only?
-4. Region field – expose actual cloud region or simplify to “us”, “eu”, “local”?
+1. Do we need a “maintenance mode” flag that forces status to degraded regardless of polls?
+2. Should latencyMs be median of last N polls instead of latest?
+3. Do we expose raw error message to UI or sanitize (leak risk)?
+   → Decision: sanitize; show generic message, log full error server-side
+4. Vault health check on Windows with locked files – alternate signal?
+5. Rule-pack loader health – rescan on every poll or watch fs?
+   → Decision: rescan on poll; fs-watch adds complexity for v1

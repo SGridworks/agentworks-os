@@ -30,6 +30,10 @@ const defaultIgnores = [
   "docs/plans/**",
   "docs/sgridworks-managed-service-tier.md",
   "docs/brand-naming-convention.md",
+  "docs/agentic-memory-recommendations.md",
+  "docs/rfc/**",
+  "docs/rfcs/**",
+  "tests/plans/**",
 ];
 
 const ignorePatterns = [
@@ -58,6 +62,7 @@ const forbidden = [
   { label: "private tenant name", pattern: "ProbeWorks" },
   { label: "private tenant name", pattern: "WaterWorks" },
   { label: "private tenant slug", pattern: "sgridworks-local" },
+  { label: "private vault key", pattern: "projects/sgridworks" },
   { label: "private workload name", pattern: "Sgridworks Wildfire" },
   { label: "private tenant UUID", pattern: "30184da8-d721-40a3-bb9f-326e616e9892" },
   { label: "private company UUID", pattern: "d63eb401-51b0-4069-a863-f093600996cd" },

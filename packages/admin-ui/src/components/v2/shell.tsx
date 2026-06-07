@@ -23,29 +23,25 @@ import {
   Moon,
   Filter,
   Plane,
+  Info,
+  ShieldCheck,
+  Workflow,
+  ClipboardList,
+  ClipboardCheck,
   type LucideIcon,
 } from 'lucide-react';
-import { getHealth, listTenants, type Health, type Tenant as TenantRow } from '@/lib/api';
-import { useActiveTenantId, setActiveTenantId } from '@/lib/use-active-tenant';
+import { getHealth, listTenants, getActiveAgentsCount, listAgents, wakeAgent, patchAgent, type Health, type Tenant as TenantRow } from '@/lib/api';
+import { TrustDrawer } from './trust-drawer';
+import { CommandPalette, ActionRegistryItem } from './command-palette';
+import { createGotoActions } from './command-palette-actions/goto';
+import { createAgentActions } from './command-palette-actions/agents';
+import { createIssueActions, createIssueAssignActions } from './command-palette-actions/issues';
+import { createVaultSearchActions, executeVaultSearch, createVaultSearchResultActions } from './command-palette-actions/vault';
+import { assignTriageIssue } from '@/lib/api';
+import { NewIssueModal } from '@/components/v2/new-issue-modal';
+import { useV2Nav, type NavKey } from './nav';
 
 type Theme = 'light' | 'dark';
-
-type NavKey =
-  | 'mission-control'
-  | 'memory-vault'
-  | 'vault-health'
-  | 'approvals'
-  | 'triage-queue'
-  | 'agents'
-  | 'rule-packs'
-  | 'scanner'
-  | 'process-health'
-  | 'activity'
-  | 'evidence'
-  | 'insights'
-  | 'autopilot'
-  | 'map'
-  | 'settings';
 
 interface NavItem {
   k: NavKey;
@@ -69,6 +65,8 @@ interface LiveStatus {
   errorMessage: string | null;
   // Tenants for the switcher; null until first load.
   tenants: TenantRow[] | null;
+  // Active agents count; null until first load.
+  activeAgentsCount: number | null;
 }
 
 function useLiveStatus(pollMs = 5_000): LiveStatus {
@@ -78,6 +76,7 @@ function useLiveStatus(pollMs = 5_000): LiveStatus {
     state: 'connecting',
     errorMessage: null,
     tenants: null,
+    activeAgentsCount: null,
   });
 
   useEffect(() => {
@@ -87,20 +86,34 @@ function useLiveStatus(pollMs = 5_000): LiveStatus {
     async function tick() {
       try {
         const h = await getHealth();
-        if (cancelled) return;
-        setStatus((prev) => ({
-          ...prev,
-          health: h,
-          lastOkAt: Date.now(),
-          state: 'ok',
-          errorMessage: null,
-        }));
-        if (!status.tenants) {
+        if (!cancelled) {
+          setStatus((prev) => ({
+            ...prev,
+            health: h,
+            lastOkAt: Date.now(),
+            state: 'ok',
+            errorMessage: null,
+          }));
+        }
+        let tenantsCache = status.tenants;
+        if (!tenantsCache) {
           try {
             const ts = await listTenants();
-            if (!cancelled) setStatus((prev) => ({ ...prev, tenants: ts }));
+            if (!cancelled) {
+              tenantsCache = ts;
+              setStatus((prev) => ({ ...prev, tenants: ts }));
+            }
           } catch {
             // ignore — tenants are not critical for shell render
+          }
+        }
+        // Fetch active agents count if we have tenants
+        if (tenantsCache && tenantsCache.length > 0) {
+          try {
+            const count = await getActiveAgentsCount(tenantsCache[0].id);
+            if (!cancelled) setStatus((prev) => ({ ...prev, activeAgentsCount: count }));
+          } catch {
+            // ignore — agents count is not critical for shell render
           }
         }
       } catch (err) {
@@ -139,14 +152,19 @@ const OPERATE: NavItem[] = [
   { k: 'vault-health',    label: 'Vault Health',    icon: HeartPulse },
   { k: 'insights',        label: 'Insights',        icon: Lightbulb },
   { k: 'autopilot',       label: 'Autopilot',       icon: Plane },
+  { k: 'automations',     label: 'Automations',     icon: Workflow },
   { k: 'approvals',       label: 'Approvals',       icon: ListChecks },
+  { k: 'issues',          label: 'Issues',          icon: ClipboardList },
+  { k: 'review-queue',    label: 'Review Queue',    icon: ClipboardCheck },
   { k: 'triage-queue',    label: 'Triage Queue',    icon: Inbox },
   { k: 'agents',          label: 'Agents',          icon: Bot },
+  { k: 'active-work',     label: 'Active Work',     icon: ChevronDown },
 ];
 const GOVERN: NavItem[] = [
   { k: 'rule-packs',     label: 'Rule Packs',      icon: Shield },
   { k: 'scanner',        label: 'Scanner',         icon: ScanSearch },
   { k: 'process-health', label: 'Process Health',  icon: Activity },
+  { k: 'trust',          label: 'Trust Layer',     icon: ShieldCheck },
   { k: 'activity',       label: 'Activity Log',    icon: Activity },
   { k: 'evidence',       label: 'Evidence Report', icon: ScrollText },
 ];
@@ -183,7 +201,17 @@ export function V2Shell({
     return initialTheme;
   });
   const [collapsed, setCollapsed] = useState(false);
+  const [trustDrawerOpen, setTrustDrawerOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [tenantId, setTenantId] = useState<string>('');
+  const [agentActions, setAgentActions] = useState<ActionRegistryItem[]>([]);
+  const [issueActions, setIssueActions] = useState<ActionRegistryItem[]>([]);
+  const [currentAgentId, setCurrentAgentId] = useState<string>('');
+  const [vaultSearchResults, setVaultSearchResults] = useState<ActionRegistryItem[]>([]);
+  const [vaultSearchQuery, setVaultSearchQuery] = useState<string>('');
+  const [showNewIssueModal, setShowNewIssueModal] = useState(false);
   const live = useLiveStatus();
+  const v2Nav = useV2Nav();
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -192,23 +220,82 @@ export function V2Shell({
     }
   }, [theme]);
 
-  // Active-tenant id persists in localStorage; default to the newest tenant
-  // (the API returns ORDER BY createdAt DESC). The TopBar dropdown writes
-  // back via setActiveTenantId, which fires a storage event consumers listen for.
-  const activeTenantId = useActiveTenantId();
-  useEffect(() => {
-    if (!activeTenantId && live.tenants && live.tenants[0]) {
-      setActiveTenantId(live.tenants[0].id);
-    }
-  }, [activeTenantId, live.tenants]);
-
+  // Derive tenant from the live tenants list. Fall back to the explicit prop
+  // (e.g. company-detail page passing a company-derived label) if provided.
   const liveTenant: Tenant | null = (() => {
     if (tenantProp) return tenantProp;
-    const list = live.tenants ?? [];
-    const picked = list.find((t) => t.id === activeTenantId) ?? list[0];
-    if (!picked) return null;
-    return { name: picked.name, mark: deriveMark(picked.name) };
+    const first = live.tenants?.[0];
+    if (!first) return null;
+    return { name: first.name, mark: deriveMark(first.name) };
   })();
+  
+  // Set tenantId for trust drawer
+  useEffect(() => {
+    if (live.tenants?.[0]) {
+      setTenantId(live.tenants[0].id);
+    }
+  }, [live.tenants]);
+
+  useEffect(() => {
+    if (live.tenants?.[0]) {
+      listAgents({ tenantId: live.tenants[0].id })
+        .then(agents => {
+          setAgentActions(createAgentActions(agents));
+          // Set current agent to first active agent if any
+          if (agents.length > 0) {
+            setCurrentAgentId(agents[0].id);
+          }
+        })
+        .catch(error => {
+          console.error('Failed to fetch agents for command palette:', error);
+          setAgentActions([]);
+        });
+    }
+  }, [live.tenants]);
+
+  // Fetch issues for command palette actions
+  useEffect(() => {
+    if (live.tenants?.[0]) {
+      // Get basic issue actions (create)
+      const basicIssueActions = createIssueActions();
+      
+      // Try to fetch some issues for assignment actions
+      listAgents({ tenantId: live.tenants[0].id })
+        .then(async (agents) => {
+          if (agents.length > 0) {
+            try {
+              const { listCompanyIssues } = await import('@/lib/api');
+              const issues = await listCompanyIssues(agents[0].companyId);
+              const assignActions = createIssueAssignActions(issues.slice(0, 10)); // Limit to first 10 issues
+              setIssueActions([...basicIssueActions, ...assignActions]);
+            } catch (error) {
+              console.error('Failed to fetch issues for command palette:', error);
+              setIssueActions(basicIssueActions);
+            }
+          } else {
+            setIssueActions(basicIssueActions);
+          }
+        })
+        .catch(error => {
+          console.error('Failed to fetch agents for issue actions:', error);
+          setIssueActions(basicIssueActions);
+        });
+    }
+  }, [live.tenants]);
+
+  // Handle keyboard events for command palette
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd/Ctrl + K opens command palette
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen(true);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
   const displayTenant: Tenant = liveTenant ?? { name: 'Loading…', mark: '··' };
   const substrateVersion = live.health ? `v${live.health.version}` : '—';
 
@@ -229,8 +316,115 @@ export function V2Shell({
           theme={theme}
           onTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
           live={live}
+          onTrustInfo={() => setTrustDrawerOpen(true)}
+          onCommandPalette={() => setCommandPaletteOpen(true)}
         />
         <div className="content">{children}</div>
+        <TrustDrawer 
+          open={trustDrawerOpen} 
+          onClose={() => setTrustDrawerOpen(false)}
+          tenantId={tenantId}
+        />
+        <CommandPalette
+          isOpen={commandPaletteOpen}
+          onClose={() => {
+            setCommandPaletteOpen(false);
+            setVaultSearchResults([]); // Clear search results when closing
+            setVaultSearchQuery('');
+          }}
+          onSelect={async (item) => {
+            // Handle agent actions
+            if (item.handler === 'agent.wake' || item.handler === 'agent.pause') {
+              const agentId = item.id.split('-').slice(2).join('-'); // Extract agent ID from action ID
+              try {
+                if (item.handler === 'agent.wake') {
+                  await wakeAgent(agentId);
+                  console.log(`Agent ${item.noun} awakened successfully`);
+                } else if (item.handler === 'agent.pause') {
+                  await patchAgent(agentId, { 
+                    status: 'paused',
+                    pauseReason: 'Paused by user via command palette'
+                  });
+                  console.log(`Agent ${item.noun} paused successfully`);
+                }
+              } catch (error) {
+                console.error(`Failed to ${item.handler === 'agent.wake' ? 'wake' : 'pause'} agent:`, error);
+              }
+            } else if (item.handler === 'issue.create') {
+              // Handle issue creation
+              setShowNewIssueModal(true);
+            }            else if (item.handler === 'issue.assign') {
+              // Handle issue assignment - extract issue ID from action ID
+              const issueId = item.id.split('-').slice(2).join('-');
+              console.log(`Assign issue ${issueId} to agent`);
+              if (issueId && currentAgentId) {
+                try {
+                  await assignTriageIssue(issueId, currentAgentId);
+                  console.log(`Assigned issue ${issueId} to ${currentAgentId}`);
+                } catch (assignError) {
+                  console.error(`Failed to assign issue ${issueId}:`, assignError);
+                }
+              }
+            } else if (item.handler === 'vault.search') {
+              // Handle vault search - this should trigger a search with the current query
+              if (vaultSearchQuery.trim()) {
+                try {
+                  const results = await executeVaultSearch(vaultSearchQuery);
+                  const resultActions = createVaultSearchResultActions(results, (path) => {
+                    // Navigate to the memory vault with the selected note
+                    window.location.href = path;
+                  });
+                  setVaultSearchResults(resultActions);
+                } catch (error) {
+                  console.error('Vault search failed:', error);
+                  setVaultSearchResults([]);
+                }
+              }
+            } else if (typeof item.handler === 'function') {
+              // Execute function handlers (like navigation)
+              item.handler();
+            } else {
+              console.log('Command selected:', item);
+            }
+          }}
+          onQueryChange={async (query) => {
+            setVaultSearchQuery(query);
+            
+            // Auto-search vault when query is meaningful (3+ characters)
+            if (query.trim().length >= 3) {
+              try {
+                const results = await executeVaultSearch(query);
+                const resultActions = createVaultSearchResultActions(results, (path) => {
+                  window.location.href = path;
+                });
+                setVaultSearchResults(resultActions);
+              } catch (error) {
+                console.error('Vault search failed:', error);
+                setVaultSearchResults([]);
+              }
+            } else {
+              // Clear results when query is too short
+              setVaultSearchResults([]);
+            }
+          }}
+          registry={[
+            ...createGotoActions(v2Nav), 
+            ...agentActions, 
+            ...issueActions,
+            ...createVaultSearchActions(),
+            ...vaultSearchResults
+          ]}
+          currentPage={typeof window !== 'undefined' ? window.location.pathname : '/'}
+        />
+        {showNewIssueModal && (
+          <NewIssueModal
+            onClose={() => setShowNewIssueModal(false)}
+            onCreated={() => {
+              setShowNewIssueModal(false);
+              console.log('Issue created successfully');
+            }}
+          />
+        )}
       </div>
     </div>
   );
@@ -324,11 +518,15 @@ export function TopBar({
   onTheme,
   theme,
   live,
+  onTrustInfo,
+  onCommandPalette,
 }: {
   tenant: Tenant;
   onTheme: () => void;
   theme: Theme;
   live: LiveStatus;
+  onTrustInfo: () => void;
+  onCommandPalette: () => void;
 }) {
   const tenants = live.tenants ?? [];
   const multiTenant = tenants.length > 1;
@@ -342,107 +540,30 @@ export function TopBar({
     stale: 'STALE · retrying',
     error: 'OFFLINE',
   };
-
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const pickerRef = useRef<HTMLDivElement | null>(null);
-  const activeTenantId = useActiveTenantId();
-  useEffect(() => {
-    if (!pickerOpen) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setPickerOpen(false);
-      }
-    };
-    const onEsc = (e: KeyboardEvent) => e.key === 'Escape' && setPickerOpen(false);
-    document.addEventListener('mousedown', onDocClick);
-    document.addEventListener('keydown', onEsc);
-    return () => {
-      document.removeEventListener('mousedown', onDocClick);
-      document.removeEventListener('keydown', onEsc);
-    };
-  }, [pickerOpen]);
-
   return (
     <header className="topbar">
-      <div ref={pickerRef} style={{ position: 'relative' }}>
-        <button
-          className="tenant-switcher"
-          title={
-            multiTenant
-              ? 'Switch tenant'
-              : tenants[0]
-              ? `Single tenant · ${tenants[0].id.slice(0, 8)}`
-              : 'No tenants registered yet'
-          }
-          disabled={!multiTenant}
-          onClick={() => multiTenant && setPickerOpen((o) => !o)}
-          style={{ cursor: multiTenant ? 'pointer' : 'default', opacity: tenants.length ? 1 : 0.7 }}
-        >
-          <span className="tenant-mark">{tenant.mark}</span>
-          <span style={{ fontWeight: 500 }}>{tenant.name}</span>
-          {multiTenant && <ChevronDown size={13} strokeWidth={1.6} />}
-        </button>
-        {pickerOpen && (
-          <div
-            role="listbox"
-            style={{
-              position: 'absolute',
-              top: 'calc(100% + 4px)',
-              left: 0,
-              minWidth: 240,
-              background: 'var(--surface-2, #1a1a1f)',
-              border: '1px solid var(--border, #2a2a32)',
-              borderRadius: 6,
-              boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-              zIndex: 50,
-              padding: 4,
-            }}
-          >
-            {tenants.map((t) => {
-              const isActive = t.id === activeTenantId;
-              return (
-                <button
-                  key={t.id}
-                  role="option"
-                  aria-selected={isActive}
-                  onClick={() => {
-                    setActiveTenantId(t.id);
-                    setPickerOpen(false);
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    width: '100%',
-                    padding: '8px 10px',
-                    background: isActive ? 'var(--surface-hover, #25252d)' : 'transparent',
-                    border: 'none',
-                    color: 'inherit',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    borderRadius: 4,
-                    fontFamily: 'inherit',
-                    fontSize: 13,
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) e.currentTarget.style.background = 'var(--surface-hover, #25252d)';
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) e.currentTarget.style.background = 'transparent';
-                  }}
-                >
-                  <span className="tenant-mark">{deriveMark(t.name)}</span>
-                  <span style={{ flex: 1 }}>{t.name}</span>
-                  <span style={{ fontFamily: 'monospace', fontSize: 11, opacity: 0.5 }}>
-                    {t.id.slice(0, 8)}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-      <div className="cmdk" title="Command palette is not yet wired (Cmd+K coming)">
+      <button
+        className="tenant-switcher"
+        title={
+          multiTenant
+            ? 'Switch tenant'
+            : tenants[0]
+            ? `Single tenant · ${tenants[0].id.slice(0, 8)}`
+            : 'No tenants registered yet'
+        }
+        disabled={!multiTenant}
+        style={{ cursor: multiTenant ? 'pointer' : 'default', opacity: tenants.length ? 1 : 0.7 }}
+      >
+        <span className="tenant-mark">{tenant.mark}</span>
+        <span style={{ fontWeight: 500 }}>{tenant.name}</span>
+        {multiTenant && <ChevronDown size={13} strokeWidth={1.6} />}
+      </button>
+      <div 
+        className="cmdk" 
+        onClick={onCommandPalette}
+        style={{ cursor: 'pointer' }}
+        title="Command palette (Cmd+K)"
+      >
         <Search size={14} strokeWidth={1.6} />
         <span>Search companies, agents, issues, vault notes…</span>
         <span className="cmdk-shortcut mono">⌘K</span>
@@ -476,7 +597,16 @@ export function TopBar({
           />{' '}
           <b>{stateLabel[live.state]}</b>
         </span>
+        {live.activeAgentsCount !== null && (
+          <span className="item active-agents-pill" title="Active agents" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--bg-2)', padding: '4px 8px', borderRadius: 12, fontSize: 12 }}>
+            <Bot size={14} strokeWidth={1.6} />
+            <b>{live.activeAgentsCount}</b> active
+          </span>
+        )}
       </div>
+      <button className="icon-btn trust-info-btn" data-testid="trust-layer-button" onClick={onTrustInfo} aria-label="Trust layer information">
+        <Info size={16} strokeWidth={1.6} />
+      </button>
       <button className="icon-btn" onClick={onTheme} aria-label="Toggle theme">
         {theme === 'dark' ? <Sun strokeWidth={1.6} /> : <Moon strokeWidth={1.6} />}
       </button>

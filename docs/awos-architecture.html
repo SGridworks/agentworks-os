@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentWorks OS — Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 12px;
+    padding: 32px;
+    min-width: 1100px;
+  }
+  h1 {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 700;
+    color: #58a6ff;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+  }
+  .subtitle {
+    text-align: center;
+    color: #8b949e;
+    font-size: 11px;
+    margin-bottom: 28px;
+  }
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: #8b949e;
+  }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .legend-arrow { font-size: 14px; }
+  .diagram {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .layer {
+    border-radius: 8px;
+    padding: 10px 14px;
+    position: relative;
+  }
+  .layer-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .layer-num {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .layer-title {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+  }
+  .layer-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .box {
+    border-radius: 6px;
+    padding: 8px 12px;
+    min-width: 110px;
+    max-width: 160px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .box-name {
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .box-desc {
+    font-size: 9px;
+    opacity: 0.7;
+    line-height: 1.3;
+  }
+  .box-sub {
+    font-size: 9px;
+    opacity: 0.55;
+    margin-top: 1px;
+  }
+
+  /* Layer colors */
+  .l-client  { background: #1a2e1a; border: 1px solid #2ea04333; }
+  .l-client .layer-num { background: #2ea04322; color: #3fb950; }
+  .l-client .layer-title { color: #3fb950; }
+  .l-client .box { background: #243324; border: 1px solid #2ea04344; color: #e6edf3; }
+
+  .l-gateway { background: #1a1a2e; border: 1px solid #388bfd33; }
+  .l-gateway .layer-num { background: #388bfd22; color: #58a6ff; }
+  .l-gateway .layer-title { color: #58a6ff; }
+  .l-gateway .box { background: #222438; border: 1px solid #388bfd44; color: #e6edf3; }
+
+  .l-agent   { background: #1a1a2e; border: 1px solid #a371f733; }
+  .l-agent .layer-num { background: #a371f722; color: #bc8cff; }
+  .l-agent .layer-title { color: #bc8cff; }
+  .l-agent .box { background: #242030; border: 1px solid #a371f744; color: #e6edf3; }
+
+  .l-mcp     { background: #0d2318; border: 1px solid #39d35333; }
+  .l-mcp .layer-num { background: #39d35322; color: #56d364; }
+  .l-mcp .layer-title { color: #56d364; }
+  .l-mcp .box { background: #1a2e22; border: 1px solid #39d35344; color: #e6edf3; }
+
+  .l-policy  { background: #2d1a1a; border: 1px solid #f8514966; }
+  .l-policy .layer-num { background: #f8514922; color: #ff7b72; }
+  .l-policy .layer-title { color: #ff7b72; }
+  .l-policy .box { background: #2e1f22; border: 1px solid #f8514966; color: #e6edf3; }
+
+  .l-memory  { background: #1a2a1a; border: 1px solid #ffa50033; }
+  .l-memory .layer-num { background: #ffa50022; color: #ffa500; }
+  .l-memory .layer-title { color: #ffa500; }
+  .l-memory .box { background: #1e2a1e; border: 1px solid #ffa50044; color: #e6edf3; }
+
+  .l-infra   { background: #161b22; border: 1px solid #30363d; }
+  .l-infra .layer-num { background: #30363d44; color: #8b949e; }
+  .l-infra .layer-title { color: #8b949e; }
+  .l-infra .box { background: #1c2128; border: 1px solid #30363d88; color: #8b949e; }
+
+  .arrow-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    height: 6px;
+  }
+  .arrow-down {
+    color: #388bfd;
+    font-size: 14px;
+    opacity: 0.7;
+  }
+  .arrow-dashed {
+    border-left: 1px dashed #388bfd55;
+    height: 20px;
+    width: 1px;
+    margin: 0 auto;
+  }
+  .arrow-row {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    padding: 2px 0;
+    align-items: center;
+  }
+  .arrow-label {
+    font-size: 9px;
+    color: #58a6ff;
+    background: #0d1117;
+    padding: 0 4px;
+    z-index: 1;
+  }
+
+  .flow-legend {
+    max-width: 1200px;
+    margin: 20px auto 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+  }
+  .flow-item {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 8px 10px;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .flow-num {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: #388bfd33;
+    color: #58a6ff;
+    font-size: 9px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .flow-text { font-size: 10px; color: #8b949e; line-height: 1.4; }
+
+  .box-icon { font-size: 12px; }
+  .infra-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+</style>
+</head>
+<body>
+
+<h1>AgentWorks OS — Architecture</h1>
+<div class="subtitle">Multi-Agent Orchestration Platform &nbsp;|&nbsp; v0.1 &nbsp;|&nbsp; 9 Packages &nbsp;|&nbsp; 8 Layers</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#243324;border:1px solid #2ea04344"></div> Clients</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#222438;border:1px solid #388bfd44"></div> Gateway / MCP</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#242030;border:1px solid #a371f744"></div> Agent Adapters</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#1a2e22;border:1px solid #39d35344"></div> MCP Servers</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#2e1f22;border:1px solid #f8514966"></div> Policy Engine</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#1e2a1e;border:1px solid #ffa50044"></div> Memory &amp; Retrieval</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#1c2128;border:1px solid #30363d88"></div> Infrastructure</div>
+</div>
+
+<div class="diagram">
+
+  <!-- LAYER 1: Clients -->
+  <div class="layer l-client">
+    <div class="layer-header">
+      <div class="layer-num">1</div>
+      <div class="layer-title">CLIENTS</div>
+    </div>
+    <div class="layer-items">
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🌐</span> Web App</div>
+        <div class="box-desc">Browser UI / admin dashboard</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🧩</span> Hermes Adapter</div>
+        <div class="box-desc">Hermes Agent as orchestration layer</div>
+        <div class="box-sub">Local AI agent + gateway</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">💬</span> Chat / Voice</div>
+        <div class="box-desc">Conversational interfaces</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">⚙️</span> API / SDK</div>
+        <div class="box-desc">REST API &amp; client libraries</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🧩</span> Claude Code</div>
+        <div class="box-desc">External AI agents</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-cell"><div class="arrow-down">↓</div></div>
+
+  <!-- LAYER 2: Gateway / MCP Router -->
+  <div class="layer l-gateway">
+    <div class="layer-header">
+      <div class="layer-num">2</div>
+      <div class="layer-title">NETWORK GATEWAY &amp; MCP ROUTER</div>
+    </div>
+    <div class="layer-items">
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🚪</span> Hermes Gateway</div>
+        <div class="box-desc">Central orchestration gateway — auth, sessions, routing</div>
+        <div class="box-sub">Express + middleware</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🔀</span> MCP Router</div>
+        <div class="box-desc">Routes MCP requests to servers</div>
+        <div class="box-sub">stdio + HTTP transport</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🪪</span> Auth / Sessions</div>
+        <div class="box-desc">JWT, OAuth, session store</div>
+        <div class="box-sub">Redis-backed sessions</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">📋</span> AWCP Protocol</div>
+        <div class="box-desc">AgentWorks Control Protocol</div>
+        <div class="box-sub">JSON-RPC over MCP</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-cell"><div class="arrow-down">↓</div></div>
+
+  <!-- LAYER 3: Agent Adapters -->
+  <div class="layer l-agent">
+    <div class="layer-header">
+      <div class="layer-num">3</div>
+      <div class="layer-title">AGENT ADAPTERS</div>
+    </div>
+    <div class="layer-items">
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🤖</span> OpenAI Adapter</div>
+        <div class="box-desc">GPT-4o / o1 via OpenAI API</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🧠</span> Anthropic Adapter</div>
+        <div class="box-desc">Claude via Anthropic API</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">💻</span> Local Adapter</div>
+        <div class="box-desc">Ollama / LM Studio</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🔗</span> External Agents</div>
+        <div class="box-desc">Third-party company agents via API</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🧠</span> Hermes</div>
+        <div class="box-desc">Primary orchestration agent — spawns subagents, delegates tasks</div>
+        <div class="box-sub">Local, MCP-native</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-cell"><div class="arrow-down">↓</div></div>
+
+  <!-- LAYER 4: MCP Servers -->
+  <div class="layer l-mcp">
+    <div class="layer-header">
+      <div class="layer-num">4</div>
+      <div class="layer-title">MCP SERVERS</div>
+    </div>
+    <div class="layer-items">
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🧠</span> memory-server</div>
+        <div class="box-desc">Vault, vector store, session memory</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🔧</span> tools-server</div>
+        <div class="box-desc">File, terminal, web, code exec tools</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">📄</span> pdf-server</div>
+        <div class="box-desc">pdf-parse-heavy + marker for PDFs</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🔍</span> scanner-server</div>
+        <div class="box-desc">File scanner, dependency analysis</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">📊</span> workflow-nodes</div>
+        <div class="box-desc">Workflow automation triggers</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🗂️</span> admin-ui-server</div>
+        <div class="box-desc">Agent config, observability UI</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-cell"><div class="arrow-down">↓</div></div>
+
+  <!-- LAYER 5: Memory & Retrieval — RAG Pipeline -->
+  <div class="layer l-memory">
+    <div class="layer-header">
+      <div class="layer-num">5</div>
+      <div class="layer-title">MEMORY &amp; RETRIEVAL — RAG PIPELINE</div>
+    </div>
+    <div class="layer-items">
+      <div class="box">
+        <div class="box-name"><span class="box-icon">⚡</span> Hot Cache</div>
+        <div class="box-desc">Recent interactions, fast recall layer</div>
+        <div class="box-sub">In-memory, LRU, TTL-based</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🧠</span> Session Memory</div>
+        <div class="box-desc">Current conversation context, turn history</div>
+        <div class="box-sub">Redis-backed</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">📚</span> Vault (Long-term)</div>
+        <div class="box-desc">Markdown files, projects, knowledge base</div>
+        <div class="box-sub">Hierarchical file store</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🔎</span> Vector Index</div>
+        <div class="box-desc">Chroma / Qdrant — ANN index over embedded chunks</div>
+        <div class="box-sub">Chroma (local) or Qdrant (prod)</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">⚙️</span> Retrieval Pipeline</div>
+        <div class="box-desc">Hybrid BM25 + vector → cross-encoder re-rank</div>
+        <div class="box-sub">BM25: 30% · Vector: 70% · α=0.3</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">📝</span> Chunk &amp; Ingest</div>
+        <div class="box-desc">Recursive char split — 400 tokens, 100 overlap</div>
+        <div class="box-sub">Stage 1 of 5-stage RAG</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🔗</span> Embed Client</div>
+        <div class="box-desc">OpenAI-compatible — text-embedding-3-small</div>
+        <div class="box-sub">Any provider (OpenAI / Azure / Ollama)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-cell"><div class="arrow-down">↓</div></div>
+
+  <!-- LAYER 6: Policy Engine -->
+  <div class="layer l-policy">
+    <div class="layer-header">
+      <div class="layer-num">6</div>
+      <div class="layer-title">POLICY ENGINE &amp; COMPLIANCE</div>
+    </div>
+    <div class="layer-items">
+      <div class="box">
+        <div class="box-name"><span class="box-icon">⚖️</span> Policy Engine</div>
+        <div class="box-desc">Cognitive budget, cost, rate limit enforcement</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🛡️</span> TCPA Rule Pack</div>
+        <div class="box-desc">Telemarketing consent, DNC, opt-out</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🔒</span> GDPR Rule Pack</div>
+        <div class="box-desc">Data retention, erasure, consent</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">✅</span> ComplianceConsultant</div>
+        <div class="box-desc">Rule pack authoring &amp; review</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">⏱️</span> Cognitive Budget</div>
+        <div class="box-desc">Token/spend per-agent limits</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-cell"><div class="arrow-down">↓</div></div>
+
+  <!-- LAYER 7: Shared & Scanner Worker -->
+  <div class="layer l-mcp">
+    <div class="layer-header">
+      <div class="layer-num">7</div>
+      <div class="layer-title">SHARED TYPES &amp; SCANNER WORKER</div>
+    </div>
+    <div class="layer-items">
+      <div class="box">
+        <div class="box-name"><span class="box-icon">📦</span> @awos/shared</div>
+        <div class="box-desc">Shared TypeScript types, AWCP schema, zod validators</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🔍</span> scanner-worker</div>
+        <div class="box-desc">Background file scanner, dependency graph, hot-reload</div>
+        <div class="box-sub">Python + JS analysis</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-cell"><div class="arrow-down">↓</div></div>
+
+  <!-- LAYER 8: Infrastructure -->
+  <div class="layer l-infra">
+    <div class="layer-header">
+      <div class="layer-num">8</div>
+      <div class="layer-title">INFRASTRUCTURE</div>
+    </div>
+    <div class="infra-grid">
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🐳</span> Docker</div>
+        <div class="box-desc">Container runtime</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">📦</span> MCP Registry</div>
+        <div class="box-desc">Server discovery &amp; config</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🔄</span> Redis</div>
+        <div class="box-desc">Sessions, caching, pub/sub</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">💾</span> SQLite / Postgres</div>
+        <div class="box-desc">Persistent agent state</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">🧮</span> Vector Store</div>
+        <div class="box-desc">Qdrant / Chroma for RAG</div>
+      </div>
+      <div class="box">
+        <div class="box-name"><span class="box-icon">📡</span> Observability</div>
+        <div class="box-desc">OpenTelemetry, logs, traces</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Flow Legend -->
+<div class="flow-legend">
+  <div class="flow-item"><div class="flow-num">①</div><div class="flow-text">User request enters via Hermes gateway or API</div></div>
+  <div class="flow-item"><div class="flow-num">②</div><div class="flow-text">Hermes Gateway authenticates, rate-limits, routes via MCP</div></div>
+  <div class="flow-item"><div class="flow-num">③</div><div class="flow-text">Hermes selects agent adapter based on task type</div></div>
+  <div class="flow-item"><div class="flow-num">④</div><div class="flow-text">MCP servers provide tools, document processing, admin UI</div></div>
+  <div class="flow-item"><div class="flow-num">⑤</div><div class="flow-text">Memory retrieval: session context + vault + vector search</div></div>
+  <div class="flow-item"><div class="flow-num">⑤b</div><div class="flow-text">RAG pipeline: chunk → embed (text-embedding-3-small) → store in Chroma/Qdrant</div></div>
+  <div class="flow-item"><div class="flow-num">⑥</div><div class="flow-text">Policy engine enforces cognitive budget, compliance, guardrails</div></div>
+  <div class="flow-item"><div class="flow-num">⑦</div><div class="flow-text">Scanner worker monitors codebase, updates context</div></div>
+  <div class="flow-item"><div class="flow-num">⑧</div><div class="flow-text">Infrastructure provides persistence, caching, observability</div></div>
+  <div class="flow-item"><div class="flow-num">⑨</div><div class="flow-text">Response flows back through Hermes gateway to client</div></div>
+</div>
+
+<div style="text-align:center;margin-top:20px;font-size:10px;color:#30363d;">
+  AgentWorks OS · 9 packages · TypeScript + Python · MCP-native · © 2026
+</div>
+
+</body>
+</html>

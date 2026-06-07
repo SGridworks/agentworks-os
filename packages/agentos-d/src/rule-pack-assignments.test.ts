@@ -107,13 +107,8 @@ describe("rule pack assignments", () => {
     expect(listAssignments(T1)).toEqual([]);
   });
 
-  it("DEFAULT_PACK_ID is null in the test environment (no env, no auto-assign)", () => {
-    // The module reads process.env at load time. The smb-starter default
-    // lives in docker-compose.yml (`${AGENTWORKS_DEFAULT_PACK_ID:-smb-starter}`),
-    // not in code, so a vitest run with no env set yields null — meaning
-    // tenant create won't auto-assign anything. Production containers get
-    // smb-starter via compose.
-    expect(DEFAULT_PACK_ID).toBeNull();
+  it("DEFAULT_PACK_ID is smb-starter (the universal baseline)", () => {
+    expect(DEFAULT_PACK_ID).toBe("smb-starter");
   });
 });
 
@@ -176,9 +171,7 @@ describe("migration 0006 backfill", () => {
 
     const rows = getDb().select().from(tenantRulePackAssignments).all();
     // Exactly two rows expected — one per tenant — even after a second run.
-    // Migration 0006 backfills with the literal "smb-starter" regardless of
-    // runtime AGENTWORKS_DEFAULT_PACK_ID (it's a one-time historical fix).
-    const filtered = rows.filter((r) => r.packId === "smb-starter");
+    const filtered = rows.filter((r) => r.packId === DEFAULT_PACK_ID);
     expect(filtered).toHaveLength(2);
     const tenantIds = filtered.map((r) => r.tenantId).sort();
     expect(tenantIds).toEqual([T1, T2]);

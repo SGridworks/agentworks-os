@@ -51,6 +51,40 @@ function run(cmd: string, opts?: { cwd?: string; input?: string; env?: Record<st
   }
 }
 
+function pidIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+function assertNoActiveDaemonForRestore(dataDir: string): void {
+  const lockPath = join(dataDir, ".awos-daemon.lock");
+  if (!existsSync(lockPath)) return;
+
+  let lock: { pid?: unknown };
+  try {
+    lock = JSON.parse(readFileSync(lockPath, "utf-8")) as { pid?: unknown };
+  } catch {
+    throw new Error(
+      `Refusing restore: cannot read daemon lock at ${lockPath}. Inspect it before overwriting the database.`,
+    );
+  }
+
+  if (typeof lock.pid !== "number" || !Number.isInteger(lock.pid) || lock.pid <= 0) {
+    throw new Error(`Refusing restore: invalid daemon lock at ${lockPath}.`);
+  }
+
+  if (pidIsAlive(lock.pid)) {
+    throw new Error(
+      `Refusing restore: agentos-d appears active for ${dataDir} (pid ${lock.pid}). ` +
+        `Stop the daemon before overwriting agentworks.db.`,
+    );
+  }
+}
+
 function isInstalled(): boolean {
   try {
     const envFile = join(AGENTWORKS_DIR, "config", ".env");
@@ -410,6 +444,7 @@ function cmdRestore(opts: { backup: string; passphrase?: string; targetVaultPath
     const dbTargetDir = join(AGENTWORKS_DIR, "data");
     if (existsSync(dbBackupPath)) {
       logInfo("Restoring database...");
+      assertNoActiveDaemonForRestore(dbTargetDir);
       run(`mkdir -p "${dbTargetDir}"`);
       run(`cp "${dbBackupPath}" "${dbTargetDir}/agentworks.db"`);
     }

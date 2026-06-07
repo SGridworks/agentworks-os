@@ -1,8 +1,10 @@
+import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { loadConfig } from "./config.js";
 import { initDb, getSqlite } from "./db/index.js";
 import { migrate } from "./db/migrations/index.js";
+import { acquireLock, releaseLock } from "./services/daemon-lock.js";
 import { startAuditLogRetentionScheduler } from "./retention.js";
 import { startWebSocketServer } from "./websocket-server.js";
 import { EvidenceReportCron } from "./services/evidence-report-cron.js";
@@ -53,8 +55,10 @@ function createPdfEngine(): any {
   return new FakePdfEngine();
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const config = loadConfig();
+  const dataDir = config.dataDir ?? "./data";
+  await acquireLock(dataDir);
   initDb({ config, migrations: migrate });
   const pdfEngine = createPdfEngine();
   const evidenceCron = new EvidenceReportCron({ engine: pdfEngine });
@@ -115,6 +119,7 @@ function main(): void {
         evidenceCron.stop();
         (global as any).evidenceCronRunning = false;
       }
+      releaseLock(dataDir);
       server.close(() => process.exit(0));
     });
   }
@@ -142,6 +147,16 @@ function runResume(): void {
     resume();
     console.log("Substrate resumed.");
   }
+}
+
+function runOpen(): void {
+  const url = process.env.AGENTOS_OPEN_URL ?? "http://localhost:3000/mission-control";
+  const platform = process.platform;
+  const command = platform === "darwin" ? "open" : platform === "win32" ? "start" : "xdg-open";
+  console.log(`Opening ${url} ...`);
+  const child = spawn(command, [url], { detached: true, stdio: "ignore" });
+  child.unref();
+  setTimeout(() => process.exit(0), 500);
 }
 
 const cmd = process.argv[2];
@@ -172,6 +187,8 @@ if (cmd === "backup") {
 } else if (cmd === "resume") {
   runResume();
   process.exit(0);
+} else if (cmd === "open") {
+  runOpen();
 } else {
   main();
 }

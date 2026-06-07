@@ -32,7 +32,7 @@ import { migrate as migrateEpisodes } from "./0024_episodes.js";
 import { migrate as migrateInsights } from "./0025_insights.js";
 import { migrate as migrateEpisodeSession } from "./0026_episode_session.js";
 import { migrate as migrateAgentInstructionsBackfill } from "./0027_agent_instructions_backfill.js";
-import { migrate as migrateAgentInstructionsLegacyImport } from "./0028_agent_instructions_paperclip_import.js";
+import { migrate as migrateAgentInstructionsLegacyImport } from "./0028_agent_instructions_legacy_import.js";
 import { migrate as migrateAgentInstructionsNameAlias } from "./0029_agent_instructions_name_alias.js";
 import { migrate as migrateAgentInstructionsStub } from "./0030_agent_instructions_stub.js";
 import { migrate as migrateCompanyIssuePrefix } from "./0031_company_issue_prefix.js";
