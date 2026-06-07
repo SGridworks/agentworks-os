@@ -3,7 +3,8 @@
  *
  * The vault is tenant-isolated, append-friendly markdown storage used by
  * agentos-d's MCP memory.read / memory.write tools. v1 is file-backed so
- * customers can rsync, version-control, or sync via Obsidian. Future
+ * customers can rsync, version-control, or keep the vault in their
+ * preferred local editor. Future
  * implementations may use SQLite, S3, or a content-addressed store.
  *
  * Two contracts that all stores must honour:
@@ -11,7 +12,7 @@
  *   1. Tenant isolation. Every read/write is scoped to a tenantId; one
  *      tenant must never observe another tenant's pages.
  *   2. Stable keys. A page key is a forward-slash path like
- *      "projects/sgridworks" — implementations map that to whatever
+ *      "projects/acme" — implementations map that to whatever
  *      backing storage they use, but the same key always returns the
  *      same logical page.
  */
@@ -61,12 +62,30 @@ export {
 } from "./hot-cache.js";
 export {
   lintVault,
+  ALL_LINT_KINDS,
   type LintFinding,
   type LintReport,
   type LintOptions,
   type LintKind,
   type LintSeverity,
 } from "./lint.js";
+export {
+  VaultMetadataIndex,
+  buildVaultMetadataIndex,
+  parseVaultMarkdown,
+  renderVaultMarkdown,
+  type ParsedVaultMarkdown,
+  type VaultDuplicateSlug,
+  type VaultFrontmatter,
+  type VaultHeading,
+  type VaultIndexIssue,
+  type VaultIndexIssueKind,
+  type VaultLink,
+  type VaultMetadataIndexOptions,
+  type VaultMetadataIndexSnapshot,
+  type VaultPageMetadata,
+  type VaultTagSummary,
+} from "./vault-metadata.js";
 export {
   slugFromPath,
   slugFromUrl,

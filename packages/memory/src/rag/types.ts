@@ -219,7 +219,7 @@ export interface RetrievalResponse {
  */
 export interface RagIngestOptions {
   tenantId: string;
-  /** Full vault key, e.g. "projects/sgridworks/rag-fundamentals". */
+  /** Full vault key, e.g. "projects/acme/rag-fundamentals". */
   vaultKey: string;
   /** Raw text content — the full document body (no frontmatter). */
   content: string;

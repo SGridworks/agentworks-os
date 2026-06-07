@@ -13,9 +13,9 @@
 /** A typed entity referenced by a vault page. */
 export interface Entity {
   type: EntityType;
-  /** Raw wikilink or mention text, e.g. "[[projects/sgridworks]]" or "@john" */
+  /** Raw wikilink or mention text, e.g. "[[projects/acme]]" or "@john" */
   raw: string;
-  /** Normalized key for lookup, e.g. "projects/sgridworks" or "people/john" */
+  /** Normalized key for lookup, e.g. "projects/acme" or "people/john" */
   normalized: string;
 }
 

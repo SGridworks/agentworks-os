@@ -6,12 +6,16 @@ import { useV2Nav } from '@/components/v2/nav';
 import {
   listTenants,
   getVaultLint,
+  getVaultLintDiff,
   getHotCache,
   rebuildHotCache,
+  ALL_VAULT_LINT_KINDS,
   type Tenant,
+  type VaultLintDiff,
   type VaultLintReport,
   type VaultLintFinding,
   type VaultLintKind,
+  type VaultLintSeverity,
   type HotCacheRead,
 } from '@/lib/api';
 import { RefreshCw, FileText, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
@@ -22,15 +26,29 @@ const KIND_LABEL: Record<VaultLintKind, string> = {
   frontmatter_gap: 'Frontmatter gap',
   empty_section: 'Empty section',
   kebab_case_violation: 'Filename',
+  source_drift: 'Source drift',
+  contradiction_flagged: 'Contradiction',
+  confidence_low: 'Low confidence',
+  page_oversize: 'Oversize',
+  tag_audit: 'Tag audit',
+  log_rotation_due: 'Log rotation',
 };
 
-const KIND_ORDER: VaultLintKind[] = [
+const KIND_ORDER = [
   'dead_link',
   'frontmatter_gap',
   'kebab_case_violation',
+  'source_drift',
+  'contradiction_flagged',
+  'confidence_low',
+  'page_oversize',
+  'tag_audit',
+  'log_rotation_due',
   'orphan_page',
   'empty_section',
-];
+] satisfies VaultLintKind[];
+
+const SEVERITY_ORDER: VaultLintSeverity[] = ['error', 'warn', 'info'];
 
 function relTime(iso: string | null): string {
   if (!iso) return '—';
@@ -47,6 +65,7 @@ export default function VaultHealthPage() {
   const navigate = useV2Nav();
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [lint, setLint] = useState<VaultLintReport | null>(null);
+  const [diff, setDiff] = useState<VaultLintDiff | null>(null);
   const [hot, setHot] = useState<HotCacheRead | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -62,7 +81,9 @@ export default function VaultHealthPage() {
     setBusy(true);
     setError(null);
     try {
-      const [r, h] = await Promise.all([getVaultLint(t.id), getHotCache(t.id)]);
+      const [d, h] = await Promise.all([getVaultLintDiff(t.id), getHotCache(t.id)]);
+      const r = await getVaultLint(t.id);
+      setDiff(d);
       setLint(r);
       setHot(h);
     } catch (e) {
@@ -113,9 +134,9 @@ export default function VaultHealthPage() {
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
           <HotCacheCard hot={hot} busy={busy} onRebuild={handleRebuild} />
-          <LintSummaryCard lint={lint} filter={filter} setFilter={setFilter} />
+          <LintSummaryCard lint={lint} diff={diff} filter={filter} setFilter={setFilter} />
         </div>
 
         <FindingsTable findings={filteredFindings} pageCount={lint?.pageCount ?? 0} filter={filter} />
@@ -216,15 +237,23 @@ function HotCacheCard({
 
 function LintSummaryCard({
   lint,
+  diff,
   filter,
   setFilter,
 }: {
   lint: VaultLintReport | null;
+  diff: VaultLintDiff | null;
   filter: VaultLintKind | 'all';
   setFilter: (k: VaultLintKind | 'all') => void;
 }) {
   const totals = lint?.totals;
   const total = lint ? lint.findings.length : 0;
+  const severityTotals = useMemo(() => {
+    const counts: Record<VaultLintSeverity, number> = { error: 0, warn: 0, info: 0 };
+    for (const finding of lint?.findings ?? []) counts[finding.severity] += 1;
+    return counts;
+  }, [lint]);
+  const executed = lint?.executed ?? [];
   return (
     <div style={cardStyle}>
       <div style={cardHeaderStyle}>
@@ -233,6 +262,22 @@ function LintSummaryCard({
           <strong>Lint Summary</strong>
         </div>
         <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{lint?.pageCount ?? 0} pages</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 10 }}>
+        <KV k="Run" v={lint?.runId ?? '—'} />
+        <KV k="Executed" v={`${executed.length}/11`} />
+        <KV k="Baseline" v={diff?.previousRunId ? diff.previousRunId : diff?.baselineReason ?? '—'} />
+        <KV
+          k="Diff"
+          v={diff?.summary ? `+${diff.summary.added} / -${diff.summary.removed} / ${diff.summary.unchanged}` : '—'}
+        />
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        {SEVERITY_ORDER.map((severity) => (
+          <span key={severity} style={severityBadgeStyle(severity)}>
+            {severity}: {severityTotals[severity]}
+          </span>
+        ))}
       </div>
       <Chip
         active={filter === 'all'}
@@ -274,7 +319,7 @@ function FindingsTable({
           <strong>Findings</strong>
         </div>
         <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-          {findings.length} {filter === 'all' ? 'finding' : KIND_LABEL[filter]}
+          {findings.length} {filter === 'all' ? 'finding' : KIND_LABEL[filter] ?? filter}
           {findings.length === 1 ? '' : 's'} · {pageCount} pages scanned
         </span>
       </div>
@@ -294,22 +339,20 @@ function FindingsTable({
             {findings.map((f, i) => (
               <tr key={`${f.path}-${i}`} style={{ borderTop: '1px solid var(--rule)' }}>
                 <td style={td}>
-                  <span
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: 3,
-                      fontSize: 10,
-                      textTransform: 'uppercase',
-                      background: f.severity === 'warn' ? 'var(--warn-soft, #fff3cd)' : 'var(--bg-1)',
-                      color: f.severity === 'warn' ? 'var(--warn, #b58900)' : 'var(--ink-3)',
-                    }}
-                  >
+                  <span style={severityBadgeStyle(f.severity)}>
                     {f.severity}
                   </span>
                 </td>
-                <td style={td}>{KIND_LABEL[f.kind]}</td>
+                <td style={td}>{KIND_LABEL[f.kind] ?? f.kind}</td>
                 <td style={{ ...td, fontFamily: 'var(--font-mono, ui-monospace, monospace)' }}>{f.path}</td>
-                <td style={td}>{f.message}</td>
+                <td style={td}>
+                  {f.message}
+                  {f.detail && (
+                    <div style={{ marginTop: 2, color: 'var(--ink-3)', fontFamily: 'var(--font-mono, ui-monospace, monospace)' }}>
+                      {f.detail}
+                    </div>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -366,6 +409,37 @@ const cardHeaderStyle: React.CSSProperties = {
 
 const th: React.CSSProperties = { padding: '6px 8px', fontWeight: 500 };
 const td: React.CSSProperties = { padding: '6px 8px', verticalAlign: 'top' };
+
+function severityBadgeStyle(severity: VaultLintSeverity): React.CSSProperties {
+  if (severity === 'error') {
+    return {
+      padding: '2px 6px',
+      borderRadius: 3,
+      fontSize: 10,
+      textTransform: 'uppercase',
+      background: 'var(--err-soft, #fee2e2)',
+      color: 'var(--err, #b91c1c)',
+    };
+  }
+  if (severity === 'warn') {
+    return {
+      padding: '2px 6px',
+      borderRadius: 3,
+      fontSize: 10,
+      textTransform: 'uppercase',
+      background: 'var(--warn-soft, #fff3cd)',
+      color: 'var(--warn, #b58900)',
+    };
+  }
+  return {
+    padding: '2px 6px',
+    borderRadius: 3,
+    fontSize: 10,
+    textTransform: 'uppercase',
+    background: 'var(--bg-1)',
+    color: 'var(--ink-3)',
+  };
+}
 
 function smallBtnStyle(busy: boolean): React.CSSProperties {
   return {

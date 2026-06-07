@@ -49,7 +49,7 @@ import {
  * Usage:
  *   const result = await runRagIngest({
  *     tenantId: "tenant_abc",
- *     vaultKey: "projects/sgridworks/rag-fundamentals",
+ *     vaultKey: "projects/acme/rag-fundamentals",
  *     content: vaultPage.body,  // raw markdown, no frontmatter
  *     metadata: { title: "RAG Fundamentals", tags: ["rag", "memory"] },
  *   });

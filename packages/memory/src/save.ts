@@ -1,5 +1,5 @@
 /**
- * Vault save — deterministic substrate for the vault-save skill.
+ * Vault save — deterministic substrate for the Hermes vault-save skill.
  *
  * The skill itself is mostly synthesis: scan the conversation, decide what's
  * worth keeping, pick the right note type, write declarative prose. That stays

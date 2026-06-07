@@ -1,5 +1,5 @@
 /**
- * Vault ingest — deterministic substrate for the vault-ingest skill.
+ * Vault ingest — deterministic substrate for the Hermes vault-ingest skill.
  *
  * The skill itself is mostly synthesis: read a source, decide which entities
  * and concepts matter, write summary text, choose targets. That stays an

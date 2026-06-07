@@ -146,6 +146,112 @@ describe("memory routes", () => {
     });
   });
 
+  describe("GET /api/memory/metadata", () => {
+    it("returns the shared vault metadata index shape", async () => {
+      const tenantDir = join(vaultRoot, TENANT_A);
+      mkdirSync(join(tenantDir, "folder"), { recursive: true });
+      writeFileSync(
+        join(tenantDir, "alpha.md"),
+        `---
+title: Alpha
+aliases: [Start]
+tags: [ops]
+---
+# Top
+Links to [[folder/beta#Details|Beta details]] and [[ghost]].
+`,
+      );
+      writeFileSync(
+        join(tenantDir, "folder", "beta.md"),
+        `---
+title: Beta
+---
+# Details
+Linked target.
+`,
+      );
+
+      const res = await request(app).get("/api/memory/metadata").query({ tenantId: TENANT_A });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.data.tenantId).toBe(TENANT_A);
+      expect(res.body.data.pageCount).toBe(2);
+      expect(res.body.data.pages).toHaveLength(2);
+      expect(res.body.data.links).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            source: "alpha",
+            target: "folder/beta",
+            heading: "Details",
+            targetKey: "folder/beta",
+            resolved: true,
+          }),
+          expect.objectContaining({
+            source: "alpha",
+            raw: "ghost",
+            resolved: false,
+          }),
+        ]),
+      );
+      expect(res.body.data.unresolvedLinks).toHaveLength(1);
+      expect(res.body.data.tags).toEqual([
+        expect.objectContaining({ tag: "ops", count: 1, pages: ["alpha.md"] }),
+      ]);
+      expect(res.body.data.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: "unresolved_link", path: "alpha.md" }),
+        ]),
+      );
+    });
+
+    it("returns 400 for invalid tenantId", async () => {
+      const res = await request(app).get("/api/memory/metadata").query({ tenantId: "bad" });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("GET /api/memory/graph", () => {
+    it("keeps the graph shape while surfacing unresolved links and duplicate slugs", async () => {
+      const tenantDir = join(vaultRoot, TENANT_A);
+      mkdirSync(join(tenantDir, "folder"), { recursive: true });
+      mkdirSync(join(tenantDir, "other"), { recursive: true });
+      writeFileSync(
+        join(tenantDir, "alpha.md"),
+        `---
+title: Alpha
+type: note
+tags: [ops]
+---
+Links to [[folder/beta]] and [[missing]].
+`,
+      );
+      writeFileSync(join(tenantDir, "folder", "beta.md"), `---\ntitle: Beta\n---\nTarget.\n`);
+      writeFileSync(join(tenantDir, "other", "beta.md"), `---\ntitle: Other Beta\n---\nDuplicate.\n`);
+
+      const res = await request(app).get("/api/memory/graph").query({ tenantId: TENANT_A });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.data.notes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "alpha",
+            title: "Alpha",
+            tags: ["ops"],
+            outgoing: 1,
+            unresolvedOutgoing: 1,
+          }),
+          expect.objectContaining({
+            id: "folder/beta",
+            backlinks: 1,
+          }),
+        ]),
+      );
+      expect(res.body.data.edges).toEqual([["alpha", "folder/beta"]]);
+      expect(res.body.data.unresolvedLinks).toBe(1);
+      expect(res.body.data.duplicateSlugs).toBe(1);
+    });
+  });
+
   describe("GET /api/memory/lint", () => {
     it("returns 400 for invalid tenantId", async () => {
       const res = await request(app).get("/api/memory/lint").query({ tenantId: "bad" });

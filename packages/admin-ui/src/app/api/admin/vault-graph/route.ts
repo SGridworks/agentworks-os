@@ -1,136 +1,95 @@
 /**
  * GET /api/admin/vault-graph
  *
- * Walks the operator tenant's vault subtree and returns a graph of pages
- * and their [[wikilinks]] for rendering in the Graph view.
- *
- * Resolution strategy: a wikilink `[[X]]` resolves to the first .md file
- * whose stem (basename without .md) equals X (case-insensitive). If no
- * match, the link is dropped.
+ * Compatibility adapter for older admin views. The daemon owns vault indexing;
+ * this route only reshapes /api/memory/metadata into the former graph payload.
  */
-
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
 
 export const dynamic = 'force-dynamic';
 
-const VAULT_ROOT = process.env.VAULT_ROOT;
+const AGENTOS_API_URL = process.env.AGENTOS_API_URL ?? 'http://127.0.0.1:7710';
 const TENANT_ID = process.env.AGENTOS_TENANT_ID;
 
-const WIKILINK_RE = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
-const SKIP_DIRS = new Set(['.git', '.obsidian', 'node_modules', 'legacy-tenants']);
-
-interface VaultNode {
-  id: string; // relative path
-  title: string; // stem
-  dir: string; // parent dir (relative)
+interface MetadataPage {
+  key: string;
+  title: string;
 }
 
-interface VaultEdge {
+interface MetadataLink {
   source: string;
-  target: string;
+  targetKey?: string;
+  resolved: boolean;
 }
 
-function walkMarkdown(root: string): string[] {
-  const out: string[] = [];
-  const stack = [root];
-  while (stack.length) {
-    const dir = stack.pop()!;
-    let entries: string[] = [];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      continue;
-    }
-    for (const name of entries) {
-      if (SKIP_DIRS.has(name)) continue;
-      const full = join(dir, name);
-      let st;
-      try {
-        st = statSync(full);
-      } catch {
-        continue;
-      }
-      if (st.isDirectory()) {
-        stack.push(full);
-      } else if (st.isFile() && name.endsWith('.md')) {
-        out.push(full);
-      }
-    }
-  }
-  return out;
+interface MetadataResponse {
+  ok: boolean;
+  data?: {
+    tenantId: string;
+    pages: MetadataPage[];
+    links: MetadataLink[];
+    unresolvedLinks: MetadataLink[];
+  };
 }
 
-function stem(path: string): string {
-  const base = path.split('/').pop()!;
-  return base.replace(/\.md$/i, '');
+function dirOf(key: string): string {
+  const parts = key.split('/');
+  return parts.length > 1 ? parts.slice(0, -1).join('/') : '/';
 }
 
 export async function GET(): Promise<Response> {
-  if (!VAULT_ROOT || !TENANT_ID) {
+  if (!TENANT_ID) {
     return Response.json(
-      { error: 'config_missing', message: 'VAULT_ROOT and AGENTOS_TENANT_ID env vars are required' },
+      { error: 'config_missing', message: 'AGENTOS_TENANT_ID env var is required' },
       { status: 500 },
     );
   }
-  try {
-    const tenantRoot = join(VAULT_ROOT, TENANT_ID);
-    const files = walkMarkdown(tenantRoot);
 
-    // Build index: lowercased stem → relative path (first match wins)
-    const stemIndex = new Map<string, string>();
-    const nodes: VaultNode[] = [];
-    for (const abs of files) {
-      const rel = relative(tenantRoot, abs);
-      const s = stem(abs);
-      const lower = s.toLowerCase();
-      if (!stemIndex.has(lower)) stemIndex.set(lower, rel);
-      nodes.push({
-        id: rel,
-        title: s,
-        dir: rel.split('/').slice(0, -1).join('/') || '/',
-      });
+  try {
+    const url = new URL('/api/memory/metadata', AGENTOS_API_URL);
+    url.searchParams.set('tenantId', TENANT_ID);
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) {
+      return Response.json(
+        { error: 'metadata_fetch_failed', status: response.status },
+        { status: 502 },
+      );
+    }
+    const payload = (await response.json()) as MetadataResponse;
+    if (!payload.ok || !payload.data) {
+      return Response.json({ error: 'metadata_fetch_failed' }, { status: 502 });
     }
 
-    // Parse wikilinks
-    const edgeSet = new Set<string>(); // dedup as "src→tgt"
-    const edges: VaultEdge[] = [];
-    for (const abs of files) {
-      const rel = relative(tenantRoot, abs);
-      let body = '';
-      try {
-        body = readFileSync(abs, 'utf-8');
-      } catch {
-        continue;
-      }
-      WIKILINK_RE.lastIndex = 0;
-      let match: RegExpExecArray | null;
-      while ((match = WIKILINK_RE.exec(body)) !== null) {
-        const target = match[1].trim();
-        const targetStem = target.split('/').pop()!.toLowerCase();
-        const targetRel = stemIndex.get(targetStem);
-        if (!targetRel || targetRel === rel) continue;
-        const key = `${rel}→${targetRel}`;
-        if (edgeSet.has(key)) continue;
-        edgeSet.add(key);
-        edges.push({ source: rel, target: targetRel });
-      }
+    const nodes = payload.data.pages.map((page) => ({
+      id: `${page.key}.md`,
+      title: page.title || page.key.split('/').pop() || page.key,
+      dir: dirOf(page.key),
+    }));
+
+    const edgeSet = new Set<string>();
+    const edges: Array<{ source: string; target: string }> = [];
+    for (const link of payload.data.links) {
+      if (!link.resolved || !link.targetKey || link.source === link.targetKey) continue;
+      const source = `${link.source}.md`;
+      const target = `${link.targetKey}.md`;
+      const sig = `${source}\0${target}`;
+      if (edgeSet.has(sig)) continue;
+      edgeSet.add(sig);
+      edges.push({ source, target });
     }
 
     return Response.json({
-      tenantId: TENANT_ID,
-      tenantRoot,
+      tenantId: payload.data.tenantId,
       nodes,
       edges,
       stats: {
         nodeCount: nodes.length,
         edgeCount: edges.length,
-        unresolvedWikilinks: 0, // not tracked
+        unresolvedLinks: payload.data.unresolvedLinks.length,
       },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[vault-graph] failed:', message);
-    return Response.json({ error: 'fetch_failed', message }, { status: 500 });
+    return Response.json({ error: 'metadata_fetch_failed', message }, { status: 500 });
   }
 }
