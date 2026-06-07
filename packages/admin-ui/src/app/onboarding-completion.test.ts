@@ -16,7 +16,7 @@ describe('Onboarding Completion', () => {
 
     const retrieved = localStorage.getItem('aw_onboarding_state');
     const parsed = JSON.parse(retrieved!);
-    
+
     expect(parsed.completed).toBe(true);
     expect(parsed.tenantName).toBe('Test Tenant');
   });

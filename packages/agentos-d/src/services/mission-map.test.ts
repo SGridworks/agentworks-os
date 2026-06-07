@@ -239,7 +239,7 @@ describe("Mission Map Service", () => {
   it("handles empty graph gracefully", () => {
     const emptyTenantId = "empty-tenant-456";
     const graph = getGraph({ tenantId: emptyTenantId });
-    
+
     expect(graph.nodes).toEqual([]);
     expect(graph.edges).toEqual([]);
   });
@@ -249,7 +249,7 @@ describe("Mission Map Service", () => {
       tenantId: testTenantId,
       root: "nonexistent-root"
     });
-    
+
     expect(graph.nodes).toEqual([]);
     expect(graph.edges).toEqual([]);
   });

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Database } from "better-sqlite3";
 import OpenAI from "openai";
-import { loadAwosProviderKey, readHermesModelProfile, readHermesProviderProfile } from "../adapters/awos-secrets.js";
+import { loadAwosProviderKey, readAwosModelProfile, readAwosProviderProfile } from "../adapters/awos-secrets.js";
 import type { Config } from "../config.js";
 import { getSqlite } from "../db/index.js";
 import { callPolicyCheck } from "../routes/mcp.js";
@@ -251,7 +251,9 @@ export interface AiRunExplanation {
 }
 
 const DEFAULT_TENANT_ID = "00000000-0000-4000-8000-000000000001";
-const DEFAULT_COMPANY_ID = "1c626d50-0698-46d9-aed5-aed0df87dced";
+const DEFAULT_COMPANY_ID = "00000000-0000-4000-8000-000000000002";
+const EXAMPLE_PROJECT_ID = "00000000-0000-4000-8000-000000000003";
+const EXAMPLE_AGENT_ID = "00000000-0000-4000-8000-000000000004";
 
 const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
   {
@@ -280,7 +282,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
           type: "dispatch",
           params: {
             taskKind: "workflow.dispatch",
-            targetAgentId: "d02218d7-7ace-4493-9303-e6e998f9368d",
+            targetAgentId: EXAMPLE_AGENT_ID,
             input: { source: "native-automation" },
             requiresPolicyDecision: "allow",
           },
@@ -333,7 +335,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
           name: "Create scanner triage issue",
           type: "issue.create",
           params: {
-            projectId: "aac73df5-2b98-4a58-9546-984a4c73cba5",
+            projectId: EXAMPLE_PROJECT_ID,
             title: "Native automation scanner triage",
             description: "Created from the native scanner-finding triage workflow.",
             priority: "high",
@@ -388,7 +390,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
           name: "Create stuck-work escalation",
           type: "issue.create",
           params: {
-            projectId: "694d990f-4f18-4245-b67c-12bd7c8db293",
+            projectId: EXAMPLE_PROJECT_ID,
             title: "Native automation stuck-work escalation",
             description: "Review stale in-progress work and decide whether to unblock, reassign, or close.",
             priority: "high",
@@ -410,7 +412,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
           name: "Create dispatch repair issue",
           type: "issue.create",
           params: {
-            projectId: "904ed1c9-76bb-4bfd-96ac-68cda6fb6e89",
+            projectId: EXAMPLE_PROJECT_ID,
             title: "Native automation failed-dispatch repair",
             description: "Investigate failed dispatch row and post recovery evidence.",
             priority: "high",
@@ -432,7 +434,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
           name: "Create vault cleanup batch",
           type: "issue.create",
           params: {
-            projectId: "55773fd4-4a9d-4448-bc93-27ff64b50ee9",
+            projectId: EXAMPLE_PROJECT_ID,
             title: "Native automation vault-health cleanup batch",
             description: "Group Vault Health findings into a reviewable cleanup batch with backup required.",
             priority: "medium",
@@ -454,7 +456,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
           name: "Create provider repair issue",
           type: "issue.create",
           params: {
-            projectId: "694d990f-4f18-4245-b67c-12bd7c8db293",
+            projectId: EXAMPLE_PROJECT_ID,
             title: "Native automation provider degradation repair",
             description: "Provider health degraded. Verify credentials, fallback, and agent impact.",
             priority: "critical",
@@ -476,7 +478,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
           name: "Create approval SLA issue",
           type: "issue.create",
           params: {
-            projectId: "468566ae-27c3-4638-927c-1c6949d4fa34",
+            projectId: EXAMPLE_PROJECT_ID,
             title: "Native automation approval SLA escalation",
             description: "Approval queue item is aging. Review, approve, reject, or return with requested changes.",
             priority: "high",
@@ -549,7 +551,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
           name: "Create workflow experiment issue",
           type: "issue.create",
           params: {
-            projectId: "904ed1c9-76bb-4bfd-96ac-68cda6fb6e89",
+            projectId: EXAMPLE_PROJECT_ID,
             title: "Autoresearch workflow improvement experiment",
             description:
               "Run a short, measurable workflow-improvement experiment. Keep the change only if the selected metric improves; otherwise document and revert.",
@@ -1432,7 +1434,7 @@ function buildFallbackAiDraft(
             name: "Create repair issue",
             type: "issue.create",
             params: {
-              projectId: "904ed1c9-76bb-4bfd-96ac-68cda6fb6e89",
+              projectId: EXAMPLE_PROJECT_ID,
               title: issueContext?.title ?? title,
               description: issueContext?.description ?? "AI-assisted automation created reviewable repair work.",
               priority: issueContext?.priority ?? "medium",
@@ -1486,7 +1488,7 @@ function buildFallbackRunExplanation(run: NativeAutomationRun): AiRunExplanation
                   name: "Create automation repair issue",
                   type: "issue.create",
                   params: {
-                    projectId: "904ed1c9-76bb-4bfd-96ac-68cda6fb6e89",
+                    projectId: EXAMPLE_PROJECT_ID,
                     title: "Native automation run repair",
                     description: `Review failed automation run ${run.id}.`,
                     priority: "high",
@@ -1542,14 +1544,14 @@ async function callAutomationAiModel<T>(input: {
 function resolveAutomationAiRoute(companyId: string): { provider: string; model: string; baseUrl: string; apiKey: string } | null {
   const overrideProvider = process.env.AWOS_AUTOMATION_AI_PROVIDER;
   const overrideModel = process.env.AWOS_AUTOMATION_AI_MODEL;
-  const hermesMain = readHermesModelProfile();
-  const preferredProvider = overrideProvider ?? hermesMain.provider;
-  const preferredModel = overrideModel ?? hermesMain.model;
+  const awosMain = readAwosModelProfile();
+  const preferredProvider = overrideProvider ?? awosMain.provider;
+  const preferredModel = overrideModel ?? awosMain.model;
 
   if (preferredProvider && preferredModel) {
     const route =
-      hermesMain.provider === preferredProvider && hermesMain.baseUrl && hermesMain.apiKey
-        ? { provider: preferredProvider, model: preferredModel, baseUrl: hermesMain.baseUrl, apiKey: hermesMain.apiKey }
+      awosMain.provider === preferredProvider && awosMain.baseUrl && awosMain.apiKey
+        ? { provider: preferredProvider, model: preferredModel, baseUrl: awosMain.baseUrl, apiKey: awosMain.apiKey }
         : providerRoute(preferredProvider, preferredModel);
     if (route) return route;
   }
@@ -1569,9 +1571,9 @@ function resolveAutomationAiRoute(companyId: string): { provider: string; model:
 
 function providerRoute(provider: string, model: string): { provider: string; model: string; baseUrl: string; apiKey: string } | null {
   const normalized = provider.toLowerCase();
-  const hermesProfile = readHermesProviderProfile(provider);
-  if (hermesProfile.baseUrl && hermesProfile.apiKey) {
-    return { provider, model, baseUrl: hermesProfile.baseUrl, apiKey: hermesProfile.apiKey };
+  const awosProfile = readAwosProviderProfile(provider);
+  if (awosProfile.baseUrl && awosProfile.apiKey) {
+    return { provider, model, baseUrl: awosProfile.baseUrl, apiKey: awosProfile.apiKey };
   }
 
   try {
@@ -1582,20 +1584,20 @@ function providerRoute(provider: string, model: string): { provider: string; mod
         baseUrl: process.env.MINIMAX_BASE_URL ?? "https://api.minimax.io/v1",
         apiKey: loadAwosProviderKey({
           envNames: ["MINIMAX_API_KEY"],
-          hermesConfigPath: `${process.env.HOME}/.hermes/config.yaml`,
-          hermesProvider: "minimax",
+          providerProfilePath: process.env.AWOS_PROVIDER_PROFILE_PATH ?? `${process.env.HOME}/.agentworks/provider-profile.yaml`,
+          providerProfileName: "minimax",
         }),
       };
     }
-    if (normalized.includes("kimi") || normalized.includes("hermes")) {
+    if (normalized.includes("kimi")) {
       return {
         provider: "kimi",
         model,
         baseUrl: process.env.KIMI_BASE_URL ?? "https://api.moonshot.ai/v1",
         apiKey: loadAwosProviderKey({
           envNames: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
-          hermesConfigPath: `${process.env.HOME}/.hermes/config.yaml`,
-          hermesProvider: "kimi",
+          providerProfilePath: process.env.AWOS_PROVIDER_PROFILE_PATH ?? `${process.env.HOME}/.agentworks/provider-profile.yaml`,
+          providerProfileName: "kimi",
         }),
       };
     }
@@ -1613,8 +1615,8 @@ function providerRoute(provider: string, model: string): { provider: string; mod
       baseUrl: process.env.OLLAMA_BASE_URL ?? "https://ollama.com/v1",
       apiKey: loadAwosProviderKey({
         envNames: ["OLLAMA_API_KEY"],
-        hermesConfigPath: `${process.env.HOME}/.hermes/config.yaml`,
-        hermesProvider: "ollama",
+        providerProfilePath: process.env.AWOS_PROVIDER_PROFILE_PATH ?? `${process.env.HOME}/.agentworks/provider-profile.yaml`,
+        providerProfileName: "ollama",
       }),
     };
   } catch {

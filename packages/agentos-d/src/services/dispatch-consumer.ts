@@ -8,7 +8,7 @@
  * heartbeat with token + cost counters returned by the adapter.
  *
  * What this is NOT: an LLM runtime. The default adapter is `stubAdapter`,
- * which immediately reports completion. Real adapters (Hermes-local,
+ * which immediately reports completion. Real adapters (local gateway,
  * Anthropic-direct, etc.) plug in via `setAdapter()` or by passing one to
  * the constructor.
  *
@@ -80,8 +80,8 @@ export interface DispatchConsumerOptions {
   skipAgentStatuses?: string[];
   /** Optional logger. */
   logger?: { info: (msg: string, ctx?: unknown) => void; warn: (msg: string, ctx?: unknown) => void; error: (msg: string, ctx?: unknown) => void };
-  /** Claim rows for legacy hermes_local agents. Default false unless explicitly enabled. */
-  claimHermesLocal?: boolean;
+  /** Claim rows for legacy local_gateway agents. Default false unless explicitly enabled. */
+  claimLocalGateway?: boolean;
 }
 
 export interface TickResult {
@@ -137,7 +137,7 @@ export class DispatchConsumer {
   private readonly batchSize: number;
   private readonly skipStatuses: Set<string>;
   private readonly logger: NonNullable<DispatchConsumerOptions["logger"]>;
-  private readonly claimHermesLocal: boolean;
+  private readonly claimLocalGateway: boolean;
   private timer: NodeJS.Timeout | null = null;
   /** target_agent_id → in-flight adapter promise. Prevents two dispatches to the same agent in parallel. */
   private readonly inFlight = new Map<string, Promise<void>>();
@@ -149,7 +149,7 @@ export class DispatchConsumer {
     this.intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
     this.batchSize = opts.batchSize ?? DEFAULT_BATCH;
     this.skipStatuses = new Set(opts.skipAgentStatuses ?? ["paused", "retired"]);
-    this.claimHermesLocal = opts.claimHermesLocal ?? claimHermesLocalDispatch();
+    this.claimLocalGateway = opts.claimLocalGateway ?? claimLocalGatewayDispatch();
     this.logger =
       opts.logger ?? {
         info: () => {},
@@ -331,9 +331,9 @@ export class DispatchConsumer {
   }
 
   private fetchQueued(): DispatchRow[] {
-    const hermesFilter = this.claimHermesLocal
+    const localGatewayFilter = this.claimLocalGateway
       ? ""
-      : "AND (ea.adapter_type IS NULL OR ea.adapter_type != 'hermes_local')";
+      : "AND (ea.adapter_type IS NULL OR ea.adapter_type != 'local_gateway')";
 
     return this.sqlite
       .prepare(
@@ -342,7 +342,7 @@ export class DispatchConsumer {
          FROM dispatch_queue dq
          LEFT JOIN execution_agents ea ON ea.id = dq.target_agent_id
          WHERE dq.status = 'queued'
-           ${hermesFilter}
+           ${localGatewayFilter}
          ORDER BY dq.created_at ASC
          LIMIT ?`,
       )
@@ -504,10 +504,10 @@ export function dispatchConsumerEnabled(env: Record<string, string | undefined> 
   return env.AWOS_NATIVE_DISPATCH_ENABLED === "1" || env.AWOS_NATIVE_DISPATCH_ENABLED === "true";
 }
 
-export function claimHermesLocalDispatch(env: Record<string, string | undefined> = process.env): boolean {
+export function claimLocalGatewayDispatch(env: Record<string, string | undefined> = process.env): boolean {
   return (
-    env.AWOS_CLAIM_HERMES_LOCAL_DISPATCH === "1" ||
-    env.AWOS_CLAIM_HERMES_LOCAL_DISPATCH === "true"
+    env.AWOS_CLAIM_LOCAL_GATEWAY_DISPATCH === "1" ||
+    env.AWOS_CLAIM_LOCAL_GATEWAY_DISPATCH === "true"
   );
 }
 

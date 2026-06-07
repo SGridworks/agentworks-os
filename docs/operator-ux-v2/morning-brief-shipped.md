@@ -8,7 +8,7 @@ This document confirms the successful shipment of the Operator Morning Brief acc
 - **Target**: Regulated-SMB Pilot
 - **Status**: Shipped
 - **Release Date**: May 15, 2026
-- **Author**: CEO (Hermes)
+- **Author**: Product
 
 ## Validation
 All GATE checklist items have been verified and passed. The feature is now in production and available for customer use.

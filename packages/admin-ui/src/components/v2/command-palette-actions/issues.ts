@@ -39,4 +39,3 @@ export function createIssueAssignActions(issues: Array<{id: string; title: strin
 
   return actions;
 }
-

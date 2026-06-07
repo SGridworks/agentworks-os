@@ -61,21 +61,21 @@ describe('CommandPalette localStorage', () => {
 
   it('persists recent actions to localStorage when an action is selected', async () => {
     render(<CommandPalette {...defaultProps} />);
-    
+
     // Search for and select an action
     const input = screen.getByPlaceholderText('Search commands...');
     fireEvent.change(input, { target: { value: 'approve' } });
-    
+
     const items = screen.getAllByRole('menuitem');
     fireEvent.click(items[0]);
-    
+
     // Check that localStorage was updated
     await waitFor(() => {
       expect(localStorage.getItem('command-palette-recent')).toBeTruthy();
     });
 
     const stored = localStorage.getItem('command-palette-recent');
-    
+
     const recentIds = JSON.parse(stored!);
     expect(recentIds).toContain('scan.approve');
   });
@@ -83,13 +83,13 @@ describe('CommandPalette localStorage', () => {
   it('shows recent actions when query is empty and there are recent actions', () => {
     // Pre-populate localStorage with recent actions
     localStorage.setItem('command-palette-recent', JSON.stringify(['scan.approve']));
-    
+
     render(<CommandPalette {...defaultProps} />);
-    
+
     // Should show the recent action when query is empty
     const items = screen.getAllByRole('menuitem');
     expect(items.length).toBeGreaterThan(0);
-    
+
     // Should contain the recent action - check for the verb and noun
     expect(screen.getByText('Approve')).toBeInTheDocument();
     expect(screen.getByText('Scan')).toBeInTheDocument();
@@ -99,7 +99,7 @@ describe('CommandPalette localStorage', () => {
     // Pre-populate localStorage with more than 5 recent actions
     const manyRecentActions = ['scan.approve', 'tenant.switch', 'action1', 'action2', 'action3', 'action4'];
     localStorage.setItem('command-palette-recent', JSON.stringify(manyRecentActions));
-    
+
     // Create a larger registry
     const largeRegistry = [
       ...mockRegistry,
@@ -108,9 +108,9 @@ describe('CommandPalette localStorage', () => {
       { id: 'action3', verb: 'Action', noun: 'Three', description: 'test', icon: '3', scope: 'global' as const, handler: 'action3' },
       { id: 'action4', verb: 'Action', noun: 'Four', description: 'test', icon: '4', scope: 'global' as const, handler: 'action4' },
     ];
-    
+
     render(<CommandPalette {...defaultProps} registry={largeRegistry} />);
-    
+
     // Should show only 5 recent actions when query is empty
     await waitFor(() => {
       expect(screen.getAllByRole('menuitem')).toHaveLength(5);
@@ -120,13 +120,13 @@ describe('CommandPalette localStorage', () => {
   it('shows all actions when query is not empty, even with recent actions', () => {
     // Pre-populate localStorage with recent actions
     localStorage.setItem('command-palette-recent', JSON.stringify(['scan.approve']));
-    
+
     render(<CommandPalette {...defaultProps} />);
-    
+
     // Search for something
     const input = screen.getByPlaceholderText('Search commands...');
     fireEvent.change(input, { target: { value: 'tenant' } });
-    
+
     // Should show matching actions, not just recent ones
     const items = screen.getAllByRole('menuitem');
     expect(items.length).toBe(1);
@@ -139,12 +139,12 @@ describe('CommandPalette localStorage', () => {
     localStorage.getItem = vi.fn(() => {
       throw new Error('localStorage error');
     });
-    
+
     // Should not crash when loading recent actions
     expect(() => {
       render(<CommandPalette {...defaultProps} />);
     }).not.toThrow();
-    
+
     // Restore original
     localStorage.getItem = originalGetItem;
   });
@@ -155,20 +155,20 @@ describe('CommandPalette localStorage', () => {
     localStorage.setItem = vi.fn(() => {
       throw new Error('localStorage error');
     });
-    
+
     render(<CommandPalette {...defaultProps} />);
-    
+
     // Search for and select an action
     const input = screen.getByPlaceholderText('Search commands...');
     fireEvent.change(input, { target: { value: 'approve' } });
-    
+
     const items = screen.getAllByRole('menuitem');
-    
+
     // Should not crash when trying to save recent action
     expect(() => {
       fireEvent.click(items[0]);
     }).not.toThrow();
-    
+
     // Restore original
     localStorage.setItem = originalSetItem;
   });

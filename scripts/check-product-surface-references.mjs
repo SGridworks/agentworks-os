@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-const forbiddenTerms = [/paperclip/i, /obsidian/i];
+const forbiddenTerms = [/paperclip/i, /obsidian/i, /hermes/i];
 
 const targetPaths = [
   "packages",
@@ -16,6 +16,7 @@ const targetPaths = [
   "n8n-nodes-packages",
   "rule-packs",
   "AGENTS.md",
+  ".env.local.example",
   "CLAUDE.md",
   "CLAUDE-ONBOARDING.md",
   "PLAN.md",
@@ -33,6 +34,7 @@ const targetPaths = [
 
 const allowedExact = new Set([
   "scripts/check-product-surface-references.mjs",
+  "scripts/check-public-release-safety.mjs",
   "apps/installer/tests/scaffold-workspace.test.sh",
 ]);
 

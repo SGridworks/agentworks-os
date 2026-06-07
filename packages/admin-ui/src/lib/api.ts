@@ -866,7 +866,7 @@ export async function getMapGraph(tenantId: string, root?: string, depth?: numbe
   params.set('tenantId', tenantId);
   if (root) params.set('root', root);
   if (depth) params.set('depth', String(depth));
-  
+
   return request<MapGraph>(`/api/admin/mission-map?${params.toString()}`);
 }
 
@@ -1805,7 +1805,7 @@ export function getSessionTimeline(sessionId: string, pageSize = 50, before?: st
   params.set('pageSize', String(pageSize));
   if (before) params.set('before', before);
   if (after) params.set('after', after);
-  
+
   return request<TimelineResponse>(`/api/sessions/${sessionId}/timeline?${params.toString()}`);
 }
 

@@ -87,7 +87,7 @@ describe("POST /api/agents (create-time backfill)", () => {
         name: "Backfilled",
         role: "BackendEngineer",
         config: {
-          adapterType: "hermes_local",
+          adapterType: "local_gateway",
           model: "kimi-k2-turbo-preview",
           instructionsPath: "agents/backend/AGENTS.md",
           capabilities: "writes routes",
@@ -96,7 +96,7 @@ describe("POST /api/agents (create-time backfill)", () => {
       });
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({
-      adapterType: "hermes_local",
+      adapterType: "local_gateway",
       model: "kimi-k2-turbo-preview",
       instructionsPath: "agents/backend/AGENTS.md",
       capabilities: "writes routes",
@@ -107,7 +107,7 @@ describe("POST /api/agents (create-time backfill)", () => {
     const row = sqlite
       .prepare("SELECT * FROM execution_agents WHERE id = ?")
       .get(res.body.id) as Record<string, unknown>;
-    expect(row.adapter_type).toBe("hermes_local");
+    expect(row.adapter_type).toBe("local_gateway");
     expect(row.model).toBe("kimi-k2-turbo-preview");
     expect(row.instructions_path).toBe("agents/backend/AGENTS.md");
     expect(row.heartbeat_interval_sec).toBe(30);

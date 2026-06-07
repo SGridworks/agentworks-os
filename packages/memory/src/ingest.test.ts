@@ -4,7 +4,7 @@
  *   - slug derivation: file path basename, URL last segment, edge cases
  *   - planIngest: skips when unchanged, ingests on new content or hash mismatch
  *   - recordIngest: writes manifest, prepends to log.md (newest at top)
- *   - log entry shape matches the Hermes vault-ingest contract
+ *   - log entry shape matches the vault-ingest contract
  *   - tenant isolation: A's ingest doesn't bleed into B's manifest or log
  *   - frontmatter rendering round-trip
  */

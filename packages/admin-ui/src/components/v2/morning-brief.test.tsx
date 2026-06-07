@@ -37,21 +37,21 @@ beforeEach(() => {
 describe('MorningBrief', () => {
   it('renders nothing when loading', () => {
     vi.mocked(api.getMorningBrief).mockReturnValue(new Promise(() => {})); // Never resolves
-    
+
     const { container } = render(
       <MorningBrief tenantId="test-tenant" onNav={vi.fn()} />
     );
-    
+
     expect(container.firstChild).toBeNull();
   });
 
   it('renders nothing when no brief data', async () => {
     vi.mocked(api.getMorningBrief).mockResolvedValue(null);
-    
+
     const { container } = render(
       <MorningBrief tenantId="test-tenant" onNav={vi.fn()} />
     );
-    
+
     await waitFor(() => {
       expect(container.firstChild).toBeNull();
     });
@@ -63,11 +63,11 @@ describe('MorningBrief', () => {
       dismissible_until: '2026-05-20T04:00:00Z',
       items: [],
     });
-    
+
     const { container } = render(
       <MorningBrief tenantId="test-tenant" onNav={vi.fn()} />
     );
-    
+
     await waitFor(() => {
       expect(container.firstChild).toBeNull();
     });
@@ -104,9 +104,9 @@ describe('MorningBrief', () => {
     };
 
     vi.mocked(api.getMorningBrief).mockResolvedValue(mockBrief);
-    
+
     render(<MorningBrief tenantId="test-tenant" onNav={vi.fn()} />);
-    
+
     await waitFor(() => {
       expect(screen.getByText('Morning Brief — 2 items needing attention')).toBeInTheDocument();
       expect(screen.getByText('Fair-Housing rule pack: 3 listings need review')).toBeInTheDocument();
@@ -136,9 +136,9 @@ describe('MorningBrief', () => {
     };
 
     vi.mocked(api.getMorningBrief).mockResolvedValue(mockBrief);
-    
+
     render(<MorningBrief tenantId="test-tenant" onNav={vi.fn()} />);
-    
+
     await waitFor(() => {
       // Check that the component renders with block severity item
       expect(screen.getByText('Morning Brief — 1 item needing attention')).toBeInTheDocument();
@@ -166,9 +166,9 @@ describe('MorningBrief', () => {
     };
 
     vi.mocked(api.getMorningBrief).mockResolvedValue(mockBrief);
-    
+
     render(<MorningBrief tenantId="test-tenant" onNav={vi.fn()} />);
-    
+
     await waitFor(() => {
       // Check that the component renders with info severity item
       expect(screen.getByText('Morning Brief — 1 item needing attention')).toBeInTheDocument();
@@ -197,9 +197,9 @@ describe('MorningBrief', () => {
 
     vi.mocked(api.getMorningBrief).mockResolvedValue(mockBrief);
     vi.mocked(api.dismissMorningBrief).mockResolvedValue(undefined);
-    
+
     render(<MorningBrief tenantId="test-tenant" onNav={vi.fn()} />);
-    
+
     await waitFor(() => {
       expect(screen.getByText('Dismiss until tomorrow')).toBeInTheDocument();
     });
@@ -234,9 +234,9 @@ describe('MorningBrief', () => {
     const mockOnNav = vi.fn();
 
     vi.mocked(api.getMorningBrief).mockResolvedValue(mockBrief);
-    
+
     render(<MorningBrief tenantId="test-tenant" onNav={mockOnNav} />);
-    
+
     await waitFor(() => {
       expect(screen.getByText('Open queue')).toBeInTheDocument();
     });
@@ -269,9 +269,9 @@ describe('MorningBrief', () => {
     };
 
     vi.mocked(api.getMorningBrief).mockResolvedValue(mockBrief);
-    
+
     render(<MorningBrief tenantId="test-tenant" onNav={vi.fn()} />);
-    
+
     await waitFor(() => {
       expect(screen.getByText('Open queue')).toBeInTheDocument();
     });
@@ -312,9 +312,9 @@ describe('MorningBrief', () => {
     });
 
     vi.mocked(api.getMorningBrief).mockResolvedValue(mockBrief);
-    
+
     const { container } = render(<MorningBrief tenantId="test-tenant" onNav={vi.fn()} />);
-    
+
     await waitFor(() => {
       expect(container.firstChild).toBeNull();
     });
@@ -341,9 +341,9 @@ describe('MorningBrief', () => {
 
     vi.mocked(api.getMorningBrief).mockResolvedValue(mockBrief);
     vi.mocked(api.dismissMorningBrief).mockResolvedValue(undefined);
-    
+
     render(<MorningBrief tenantId="test-tenant" onNav={vi.fn()} />);
-    
+
     await waitFor(() => {
       expect(screen.getByText('Dismiss until tomorrow')).toBeInTheDocument();
     });

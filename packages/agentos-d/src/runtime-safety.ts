@@ -11,8 +11,7 @@ const FORBIDDEN_CHILD_ENV = new Set([
   "AWOS_DB_PATH",
   "DATABASE_URL",
   "SQLITE_PATH",
-  "HERMES_CONFIG_PATH",
-  "HERMES_ENV_PATH",
+  "AWOS_PROVIDER_PROFILE_PATH",
 ]);
 
 export function isAwosTestPath(value: string | undefined): boolean {

@@ -72,7 +72,7 @@ describe("execution compatibility routes", () => {
         tenantId,
         companyId: company.body.id,
         projectId: project.body.id,
-        title: "E2E-HERMES top-level issue create",
+        title: "E2E-LOCAL-GATEWAY top-level issue create",
         description: "Created through compatibility route",
         priority: "low",
       })
@@ -82,7 +82,7 @@ describe("execution compatibility routes", () => {
       tenantId,
       companyId: company.body.id,
       projectId: project.body.id,
-      title: "E2E-HERMES top-level issue create",
+      title: "E2E-LOCAL-GATEWAY top-level issue create",
       status: "todo",
       priority: "low",
     });
@@ -92,7 +92,7 @@ describe("execution compatibility routes", () => {
       .get(created.body.id) as { company_id: string; title: string } | undefined;
     expect(row).toMatchObject({
       company_id: company.body.id,
-      title: "E2E-HERMES top-level issue create",
+      title: "E2E-LOCAL-GATEWAY top-level issue create",
     });
   });
 });

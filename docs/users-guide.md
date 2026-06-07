@@ -861,7 +861,7 @@ Fix docs.
 Good issue:
 
 ```text
-Expand docs/users-guide.md to cover setup, daily operation, vault hygiene, and agent orchestration. Keep customer-facing vocabulary. Verify no internal substrate names appear. Acceptance: guide includes setup, UI tour, vault routine, rule pack workflow, approvals, orchestration, maintenance, and troubleshooting.
+Update the onboarding checklist so new approvers know how to review routed SMS actions. Include the approval criteria, where to find policy evidence, and the verification step. Acceptance: checklist covers setup, daily review, escalation, and audit evidence.
 ```
 
 ### Auto-Assignment

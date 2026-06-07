@@ -176,7 +176,7 @@ const RunSchema = z.object({
 
 /**
  * RunEventSchema with confidence field convention.
- * 
+ *
  * Convention: data_json.confidence is an optional numeric field (0.0-1.0) that
  * represents the adapter's confidence in the event's accuracy. Adapters may
  * populate this field to help consumers understand event reliability.
@@ -190,7 +190,7 @@ const RunEventSchema = z.object({
   // Surface confidence as a typed field for flight-recorder responses
   const data = obj.data || {};
   const confidence = typeof data.confidence === 'number' ? data.confidence : undefined;
-  
+
   return {
     ...obj,
     confidence,
@@ -1373,7 +1373,7 @@ export function createExecutionRouter(_config: Config): Router {
 
   /**
    * GET /api/agents/:id/flight-recorder
-   * 
+   *
    * Returns chronologically merged execution_run_events, execution_agent_wakeups,
    * runtime-state transitions (action_log run.*), terminal episodes, and linked insights.
    * Events are ordered by timestamp with specific precedence for tie-breaking.
@@ -1381,24 +1381,24 @@ export function createExecutionRouter(_config: Config): Router {
   router.get("/agents/:agentId/flight-recorder", (req, res, next: NextFunction) => {
     const agentId = req.params.agentId;
     if (!IdSchema.safeParse(agentId).success) return next();
-    
+
     const sqlite = getSqlite();
-    
+
     // Verify agent exists
     const agent = sqlite
       .prepare("SELECT id, tenant_id FROM execution_agents WHERE id = ?")
       .get(agentId) as { id: string; tenant_id: string } | undefined;
-    
+
     if (!agent) {
       return res.status(404).json({ error: "agent_not_found" });
     }
-    
+
     const tenantId = agent.tenant_id;
-    
+
     // Get all run events for this agent's runs
     const runEvents = sqlite
       .prepare(`
-        SELECT 
+        SELECT
           ere.id,
           ere.event_type,
           ere.message,
@@ -1418,11 +1418,11 @@ export function createExecutionRouter(_config: Config): Router {
         created_at: string;
         run_id: string;
       }>;
-    
+
     // Get all agent wakeups
     const wakeups = sqlite
       .prepare(`
-        SELECT 
+        SELECT
           id,
           source,
           trigger_detail,
@@ -1441,11 +1441,11 @@ export function createExecutionRouter(_config: Config): Router {
         payload_json: string | null;
         created_at: string;
       }>;
-    
+
     // Get runtime state transitions from action_log (run.*)
     const actionLogTransitions = sqlite
       .prepare(`
-        SELECT 
+        SELECT
           id,
           action_kind,
           payload_snapshot,
@@ -1460,11 +1460,11 @@ export function createExecutionRouter(_config: Config): Router {
         payload_snapshot: string | null;
         logged_at: string;
       }>;
-    
+
     // Get episodes for this agent
     const episodes = sqlite
       .prepare(`
-        SELECT 
+        SELECT
           id,
           session_id,
           started_at,
@@ -1489,11 +1489,11 @@ export function createExecutionRouter(_config: Config): Router {
         importance: string | null;
         created_at: string;
       }>;
-    
+
     // Get insights for this agent's episodes
     const insights = sqlite
       .prepare(`
-        SELECT 
+        SELECT
           i.id,
           i.episode_id,
           i.frame_type,
@@ -1519,19 +1519,19 @@ export function createExecutionRouter(_config: Config): Router {
         validated: number | boolean | null;
         created_at: string;
       }>;
-    
+
     // Merge all events into a single chronologically ordered list
     const items: Array<{
       type: string;
       timestamp: string;
       [key: string]: unknown;
     }> = [];
-    
+
     // Add run events
     for (const event of runEvents) {
       const data = parseRecord(event.data_json);
       const confidence = typeof data.confidence === 'number' ? data.confidence : undefined;
-      
+
       items.push({
         type: "run_event",
         timestamp: event.created_at,
@@ -1543,7 +1543,7 @@ export function createExecutionRouter(_config: Config): Router {
         confidence: confidence,
       });
     }
-    
+
     // Add wakeups
     for (const wakeup of wakeups) {
       items.push({
@@ -1556,7 +1556,7 @@ export function createExecutionRouter(_config: Config): Router {
         payload: parseJson(wakeup.payload_json),
       });
     }
-    
+
     // Add action log transitions
     for (const transition of actionLogTransitions) {
       items.push({
@@ -1567,7 +1567,7 @@ export function createExecutionRouter(_config: Config): Router {
         payload: parseJson(transition.payload_snapshot),
       });
     }
-    
+
     // Add episodes
     for (const episode of episodes) {
       items.push({
@@ -1583,7 +1583,7 @@ export function createExecutionRouter(_config: Config): Router {
         importance: episode.importance,
       });
     }
-    
+
     // Add insights
     for (const insight of insights) {
       items.push({
@@ -1599,16 +1599,16 @@ export function createExecutionRouter(_config: Config): Router {
         validated: insight.validated,
       });
     }
-    
+
     // Sort chronologically by timestamp
     items.sort((a, b) => {
       const timeCompare = a.timestamp.localeCompare(b.timestamp);
       if (timeCompare !== 0) return timeCompare;
-      
+
       // For identical timestamps, use precedence order from spec:
       // 1. Action Proposed (run_event)
       // 2. Policy Evaluated (not in current scope)
-      // 3. Human Review (not in current scope)  
+      // 3. Human Review (not in current scope)
       // 4. Action Executed (action_log)
       // 5. System Events (wakeup, episode, insight)
       // Lower numbers = higher precedence (come first)
@@ -1619,10 +1619,10 @@ export function createExecutionRouter(_config: Config): Router {
         episode: 6,
         insight: 6,
       };
-      
+
       return (precedence[a.type] || 999) - (precedence[b.type] || 999);
     });
-    
+
     res.json({ items });
   });
 
@@ -1630,10 +1630,10 @@ export function createExecutionRouter(_config: Config): Router {
 }
 
 // Export action-log query helpers for use by other routes and services
-export { 
-  actionLogSince, 
-  countActionLogSince, 
-  getDistinctActionKindsSince, 
+export {
+  actionLogSince,
+  countActionLogSince,
+  getDistinctActionKindsSince,
   getActionLogSummaryByKind,
   type ActionLogQueryOptions,
   type ActionLogRow

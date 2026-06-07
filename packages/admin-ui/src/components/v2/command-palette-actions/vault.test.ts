@@ -20,7 +20,7 @@ describe('Vault Search Actions', () => {
   describe('createVaultSearchActions', () => {
     it('should create vault search action', () => {
       const actions = createVaultSearchActions();
-      
+
       expect(actions).toHaveLength(1);
       expect(actions[0]).toEqual({
         id: 'vault-search',
@@ -65,7 +65,7 @@ describe('Vault Search Actions', () => {
       });
 
       const results = await executeVaultSearch('test query');
-      
+
       expect(results).toEqual(mockResults);
       expect(mockFetch).toHaveBeenCalledWith('/api/memory/search', {
         method: 'POST',
@@ -138,7 +138,7 @@ describe('Vault Search Actions', () => {
       const actions = createVaultSearchResultActions(mockResults, mockNavigate);
 
       expect(actions).toHaveLength(2);
-      
+
       // Check first action (episode)
       expect(actions[0]).toMatchObject({
         id: expect.stringContaining('vault-result-episode-test-episode-1'),

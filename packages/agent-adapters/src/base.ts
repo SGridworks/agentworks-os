@@ -1,7 +1,7 @@
 /**
  * Adapter base contract.
  *
- * Every agent platform we plug into (Claude Local, Codex, Hermes, ...) speaks
+ * Every agent platform we plug into (Claude Local, Codex, local gateways, ...) speaks
  * a different wire protocol; each adapter normalizes that into the same
  * substrate-facing shape so the daemon doesn't care which runtime is on the
  * other side. Adapters never invent their own envelope shape — the canonical
@@ -35,7 +35,7 @@ export interface AdapterResult {
 }
 
 export interface AdapterMetadata {
-  /** Stable key for the adapter, e.g. "claude_local", "codex", "hermes". */
+  /** Stable key for the adapter, e.g. "claude_local", "codex", "local_gateway". */
   key: string;
   /** Human label for admin UI surfaces. */
   label: string;

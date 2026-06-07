@@ -13,13 +13,13 @@ interface ActionBucketProps {
   onActionClick: (action: AutopilotAction, event: React.MouseEvent) => void;
 }
 
-export function ActionBucket({ 
-  bucket, 
-  actions, 
-  loading, 
-  processing, 
-  onBulkAction, 
-  onActionClick 
+export function ActionBucket({
+  bucket,
+  actions,
+  loading,
+  processing,
+  onBulkAction,
+  onActionClick
 }: ActionBucketProps) {
   function getBucketLabel(bucket: 'safe' | 'needsApproval' | 'risky'): string {
     switch (bucket) {
@@ -59,21 +59,21 @@ export function ActionBucket({
   const buttonLabel = getActionButtonLabel(bucket);
 
   return (
-    <div style={{ 
-      border: '1px solid var(--rule)', 
-      borderRadius: 8, 
+    <div style={{
+      border: '1px solid var(--rule)',
+      borderRadius: 8,
       padding: 20,
       background: 'var(--bg-card)'
     }}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
         <Icon size={20} strokeWidth={1.6} style={{ color, marginRight: 8 }} />
         <h3 style={{ fontSize: 16, fontWeight: 500 }}>{label}</h3>
-        <span style={{ 
-          marginLeft: 'auto', 
-          background: color, 
+        <span style={{
+          marginLeft: 'auto',
+          background: color,
           color: 'white',
-          padding: '2px 8px', 
-          borderRadius: 12, 
+          padding: '2px 8px',
+          borderRadius: 12,
           fontSize: 12,
           fontWeight: 500
         }}>
@@ -96,12 +96,12 @@ export function ActionBucket({
         ) : (
           <div style={{ maxHeight: 300, overflowY: 'auto' }}>
             {actions.slice(0, 5).map(action => (
-              <div 
-                key={action.id} 
-                style={{ 
-                  padding: '12px', 
-                  border: '1px solid var(--rule-2)', 
-                  borderRadius: 4, 
+              <div
+                key={action.id}
+                style={{
+                  padding: '12px',
+                  border: '1px solid var(--rule-2)',
+                  borderRadius: 4,
                   marginBottom: 8,
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
@@ -136,11 +136,11 @@ export function ActionBucket({
               </div>
             ))}
             {actions.length > 5 && (
-              <div style={{ 
-                textAlign: 'center', 
-                padding: '8px', 
-                color: 'var(--ink-3)', 
-                fontSize: 12 
+              <div style={{
+                textAlign: 'center',
+                padding: '8px',
+                color: 'var(--ink-3)',
+                fontSize: 12
               }}>
                 +{actions.length - 5} more actions
               </div>

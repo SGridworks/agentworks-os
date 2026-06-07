@@ -29,7 +29,7 @@ This document specifies the wire formats, API surfaces, and data models the Agen
 
 **Spec section:** AWO-92
 **Owner:** ComplianceConsultant (prose), TechLead (technical correctness)
-**Status in PLAN.md:** Locked as blocker for policy engine
+**Status:** Required for policy engine interoperability
 
 ### Overview
 
@@ -162,7 +162,7 @@ The substrate must support action records at the schema version they declare. Do
 
 **Spec section:** AWO-93
 **Owner:** ComplianceConsultant (prose), TechLead (technical review)
-**Status:** Aligned with PLAN.md locked policy decision data model
+**Status:** Aligned with the policy decision data model
 
 ### Policy Check Endpoint
 
@@ -252,7 +252,7 @@ On any non-200 response, the substrate must not allow the action to proceed. The
 
 **Spec section:** AWO-94
 **Owner:** ComplianceConsultant (prose), TechLead (technical review)
-**Status:** Aligned with PLAN.md locked policy decision data model
+**Status:** Aligned with the policy decision data model
 
 ### Overview
 
@@ -453,7 +453,7 @@ Multiple packs are evaluated in the order declared in the policy check request.
 
 ### v0.1 Draft Posture
 
-AWCP v0.1 is a draft. It reflects the design decisions locked in PLAN.md as of 2026-04-27. It is:
+AWCP v0.1 is a draft. It reflects the current AgentWorks OS policy-decision design as of 2026-04-27. It is:
 
 - Intended for internal review and early implementer feedback
 - Subject to breaking changes without a deprecation notice

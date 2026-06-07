@@ -51,25 +51,25 @@ describe("Confidence field integration tests", () => {
     const companyId = randomUUID();
     const agentId = randomUUID();
     const runId = randomUUID();
-    
+
     // Create company
     sqlite.prepare(`
       INSERT INTO execution_companies (id, tenant_id, name, slug, slug_prefix, status, metadata_json, created_at, updated_at)
       VALUES (?, ?, 'Test Company', 'test', 'TEST', 'active', '{}', datetime('now'), datetime('now'))
     `).run(companyId, tenantId);
-    
+
     // Create agent
     sqlite.prepare(`
       INSERT INTO execution_agents (id, tenant_id, company_id, name, role, status, config_json, created_at, updated_at)
       VALUES (?, ?, ?, 'Test Agent', 'developer', 'active', '{}', datetime('now'), datetime('now'))
     `).run(agentId, tenantId, companyId);
-    
+
     // Create run
     sqlite.prepare(`
       INSERT INTO execution_runs (id, tenant_id, company_id, agent_id, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, 'running', datetime('now'), datetime('now'))
     `).run(runId, tenantId, companyId, agentId);
-    
+
     // POST run event with confidence
     const eventResponse = await request(app)
       .post(`/api/runs/${runId}/events`)
@@ -82,27 +82,27 @@ describe("Confidence field integration tests", () => {
           confidence: 0.92
         }
       });
-    
+
     expect(eventResponse.status).toBe(201);
     expect(eventResponse.body.data).toMatchObject({
       status: 'completed',
       confidence: 0.92
     });
-    
+
     // GET flight-recorder and verify confidence field
     const flightRecorderResponse = await request(app)
       .get(`/api/agents/${agentId}/flight-recorder`);
-    
+
     expect(flightRecorderResponse.status).toBe(200);
     expect(flightRecorderResponse.body.items).toBeInstanceOf(Array);
-    
+
     // Find the run event with confidence
     const runEvent = flightRecorderResponse.body.items.find((item: any) => item.type === 'run_event');
     expect(runEvent).toBeDefined();
     expect(runEvent.confidence).toBe(0.92);
-    expect(runEvent.data).toMatchObject({ 
+    expect(runEvent.data).toMatchObject({
       status: 'completed',
-      confidence: 0.92 
+      confidence: 0.92
     });
   });
 
@@ -112,25 +112,25 @@ describe("Confidence field integration tests", () => {
     const companyId = randomUUID();
     const agentId = randomUUID();
     const runId = randomUUID();
-    
+
     // Create company
     sqlite.prepare(`
       INSERT INTO execution_companies (id, tenant_id, name, slug, slug_prefix, status, metadata_json, created_at, updated_at)
       VALUES (?, ?, 'Test Company', 'test', 'TEST', 'active', '{}', datetime('now'), datetime('now'))
     `).run(companyId, tenantId);
-    
+
     // Create agent
     sqlite.prepare(`
       INSERT INTO execution_agents (id, tenant_id, company_id, name, role, status, config_json, created_at, updated_at)
       VALUES (?, ?, ?, 'Test Agent', 'developer', 'active', '{}', datetime('now'), datetime('now'))
     `).run(agentId, tenantId, companyId);
-    
+
     // Create run
     sqlite.prepare(`
       INSERT INTO execution_runs (id, tenant_id, company_id, agent_id, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, 'running', datetime('now'), datetime('now'))
     `).run(runId, tenantId, companyId, agentId);
-    
+
     // POST run event without confidence
     const eventResponse = await request(app)
       .post(`/api/runs/${runId}/events`)
@@ -142,24 +142,24 @@ describe("Confidence field integration tests", () => {
           status: 'completed'
         }
       });
-    
+
     expect(eventResponse.status).toBe(201);
     expect(eventResponse.body.data).toMatchObject({
       status: 'completed'
     });
-    
+
     // GET flight-recorder and verify no confidence field
     const flightRecorderResponse = await request(app)
       .get(`/api/agents/${agentId}/flight-recorder`);
-    
+
     expect(flightRecorderResponse.status).toBe(200);
     expect(flightRecorderResponse.body.items).toBeInstanceOf(Array);
-    
+
     // Find the run event without confidence
     const runEvent = flightRecorderResponse.body.items.find((item: any) => item.type === 'run_event');
     expect(runEvent).toBeDefined();
     expect(runEvent.confidence).toBeUndefined();
-    expect(runEvent.data).toMatchObject({ 
+    expect(runEvent.data).toMatchObject({
       status: 'completed'
     });
   });

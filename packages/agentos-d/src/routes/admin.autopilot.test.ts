@@ -177,7 +177,7 @@ describe("autopilot dispatch endpoint", () => {
     const decisionsRes = await getJson(`/api/policy/decisions?tenantId=${tenantId}`);
     expect(decisionsRes.status).toBe(200);
     const decisions = (await decisionsRes.json()) as { items: Array<{ actionId: string; decision: string }> };
-    
+
     const safeActionIds = decisions.items
       .filter(d => d.decision === "allow")
       .map(d => d.actionId)
@@ -210,7 +210,7 @@ describe("autopilot dispatch endpoint", () => {
     expect(result.skipped).toBe(0);
     expect(result.failed).toBe(0);
     expect(result.results.length).toBe(safeActionIds.length);
-    
+
     // All results should be auto-allowed
     result.results.forEach(r => {
       expect(r.decision).toBe("allow");
@@ -224,7 +224,7 @@ describe("autopilot dispatch endpoint", () => {
     const decisionsRes = await getJson(`/api/policy/decisions?tenantId=${tenantId}&decision=allow`);
     expect(decisionsRes.status).toBe(200);
     const decisions = (await decisionsRes.json()) as { items: Array<{ actionId: string; decision: string }> };
-    
+
     const allActionIds = decisions.items.map(d => d.actionId);
 
     // Dispatch mixed actions
@@ -268,7 +268,7 @@ describe("autopilot dispatch endpoint", () => {
     const decisionsRes = await getJson(`/api/policy/decisions?tenantId=${tenantId}&decision=allow`);
     expect(decisionsRes.status).toBe(200);
     const decisions = (await decisionsRes.json()) as { items: Array<{ actionId: string }> };
-    
+
     const actionIds = decisions.items.slice(0, 2).map(d => d.actionId);
     const idempotencyKey = `test-idempotent-${Date.now()}`;
 
@@ -301,7 +301,7 @@ describe("autopilot dispatch endpoint", () => {
     const decisionsRes = await getJson(`/api/policy/decisions?tenantId=${tenantId}`);
     expect(decisionsRes.status).toBe(200);
     const decisions = (await decisionsRes.json()) as { items: Array<{ actionId: string }> };
-    
+
     const actionIds = decisions.items.slice(0, 2).map(d => d.actionId);
 
     // Dry run dispatch

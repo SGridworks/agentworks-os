@@ -40,8 +40,7 @@ const REPO_ROOT =
   process.env.AWOS_PUBLIC_REPO ?? process.cwd();
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "https://ollama.com/v1";
 const OLLAMA_DEFAULT_MODEL = process.env.OLLAMA_DEFAULT_MODEL ?? "qwen3-coder:480b";
-const HERMES_CONFIG_PATH = process.env.HERMES_CONFIG_PATH ?? `${process.env.HOME}/.hermes/config.yaml`;
-const HERMES_ENV_PATH = process.env.HERMES_ENV_PATH ?? `${process.env.HOME}/.hermes/.env`;
+const AWOS_PROVIDER_PROFILE_PATH = process.env.AWOS_PROVIDER_PROFILE_PATH ?? `${process.env.HOME}/.agentworks/provider-profile.yaml`;
 const MAX_TURNS = Number(process.env.AWOS_TOOL_MAX_TURNS ?? "50");
 const FILE_READ_CAP_BYTES = 100_000;
 const TEST_TIMEOUT_MS = 90_000;
@@ -142,10 +141,8 @@ export function sanitize(input: unknown): string {
 function loadOllamaKey(): string {
   return loadAwosProviderKey({
     envNames: ["OLLAMA_API_KEY"],
-    hermesEnvPath: HERMES_ENV_PATH,
-    hermesEnvName: "OLLAMA_API_KEY",
-    hermesConfigPath: HERMES_CONFIG_PATH,
-    hermesProvider: "ollama-cloud",
+    providerProfilePath: AWOS_PROVIDER_PROFILE_PATH,
+    providerProfileName: "ollama-cloud",
   });
 }
 

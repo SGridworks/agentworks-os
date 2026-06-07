@@ -34,7 +34,7 @@ import { runSafeTestCommand } from "./safe-test-runner.js";
 const REPO_ROOT = process.env.AWOS_REPO_ROOT ?? process.cwd();
 const KIMI_BASE_URL = process.env.KIMI_BASE_URL ?? "https://api.moonshot.ai/v1";
 const KIMI_MODEL = process.env.KIMI_TOOL_MODEL ?? process.env.KIMI_MODEL ?? "kimi-k2-turbo-preview";
-const HERMES_CONFIG_PATH = process.env.HERMES_CONFIG_PATH ?? `${process.env.HOME}/.hermes/config.yaml`;
+const AWOS_PROVIDER_PROFILE_PATH = process.env.AWOS_PROVIDER_PROFILE_PATH ?? `${process.env.HOME}/.agentworks/provider-profile.yaml`;
 const MAX_TURNS = Number(process.env.AWOS_TOOL_MAX_TURNS ?? "50");
 const FILE_READ_CAP_BYTES = 100_000;
 const TEST_TIMEOUT_MS = 90_000;
@@ -82,8 +82,8 @@ interface ResolvedAgent {
 function loadKimiKey(): string {
   return loadAwosProviderKey({
     envNames: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
-    hermesConfigPath: HERMES_CONFIG_PATH,
-    hermesProvider: "kimi",
+    providerProfilePath: AWOS_PROVIDER_PROFILE_PATH,
+    providerProfileName: "kimi",
   });
 }
 

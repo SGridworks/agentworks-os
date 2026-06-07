@@ -148,12 +148,12 @@ export function createMemoryRouter(_config: Config): Router {
     const { tenantId, key, actorId } = parsed.data;
     try {
       const r = await getVaultStore().read(tenantId, key);
-      
+
 
       if (actorId && r.existed) {
         getUsageTracker().recordUsage(tenantId, key, actorId);
       }
-      
+
       res.status(200).json({
         ok: true,
         data: {
@@ -702,14 +702,14 @@ export function createMemoryRouter(_config: Config): Router {
       return;
     }
     const { tenantId, key, body, mode, actorId } = parsed.data;
-    
+
     // Build write options with provenance tracking
     const writeOptions: VaultWriteOptions = { mode };
     if (actorId) {
       writeOptions.lastUpdatedBy = actorId;
       writeOptions.lastUpdatedAt = new Date().toISOString();
     }
-    
+
     try {
       const w = await getVaultStore().write(tenantId, key, body, writeOptions);
       res.status(201).json({

@@ -47,7 +47,7 @@ function formatTime(dateStr: string): string {
 
 function groupFilesByDirectory(files: FileAccessEntry[]): Map<string, FileAccessEntry[]> {
   const groups = new Map<string, FileAccessEntry[]>();
-  
+
   files.forEach(file => {
     const dir = file.filePath.substring(0, file.filePath.lastIndexOf('/')) || '/';
     if (!groups.has(dir)) {
@@ -55,7 +55,7 @@ function groupFilesByDirectory(files: FileAccessEntry[]): Map<string, FileAccess
     }
     groups.get(dir)!.push(file);
   });
-  
+
   return groups;
 }
 
@@ -77,7 +77,7 @@ export function FilesTouchedPanel({ sessionId, className }: FilesTouchedPanelPro
     const fetchFileAccess = async () => {
       setIsLoading(true);
       setError(null);
-      
+
       try {
         const response = await getSessionFileAccess(sessionId);
         setFiles(response.entries);
@@ -95,14 +95,14 @@ export function FilesTouchedPanel({ sessionId, className }: FilesTouchedPanelPro
 
   const handleExportCsv = useCallback(async () => {
     if (files.length === 0) return;
-    
+
     const csvContent = [
       'Timestamp,File Path,Operation,Agent ID',
-      ...files.map(file => 
+      ...files.map(file =>
         `${file.createdAt},${file.filePath},${file.op},${file.agentId}`
       )
     ].join('\n');
-    
+
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -170,7 +170,7 @@ export function FilesTouchedPanel({ sessionId, className }: FilesTouchedPanelPro
           >
             Group by Directory
           </button>
-          <button 
+          <button
             className="btn btn-secondary btn-sm"
             onClick={handleExportCsv}
             disabled={files.length === 0}
@@ -180,7 +180,7 @@ export function FilesTouchedPanel({ sessionId, className }: FilesTouchedPanelPro
           </button>
         </div>
       </div>
-      
+
       <div className="flex-1 overflow-auto">
         {files.length === 0 ? (
           <div className="p-8 text-center text-muted-foreground">
@@ -220,7 +220,7 @@ interface FileAccessRowProps {
 function FileAccessRow({ file }: FileAccessRowProps) {
   const fileName = file.filePath.split('/').pop() || file.filePath;
   const formattedTime = formatTime(file.createdAt);
-  
+
   return (
     <div className="flex items-center gap-3 py-2 hover:bg-accent/50 transition-colors rounded px-2">
       <div className="flex items-center gap-2 flex-1 min-w-0">

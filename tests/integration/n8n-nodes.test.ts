@@ -372,10 +372,10 @@ liveDescribe("agentworks.memory.read + write — live API", () => {
     expect(rRes.ok).toBe(true);
     const rBody = (await rRes.json()) as {
       ok: boolean;
-      data: { 
-        body: string; 
-        existed: boolean; 
-        lastUpdatedBy?: string; 
+      data: {
+        body: string;
+        existed: boolean;
+        lastUpdatedBy?: string;
         lastUpdatedAt?: string;
       };
     };
@@ -383,7 +383,7 @@ liveDescribe("agentworks.memory.read + write — live API", () => {
     expect(rBody.data.existed).toBe(true);
     expect(rBody.data.lastUpdatedBy).toBe(actorId);
     expect(rBody.data.lastUpdatedAt).toBeDefined();
-    
+
     // Verify lastUpdatedAt is a valid ISO timestamp
     const timestamp = new Date(rBody.data.lastUpdatedAt!);
     expect(timestamp.getTime()).toBeGreaterThan(Date.now() - 60000); // Within last minute

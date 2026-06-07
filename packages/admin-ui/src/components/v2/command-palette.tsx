@@ -36,26 +36,26 @@ interface GroupedActions {
 
 function scoreAction(action: ActionRegistryItem, query: string): number {
   if (!query) return 1;
-  
+
   const tokens = query.toLowerCase().split(' ').filter(Boolean);
   let score = 0;
-  
+
   for (const token of tokens) {
     const verbLower = action.verb.toLowerCase();
     const nounLower = action.noun.toLowerCase();
     const descriptionLower = action.description.toLowerCase();
-    
+
     if (verbLower.startsWith(token)) score += 10;
     if (nounLower.startsWith(token)) score += 8;
     if (descriptionLower.includes(token)) score += 5;
-    
+
     if (action.keywords) {
       for (const keyword of action.keywords) {
         if (keyword.toLowerCase().includes(token)) score += 5;
       }
     }
   }
-  
+
   return score;
 }
 
@@ -66,7 +66,7 @@ function groupActions(actions: ActionRegistryItem[], currentPage?: string): Grou
     contextual: [],
     infrequent: [],
   };
-  
+
   for (const action of actions) {
     if (action.scope === 'global') {
       grouped.global.push(action);
@@ -82,10 +82,10 @@ function groupActions(actions: ActionRegistryItem[], currentPage?: string): Grou
       grouped.infrequent.push(action);
     }
   }
-  
+
   // Sort infrequent alphabetically
   grouped.infrequent.sort((a, b) => a.verb.localeCompare(b.verb));
-  
+
   return grouped;
 }
 
@@ -117,13 +117,13 @@ export function CommandPalette({ isOpen, onClose, onSelect, registry = [], curre
       action,
       score: scoreAction(action, query),
     }));
-    
+
     const filtered = scored.filter(item => item.score > 0);
     filtered.sort((a, b) => {
       if (a.score !== b.score) return b.score - a.score;
       return a.action.verb.localeCompare(b.action.verb);
     });
-    
+
     return filtered.slice(0, 50).map(item => item.action);
   }, [registry, query]);
 
@@ -136,7 +136,7 @@ export function CommandPalette({ isOpen, onClose, onSelect, registry = [], curre
   const flatActions = useMemo(() => {
     const flat: Array<{ action: ActionRegistryItem; group: keyof GroupedActions }> = [];
     const seenIds = new Set<string>();
-    
+
     // When query is empty, show recent actions first (if any), then regular groups
     if (!query.trim()) {
       // Add recent actions (from local storage) - top 5
@@ -149,11 +149,11 @@ export function CommandPalette({ isOpen, onClose, onSelect, registry = [], curre
             seenIds.add(action.id);
           }
         });
-        
+
         // Return recent actions, don't show other actions when query is empty
         return flat;
       }
-      
+
       // If no recent actions, show all available actions grouped
       Object.entries(groupedActions).forEach(([group, actions]) => {
         if (group !== 'recent' && actions.length > 0) {
@@ -165,10 +165,10 @@ export function CommandPalette({ isOpen, onClose, onSelect, registry = [], curre
           });
         }
       });
-      
+
       return flat;
     }
-    
+
     // When there's a query, show all matching actions in proper groups
     Object.entries(groupedActions).forEach(([group, actions]) => {
       if (actions.length > 0) {
@@ -180,7 +180,7 @@ export function CommandPalette({ isOpen, onClose, onSelect, registry = [], curre
         });
       }
     });
-    
+
     return flat;
   }, [groupedActions, registry, recentIds, query]);
 
@@ -304,7 +304,7 @@ export function CommandPalette({ isOpen, onClose, onSelect, registry = [], curre
             </button>
           )}
         </div>
-        
+
         <div className="command-palette-content">
           {flatActions.length === 0 ? (
             <div className="command-palette-empty">
@@ -315,7 +315,7 @@ export function CommandPalette({ isOpen, onClose, onSelect, registry = [], curre
               {flatActions.map(({ action, group }, index) => {
                 const isSelected = index === selectedIndex;
                 const Icon = () => <span className="command-palette-icon">{action.icon}</span>;
-                
+
                 return (
                   <div
                     key={action.id}
@@ -356,7 +356,7 @@ export function CommandPalette({ isOpen, onClose, onSelect, registry = [], curre
             </div>
           )}
         </div>
-        
+
         <div className="command-palette-footer">
           <span className="command-palette-footer-text">
             <CornerDownLeft size={12} /> navigate · Enter run · Esc close

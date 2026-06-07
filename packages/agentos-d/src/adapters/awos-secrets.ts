@@ -2,14 +2,13 @@ import { existsSync, readFileSync } from "node:fs";
 import yaml from "js-yaml";
 
 const DEFAULT_AWOS_SECRETS_PATH = `${process.env.HOME}/.agentworks/secrets.env`;
+const DEFAULT_AWOS_PROVIDER_PROFILE_PATH = `${process.env.HOME}/.agentworks/provider-profile.yaml`;
 
 interface ProviderKeyOptions {
   envNames: string[];
   awosSecretsPath?: string;
-  hermesEnvPath?: string;
-  hermesConfigPath?: string;
-  hermesProvider?: string;
-  hermesEnvName?: string;
+  providerProfilePath?: string;
+  providerProfileName?: string;
 }
 
 function parseEnvFile(path: string): Record<string, string> {
@@ -24,7 +23,7 @@ function parseEnvFile(path: string): Record<string, string> {
   return out;
 }
 
-function readHermesProviderKey(configPath: string, provider: string): string | null {
+function readProfileProviderKey(configPath: string, provider: string): string | null {
   if (!existsSync(configPath)) return null;
   try {
     const cfg = yaml.load(readFileSync(configPath, "utf8")) as {
@@ -37,7 +36,11 @@ function readHermesProviderKey(configPath: string, provider: string): string | n
   }
 }
 
-export function readHermesModelProfile(configPath = `${process.env.HOME}/.hermes/config.yaml`): {
+function defaultProviderProfilePath(): string {
+  return process.env.AWOS_PROVIDER_PROFILE_PATH ?? DEFAULT_AWOS_PROVIDER_PROFILE_PATH;
+}
+
+export function readAwosModelProfile(configPath = defaultProviderProfilePath()): {
   provider: string | null;
   model: string | null;
   baseUrl: string | null;
@@ -60,9 +63,9 @@ export function readHermesModelProfile(configPath = `${process.env.HOME}/.hermes
   }
 }
 
-export function readHermesProviderProfile(
+export function readAwosProviderProfile(
   provider: string,
-  configPath = `${process.env.HOME}/.hermes/config.yaml`,
+  configPath = defaultProviderProfilePath(),
 ): { provider: string; baseUrl: string | null; apiKey: string | null } {
   if (!existsSync(configPath)) return { provider, baseUrl: null, apiKey: null };
   try {
@@ -93,20 +96,15 @@ export function loadAwosProviderKey(opts: ProviderKeyOptions): string {
     if (value && value.length > 0) return value;
   }
 
-  if (process.env.AWOS_ALLOW_HERMES_SECRET_FALLBACK === "1") {
-    if (opts.hermesEnvPath && opts.hermesEnvName) {
-      const hermesEnv = parseEnvFile(opts.hermesEnvPath);
-      const value = hermesEnv[opts.hermesEnvName];
-      if (value && value.length > 0) return value;
-    }
-    if (opts.hermesConfigPath && opts.hermesProvider) {
-      const value = readHermesProviderKey(opts.hermesConfigPath, opts.hermesProvider);
+  if (process.env.AWOS_ALLOW_PROVIDER_PROFILE_FALLBACK === "1") {
+    if (opts.providerProfilePath && opts.providerProfileName) {
+      const value = readProfileProviderKey(opts.providerProfilePath, opts.providerProfileName);
       if (value) return value;
     }
   }
 
   throw new Error(
     `${opts.envNames.join("/")} missing. Set it in the daemon environment or ${awosSecretsPath}. ` +
-      "Hermes config fallback is disabled unless AWOS_ALLOW_HERMES_SECRET_FALLBACK=1.",
+      "Provider profile fallback is disabled unless AWOS_ALLOW_PROVIDER_PROFILE_FALLBACK=1.",
   );
 }

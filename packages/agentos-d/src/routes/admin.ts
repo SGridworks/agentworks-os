@@ -242,13 +242,13 @@ function calculateAutopilotBucket(item: {
   reasons: string[];
 } {
   const reasons: string[] = [];
-  
+
   // Start with base risk from decision
   let riskScore = 0.0;
   const decision = item.decision || "allow";
   const actionKind = item.proposed_action_kind || "unknown";
   const decisionReason = item.decision_reason || "";
-  
+
   // If any rule blocked, it's automatically risky
   if (decision === "block") {
     reasons.push("fair-housing-discrimination");
@@ -268,7 +268,7 @@ function calculateAutopilotBucket(item: {
   // Add action type risk based on spec table
   const actionTypeRisk = getActionTypeRisk(actionKind);
   riskScore = Math.max(riskScore, actionTypeRisk);
-  
+
   if (actionTypeRisk >= 0.5) {
     reasons.push("action_type.high_risk");
   }
@@ -327,7 +327,7 @@ function getActionTypeRisk(actionKind: string): number {
     "db.write": 0.40,
     "db_write": 0.40,
   };
-  
+
   return riskTable[actionKind] || 0.30; // Default moderate risk
 }
 
@@ -338,29 +338,29 @@ function getActionTypeRisk(actionKind: string): number {
 function getContentRisks(decisionReason: string): { score: number; reasons: string[] } {
   const reasons: string[] = [];
   let score = 0.0;
-  
+
   const lowerReason = decisionReason.toLowerCase();
-  
+
   if (lowerReason.includes("tcpa") && lowerReason.includes("time")) {
     score = Math.max(score, 0.2); // TCPA route_to_review adds +0.2
     reasons.push("tcpa-no-consent");
   }
-  
+
   if (lowerReason.includes("fair housing") || lowerReason.includes("protected class")) {
     score = Math.max(score, 0.6); // Fair housing block adds +0.6
     reasons.push("fair-housing-discrimination");
   }
-  
+
   if (lowerReason.includes("pii") || lowerReason.includes("phi")) {
     score = Math.max(score, 0.6); // PII leak adds +0.6
     reasons.push("pii-leak-ssn");
   }
-  
+
   if (lowerReason.includes("consent") || lowerReason.includes("dnc")) {
     score = Math.max(score, 0.2); // Consent issues add +0.2
     reasons.push("tcpa-no-consent");
   }
-  
+
   return { score, reasons };
 }
 
@@ -434,9 +434,9 @@ export function createAdminRouter(config: Config): Router {
       nativeDispatchEnabled:
         process.env.AWOS_NATIVE_DISPATCH_ENABLED === "1" ||
         process.env.AWOS_NATIVE_DISPATCH_ENABLED === "true",
-      hermesLocalClaimEnabled:
-        process.env.AWOS_CLAIM_HERMES_LOCAL_DISPATCH === "1" ||
-        process.env.AWOS_CLAIM_HERMES_LOCAL_DISPATCH === "true",
+      localGatewayClaimEnabled:
+        process.env.AWOS_CLAIM_LOCAL_GATEWAY_DISPATCH === "1" ||
+        process.env.AWOS_CLAIM_LOCAL_GATEWAY_DISPATCH === "true",
     });
   });
 
@@ -1018,17 +1018,17 @@ export function createAdminRouter(config: Config): Router {
   router.get("/autopilot", (req, res) => {
     try {
       const { tenantId } = req.query as Record<string, string>;
-      
+
       if (!tenantId) {
         res.status(400).json({ error: "tenantId required" });
         return;
       }
 
       const sqlite = getDb().$client;
-      
+
       // Get pending actions from various sources
       const now = new Date().toISOString();
-      
+
       // 1. Get unassigned issues from triage queue (issues with no assignee)
       let triageIssues: Array<{
         id: string;
@@ -1037,7 +1037,7 @@ export function createAdminRouter(config: Config): Router {
         created_at: string;
         metadata_json: string | null;
       }> = [];
-      
+
       try {
         triageIssues = sqlite
           .prepare(`
@@ -1064,7 +1064,7 @@ export function createAdminRouter(config: Config): Router {
         proposed_at: string;
         actor_label: string;
       }> = [];
-      
+
       try {
         approvalQueueItems = sqlite
           .prepare(`
@@ -1090,7 +1090,7 @@ export function createAdminRouter(config: Config): Router {
         proposed_at: string;
         actor_label: string;
       }> = [];
-      
+
       try {
         dispatchQueueItems = sqlite
           .prepare(`
@@ -1115,7 +1115,7 @@ export function createAdminRouter(config: Config): Router {
         decision_reason: string;
         proposed_at: string;
       }> = [];
-      
+
       try {
         recentDecisions = sqlite
           .prepare(`
@@ -1145,7 +1145,7 @@ export function createAdminRouter(config: Config): Router {
       // Process approval queue items
       for (const item of approvalQueueItems) {
         const evaluation = calculateAutopilotBucket(item);
-        
+
         switch (evaluation.decision) {
           case "allow":
             safe++;
@@ -1168,7 +1168,7 @@ export function createAdminRouter(config: Config): Router {
         if (item.decision) arg.decision = item.decision;
         if (item.policy_decision_id) arg.policy_decision_id = item.policy_decision_id;
         const evaluation = calculateAutopilotBucket(arg);
-        
+
         switch (evaluation.decision) {
           case "allow":
             safe++;
@@ -1189,7 +1189,7 @@ export function createAdminRouter(config: Config): Router {
           proposed_action_kind: decision.proposed_action_kind,
           decision_reason: decision.decision_reason,
         });
-        
+
         switch (evaluation.decision) {
           case "allow":
             safe++;
@@ -1231,7 +1231,7 @@ export function createAdminRouter(config: Config): Router {
    */
   router.get("/mission-map", (req, res) => {
     const { tenantId, root, depth } = req.query as Record<string, string>;
-    
+
     if (!tenantId) {
       res.status(400).json({ error: "tenantId required" });
       return;
@@ -1242,13 +1242,13 @@ export function createAdminRouter(config: Config): Router {
       const opts: { tenantId: string; root?: string; depth: number } = { tenantId, depth: depthNum };
       if (root) opts.root = root;
       const result = getGraph(opts);
-      
+
       res.json(result);
     } catch (error) {
       console.error("Error fetching mission map graph:", error);
-      res.status(500).json({ 
-        error: "internal_server_error", 
-        message: "Failed to fetch mission map graph" 
+      res.status(500).json({
+        error: "internal_server_error",
+        message: "Failed to fetch mission map graph"
       });
     }
   });
@@ -1263,7 +1263,7 @@ export function createAdminRouter(config: Config): Router {
    */
   router.get("/morning-brief", async (req, res) => {
     const { tenantId, since, generatedAt } = req.query as Record<string, string>;
-    
+
     if (!tenantId) {
       res.status(400).json({ error: "tenantId required" });
       return;
@@ -1276,18 +1276,18 @@ export function createAdminRouter(config: Config): Router {
 
       // Get action logs since the cutoff time
       const actionLogs = actionLogSince(tenantId, sinceTime);
-      
+
       // Get summary by action kind
       const actionSummary = getActionLogSummaryByKind(tenantId, sinceTime);
-      
+
       // Count total actions and categorize them
       const totalActions = actionLogs.length;
       const policyChecks = actionLogs.filter(log => log.actionKind === "policy.check");
-      
+
       // Get policy decisions for the policy checks
       const policyDecisionIds = policyChecks.map(log => log.policyDecisionId).filter(Boolean);
       const sqlite = getDb().$client;
-      
+
       let decisions: Array<{ decision: string; actorId: string }> = [];
       if (policyDecisionIds.length > 0) {
         const placeholders = policyDecisionIds.map(() => "?").join(",");
@@ -1309,8 +1309,8 @@ export function createAdminRouter(config: Config): Router {
 
       // Get oldest approval queue item age
       const oldestApproval = sqlite
-        .prepare(`SELECT created_at FROM approval_queue 
-                  WHERE tenant_id = ? AND status = 'pending' 
+        .prepare(`SELECT created_at FROM approval_queue
+                  WHERE tenant_id = ? AND status = 'pending'
                   ORDER BY created_at ASC LIMIT 1`)
         .get(tenantId) as { created_at: string } | undefined;
 
@@ -1325,17 +1325,17 @@ export function createAdminRouter(config: Config): Router {
       const vaultRoot = process.env.VAULT_ROOT || "/tmp/awo-vault"; // Default fallback
       let vaultEdits = 0;
       let vaultAnomalies = 0;
-      
+
       try {
-        const vaultDelta = await scanVaultDelta(vaultRoot, tenantId, sinceTime, { 
-          useManifest: true, 
-          computeHashes: false 
+        const vaultDelta = await scanVaultDelta(vaultRoot, tenantId, sinceTime, {
+          useManifest: true,
+          computeHashes: false
         });
         vaultEdits = vaultDelta.entries.length;
-        
+
         // For anomalies, we'll count entries that might be suspicious
         // This is a simplified approach - in reality you'd have more sophisticated anomaly detection
-        vaultAnomalies = vaultDelta.entries.filter(entry => 
+        vaultAnomalies = vaultDelta.entries.filter(entry =>
           entry.sizeBytes === 0 || entry.key.includes("anomaly")
         ).length;
       } catch (error) {
@@ -1354,7 +1354,7 @@ export function createAdminRouter(config: Config): Router {
         .prepare("SELECT COUNT(*) as count FROM execution_agents WHERE status = 'active'")
         .get() as { count: number } | undefined;
       const activeAgents = activeAgentsResult?.count ?? 0;
-      
+
       // For morning brief, we consider agents that haven't logged actions recently as "offline"
       const recentAgentActions = new Set(actionLogs
         .filter(log => log.actorType === "agent")
@@ -1371,7 +1371,7 @@ export function createAdminRouter(config: Config): Router {
         offlineAgents,
         0 // highBudgetAgents - would need budget tracking
       );
-      
+
       const recommendation = generateMorningBriefRecommendation(summary);
 
       // Build health status
@@ -1453,9 +1453,9 @@ export function createAdminRouter(config: Config): Router {
       res.json(response);
     } catch (error) {
       console.error("Error generating morning brief:", error);
-      res.status(500).json({ 
-        error: "internal_server_error", 
-        message: "Failed to generate morning brief" 
+      res.status(500).json({
+        error: "internal_server_error",
+        message: "Failed to generate morning brief"
       });
     }
   });
@@ -1468,7 +1468,7 @@ export function createAdminRouter(config: Config): Router {
     const companyId =
       typeof req.query.companyId === "string"
         ? req.query.companyId
-        : "1c626d50-0698-46d9-aed5-aed0df87dced";
+        : "00000000-0000-4000-8000-000000000002";
     const checkedAt = new Date().toISOString();
     const bridge = await checkN8nBridge(config);
     const workflows = listNativeAutomationWorkflows(companyId);

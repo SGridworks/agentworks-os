@@ -473,7 +473,7 @@ Policy engine response:
 
 ### v0.1 Draft Posture
 
-AWCP v0.1 is a draft. It reflects the design decisions locked in PLAN.md as of 2026-04-27. It is:
+AWCP v0.1 is a draft. It reflects the current AgentWorks OS policy-decision design as of 2026-04-27. It is:
 
 - Intended for internal review and early implementer feedback
 - Subject to breaking changes without a deprecation notice

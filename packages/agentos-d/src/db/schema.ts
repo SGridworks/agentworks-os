@@ -635,4 +635,3 @@ export const insights = sqliteTable("insights", {
 
 export type InsightRow = typeof insights.$inferSelect;
 export type NewInsightRow = typeof insights.$inferInsert;
-

@@ -11,7 +11,7 @@ describe('createAgentActions', () => {
         role: 'tester'
       },
       {
-        id: 'agent-2', 
+        id: 'agent-2',
         name: 'Test Agent 2',
         title: null,
         role: 'developer'
@@ -26,7 +26,7 @@ describe('createAgentActions', () => {
     // Check wake actions
     const wakeActions = actions.filter(action => action.verb === 'Wake');
     expect(wakeActions).toHaveLength(2);
-    
+
     const wakeAgent1 = wakeActions.find(action => action.noun === 'Test Agent 1');
     expect(wakeAgent1).toBeDefined();
     expect(wakeAgent1?.id).toBe('agent.wake-agent-1');
@@ -45,7 +45,7 @@ describe('createAgentActions', () => {
     // Check pause actions
     const pauseActions = actions.filter(action => action.verb === 'Pause');
     expect(pauseActions).toHaveLength(2);
-    
+
     const pauseAgent1 = pauseActions.find(action => action.noun === 'Test Agent 1');
     expect(pauseAgent1).toBeDefined();
     expect(pauseAgent1?.id).toBe('agent.pause-agent-1');

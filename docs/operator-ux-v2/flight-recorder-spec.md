@@ -26,7 +26,7 @@ Every policy verdict card exposes a "Why?" button that opens a popover containin
 ### 3. Chronological Merge Order
 Events appear in strict timestamp order (RFC 3339 nanosecond precision). When multiple events share identical timestamps:
 1. Action Proposed
-2. Policy Evaluated  
+2. Policy Evaluated
 3. Human Review
 4. Action Executed
 5. System Events

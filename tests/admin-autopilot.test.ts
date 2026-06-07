@@ -164,7 +164,7 @@ describe("autopilot dispatch endpoint", () => {
     const decisionsRes = await getJson(`/api/policy/decisions?tenantId=${tenantId}`);
     expect(decisionsRes.status).toBe(200);
     const decisions = (await decisionsRes.json()) as { items: Array<{ actionId: string; decision: string }> };
-    
+
     // Use all available actions instead of filtering for "allow" decisions
     // The autopilot will evaluate them and decide which ones to dispatch
     const actionIds = decisions.items
@@ -197,7 +197,7 @@ describe("autopilot dispatch endpoint", () => {
     expect(result.results.length).toBe(actionIds.length);
     expect(result.dispatched + result.skipped).toBe(actionIds.length);
     expect(result.failed).toBe(0);
-    
+
     // Verify that dispatched actions have the right characteristics
     result.results.forEach(r => {
       if (r.dispatched) {
@@ -212,7 +212,7 @@ describe("autopilot dispatch endpoint", () => {
     const decisionsRes = await getJson(`/api/policy/decisions?tenantId=${tenantId}`);
     expect(decisionsRes.status).toBe(200);
     const decisions = (await decisionsRes.json()) as { items: Array<{ actionId: string; decision: string }> };
-    
+
     const allActionIds = decisions.items.map(d => d.actionId);
 
     // Dispatch mixed actions
@@ -256,7 +256,7 @@ describe("autopilot dispatch endpoint", () => {
     const decisionsRes = await getJson(`/api/policy/decisions?tenantId=${tenantId}`);
     expect(decisionsRes.status).toBe(200);
     const decisions = (await decisionsRes.json()) as { items: Array<{ actionId: string }> };
-    
+
     const actionIds = decisions.items.slice(0, 2).map(d => d.actionId);
     const idempotencyKey = `test-idempotent-${Date.now()}`;
 
@@ -289,7 +289,7 @@ describe("autopilot dispatch endpoint", () => {
     const decisionsRes = await getJson(`/api/policy/decisions?tenantId=${tenantId}`);
     expect(decisionsRes.status).toBe(200);
     const decisions = (await decisionsRes.json()) as { items: Array<{ actionId: string }> };
-    
+
     const actionIds = decisions.items.slice(0, 2).map(d => d.actionId);
 
     // Dry run dispatch
@@ -301,7 +301,7 @@ describe("autopilot dispatch endpoint", () => {
 
     expect(dispatchRes.status).toBe(200);
     const result = await dispatchRes.json();
-    
+
 
 
     // In dry run, should calculate and return results

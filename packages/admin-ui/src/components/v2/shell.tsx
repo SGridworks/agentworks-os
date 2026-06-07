@@ -228,7 +228,7 @@ export function V2Shell({
     if (!first) return null;
     return { name: first.name, mark: deriveMark(first.name) };
   })();
-  
+
   // Set tenantId for trust drawer
   useEffect(() => {
     if (live.tenants?.[0]) {
@@ -258,7 +258,7 @@ export function V2Shell({
     if (live.tenants?.[0]) {
       // Get basic issue actions (create)
       const basicIssueActions = createIssueActions();
-      
+
       // Try to fetch some issues for assignment actions
       listAgents({ tenantId: live.tenants[0].id })
         .then(async (agents) => {
@@ -320,8 +320,8 @@ export function V2Shell({
           onCommandPalette={() => setCommandPaletteOpen(true)}
         />
         <div className="content">{children}</div>
-        <TrustDrawer 
-          open={trustDrawerOpen} 
+        <TrustDrawer
+          open={trustDrawerOpen}
           onClose={() => setTrustDrawerOpen(false)}
           tenantId={tenantId}
         />
@@ -341,7 +341,7 @@ export function V2Shell({
                   await wakeAgent(agentId);
                   console.log(`Agent ${item.noun} awakened successfully`);
                 } else if (item.handler === 'agent.pause') {
-                  await patchAgent(agentId, { 
+                  await patchAgent(agentId, {
                     status: 'paused',
                     pauseReason: 'Paused by user via command palette'
                   });
@@ -389,7 +389,7 @@ export function V2Shell({
           }}
           onQueryChange={async (query) => {
             setVaultSearchQuery(query);
-            
+
             // Auto-search vault when query is meaningful (3+ characters)
             if (query.trim().length >= 3) {
               try {
@@ -408,8 +408,8 @@ export function V2Shell({
             }
           }}
           registry={[
-            ...createGotoActions(v2Nav), 
-            ...agentActions, 
+            ...createGotoActions(v2Nav),
+            ...agentActions,
             ...issueActions,
             ...createVaultSearchActions(),
             ...vaultSearchResults
@@ -558,8 +558,8 @@ export function TopBar({
         <span style={{ fontWeight: 500 }}>{tenant.name}</span>
         {multiTenant && <ChevronDown size={13} strokeWidth={1.6} />}
       </button>
-      <div 
-        className="cmdk" 
+      <div
+        className="cmdk"
         onClick={onCommandPalette}
         style={{ cursor: 'pointer' }}
         title="Command palette (Cmd+K)"

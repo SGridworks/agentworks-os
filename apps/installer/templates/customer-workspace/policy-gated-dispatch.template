@@ -18,7 +18,7 @@ definition:
       type: dispatch
       params:
         taskKind: workflow.dispatch
-        targetAgentId: d02218d7-7ace-4493-9303-e6e998f9368d
+        targetAgentId: 00000000-0000-4000-8000-000000000004
         input:
           source: native-automation
         requiresPolicyDecision: allow

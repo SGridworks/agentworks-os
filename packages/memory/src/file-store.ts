@@ -383,7 +383,7 @@ export class FileVaultStore implements VaultStore {
     if (mode === "append") {
       const ts = new Date().toISOString();
       const block = `\n\n## ${ts}\n${body}\n`;
-      
+
       // For append mode, we need to read the existing file, update frontmatter, and rewrite
       let existingFm: Frontmatter = {};
       let existingBody = "";
@@ -397,7 +397,7 @@ export class FileVaultStore implements VaultStore {
         if (err.code !== "ENOENT") throw e;
         // File doesn't exist yet — create new file with the append content
       }
-      
+
       // Update provenance metadata if provided
       if (opts.lastUpdatedBy !== undefined) existingFm.lastUpdatedBy = opts.lastUpdatedBy;
       if (opts.lastUpdatedAt !== undefined) existingFm.lastUpdatedAt = opts.lastUpdatedAt;
@@ -415,7 +415,7 @@ export class FileVaultStore implements VaultStore {
       } else {
         const newBody = existingBody + block;
         const finalBody = serializeFrontmatter(existingFm, newBody);
-      
+
         try {
           await fs.writeFile(filePath, finalBody, "utf8");
         } catch (e) {
@@ -455,13 +455,13 @@ export class FileVaultStore implements VaultStore {
 
       // Build frontmatter — new opts override, undefined opts falls back to existing
       const fm: Frontmatter = { ...existingFm };
-      
+
       // Apply new options (they override existing)
       if (opts.summary !== undefined) fm.summary = opts.summary;
       if (opts.trigger !== undefined) fm.trigger = opts.trigger;
       if (detail_key !== undefined) fm.detail_key = detail_key;
       if (opts.lastUsedBy !== undefined) fm.lastUsedBy = opts.lastUsedBy;
-      
+
       // Always stamp lastUpdatedBy and lastUpdatedAt if provided in opts
       if (opts.lastUpdatedBy !== undefined) fm.lastUpdatedBy = opts.lastUpdatedBy;
       if (opts.lastUpdatedAt !== undefined) fm.lastUpdatedAt = opts.lastUpdatedAt;

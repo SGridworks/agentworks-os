@@ -49,7 +49,7 @@ See the [install runbook](./docs/install-runbook.md) for full step‑by‑step, 
 - Hosted/cloud deployment (local‑only in v1)
 - MCP‑first rule‑pack preview (CLI dry‑run is v1 fallback)
 
-See [PLAN.md](./PLAN.md) for the full locked scope, including what gates each item.
+See the release notes and changelog for the current release scope and migration notes.
 
 ## Architecture
 

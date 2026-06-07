@@ -1,8 +1,8 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import clsx from 'clsx';
-import { 
-  getSessionTimeline, 
-  getPolicyHitDetail, 
+import {
+  getSessionTimeline,
+  getPolicyHitDetail,
   downloadSessionTimelineCsv,
   listInsights,
   TimelineEvent,
@@ -48,7 +48,7 @@ const ICONS: Record<TimelineEventType, React.ComponentType<{ className?: string 
 
 const EVENT_TYPE_LABELS: Record<TimelineEventType, string> = {
   action: 'Action Proposed',
-  policy: 'Policy Evaluated', 
+  policy: 'Policy Evaluated',
   file: 'File Operation',
 };
 
@@ -88,12 +88,12 @@ function PolicyHitPopover({ hitId, tenantId, children }: PolicyHitPopoverProps) 
     if (open && !hitDetail) {
       setIsLoading(true);
       setError(null);
-      
+
       // Load policy hit details
       getPolicyHitDetail(hitId)
         .then(data => {
           setHitDetail(data);
-          
+
           // Load related insights for this policy hit
           // Use the ruleId as subject to find related insights
           const insightsParams: ListInsightsParams = {
@@ -101,7 +101,7 @@ function PolicyHitPopover({ hitId, tenantId, children }: PolicyHitPopoverProps) 
             subject: data.ruleId,
             limit: 5
           };
-          
+
           return listInsights(insightsParams);
         })
         .then(insightsData => {
@@ -136,15 +136,15 @@ function PolicyHitPopover({ hitId, tenantId, children }: PolicyHitPopoverProps) 
       <div>
         <div className="text-sm font-medium text-card-foreground">Evidence</div>
         <div className="text-sm text-muted-foreground break-all font-mono">
-          {hitDetail?.evidence && hitDetail.evidence.length > 200 
-            ? `${hitDetail.evidence.slice(0, 200)}...` 
+          {hitDetail?.evidence && hitDetail.evidence.length > 200
+            ? `${hitDetail.evidence.slice(0, 200)}...`
             : hitDetail?.evidence}
         </div>
       </div>
       <div className="pt-2 border-t border-border">
-        <a 
-          href={hitDetail?.evidenceUrl} 
-          target="_blank" 
+        <a
+          href={hitDetail?.evidenceUrl}
+          target="_blank"
           rel="noopener noreferrer"
           className="text-sm text-info hover:underline"
         >
@@ -191,8 +191,8 @@ function PolicyHitPopover({ hitId, tenantId, children }: PolicyHitPopoverProps) 
                 )}
               </div>
               <div className="text-xs text-muted-foreground">
-                {insight.content.length > 100 
-                  ? `${insight.content.slice(0, 100)}...` 
+                {insight.content.length > 100
+                  ? `${insight.content.slice(0, 100)}...`
                   : insight.content}
               </div>
               <div className="text-xs text-muted-foreground mt-1">
@@ -306,7 +306,7 @@ interface TimelineRowProps {
 function TimelineRow({ event, style, tenantId, index, sessionId }: TimelineRowProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const Icon = ICONS[event.type];
-  
+
   const formattedTime = useMemo(() => {
     try {
       return new Date(event.timestamp).toLocaleTimeString('en-US', {
@@ -334,7 +334,7 @@ function TimelineRow({ event, style, tenantId, index, sessionId }: TimelineRowPr
   }, []);
 
   const rowContent = (
-    <div 
+    <div
       style={style}
       className={clsx(
         "flex items-start gap-3 p-3 border-b border-border hover:bg-accent/50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-info focus:ring-offset-2",
@@ -374,13 +374,13 @@ function TimelineRow({ event, style, tenantId, index, sessionId }: TimelineRowPr
           )}
         </div>
       </div>
-      
+
       {event.severity && (
         <span className={clsx('text-xs px-2 py-1 rounded border', SEVERITY_COLORS[event.severity])}>
           {SEVERITY_LABELS[event.severity]}
         </span>
       )}
-      
+
       {event.hitId && (
         <PolicyHitPopover hitId={event.hitId} tenantId={tenantId}>
           <button className="btn btn-ghost btn-sm text-xs">
@@ -388,7 +388,7 @@ function TimelineRow({ event, style, tenantId, index, sessionId }: TimelineRowPr
           </button>
         </PolicyHitPopover>
       )}
-      
+
       {event.payload && (
         <button className="btn btn-ghost btn-sm">
           {isExpanded ? (
@@ -432,16 +432,16 @@ export function FlightRecorderTimeline({ sessionId, tenantId, className, autoScr
   const [severityFilter, setSeverityFilter] = useState<TimelineEventSeverity | 'all'>('all');
   const [actorFilter, setActorFilter] = useState<string>('');
   const [isLive, setIsLive] = useState(true);
-  
+
   // Fetch timeline data
   const fetchTimeline = useCallback(async (before?: string, after?: string) => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
       const response = await getSessionTimeline(sessionId, 50, before, after);
       const responseEvents = Array.isArray(response?.events) ? response.events : [];
-      
+
       if (before) {
         // Prepend older events
         setEvents(prev => [...responseEvents, ...prev]);
@@ -452,7 +452,7 @@ export function FlightRecorderTimeline({ sessionId, tenantId, className, autoScr
         // Initial load
         setEvents(responseEvents);
       }
-      
+
       setHasMore(responseEvents.length === 50);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load timeline');
@@ -460,7 +460,7 @@ export function FlightRecorderTimeline({ sessionId, tenantId, className, autoScr
       setIsLoading(false);
     }
   }, [sessionId]);
-  
+
   // Filter events based on current filters
   const filteredEvents = useMemo(() => {
     return events.filter(event => {
@@ -474,7 +474,7 @@ export function FlightRecorderTimeline({ sessionId, tenantId, className, autoScr
   // Initial load and polling
   useEffect(() => {
     fetchTimeline();
-    
+
     // Poll for new events every 2 seconds if live updates are enabled
     let interval: NodeJS.Timeout;
     if (isLive) {
@@ -485,19 +485,19 @@ export function FlightRecorderTimeline({ sessionId, tenantId, className, autoScr
         }
       }, 2000);
     }
-    
+
     return () => {
       if (interval) clearInterval(interval);
     };
   }, [sessionId, fetchTimeline, events, isLive]);
-  
+
   const handleLoadMore = useCallback(() => {
     if (events.length > 0 && !isLoading) {
       const firstEvent = events[0];
       fetchTimeline(firstEvent.timestamp);
     }
   }, [events, fetchTimeline, isLoading]);
-  
+
   const handleExportCsv = useCallback(async () => {
     try {
       const blob = await downloadSessionTimelineCsv(sessionId);
@@ -548,7 +548,7 @@ export function FlightRecorderTimeline({ sessionId, tenantId, className, autoScr
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
-  
+
   return (
     <div className={clsx("flex flex-col h-full", className)}>
       <div className="flex items-center justify-between p-4 border-b border-border bg-card">
@@ -581,7 +581,7 @@ export function FlightRecorderTimeline({ sessionId, tenantId, className, autoScr
             <FileTextIcon className="h-4 w-4 mr-1" />
             Files Touched
           </button>
-          <button 
+          <button
             className="btn btn-secondary btn-sm"
             onClick={handleExportCsv}
             disabled={events.length === 0}
@@ -591,14 +591,14 @@ export function FlightRecorderTimeline({ sessionId, tenantId, className, autoScr
           </button>
         </div>
       </div>
-      
+
       {/* Filters */}
       <div className="flex items-center gap-4 p-4 border-b border-border bg-card">
         <div className="flex items-center gap-2">
           <FilterIcon className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm text-muted-foreground">Filter:</span>
         </div>
-        
+
         <select
           value={eventFilter}
           onChange={(e) => setEventFilter(e.target.value as TimelineEventType | 'all')}
@@ -609,7 +609,7 @@ export function FlightRecorderTimeline({ sessionId, tenantId, className, autoScr
           <option value="policy">Policy</option>
           <option value="file">Files</option>
         </select>
-        
+
         <select
           value={severityFilter}
           onChange={(e) => setSeverityFilter(e.target.value as TimelineEventSeverity | 'all')}
@@ -622,7 +622,7 @@ export function FlightRecorderTimeline({ sessionId, tenantId, className, autoScr
           <option value="info">Info</option>
           <option value="audit">Audit</option>
         </select>
-        
+
         <input
           type="text"
           placeholder="Filter by actor..."
@@ -631,7 +631,7 @@ export function FlightRecorderTimeline({ sessionId, tenantId, className, autoScr
           className="text-sm border border-border rounded px-2 py-1 bg-background"
         />
       </div>
-      
+
       <div className="flex-1 flex gap-4 overflow-hidden p-4">
         <div className={clsx(
           "flex flex-col transition-all duration-300",
@@ -640,20 +640,20 @@ export function FlightRecorderTimeline({ sessionId, tenantId, className, autoScr
           <div className="flex-1 overflow-auto card border border-border rounded-lg" data-timeline-container tabIndex={0}>
             <div className="divide-y divide-border">
               {filteredEvents.map((event, index) => (
-                <TimelineRow 
-                  key={`${event.timestamp}-${event.type}-${event.id}`} 
-                  event={event} 
-                  style={{}} 
+                <TimelineRow
+                  key={`${event.timestamp}-${event.type}-${event.id}`}
+                  event={event}
+                  style={{}}
                   tenantId={tenantId}
                   index={index}
                   sessionId={sessionId}
                 />
               ))}
             </div>
-            
+
             {hasMore && (
               <div className="p-4 text-center">
-                <button 
+                <button
                   className="btn btn-secondary btn-sm"
                   onClick={handleLoadMore}
                   disabled={isLoading}
@@ -662,13 +662,13 @@ export function FlightRecorderTimeline({ sessionId, tenantId, className, autoScr
                 </button>
               </div>
             )}
-            
+
             {filteredEvents.length === 0 && !isLoading && (
               <div className="p-8 text-center text-muted-foreground">
                 {events.length === 0 ? 'No events recorded for this session' : 'No events match current filters'}
               </div>
             )}
-            
+
             {error && (
               <div className="p-4 m-4 bg-destructive/10 border border-destructive/30 rounded-md">
                 <div className="text-sm text-destructive">{error}</div>
@@ -676,7 +676,7 @@ export function FlightRecorderTimeline({ sessionId, tenantId, className, autoScr
             )}
           </div>
         </div>
-        
+
         {showFilesPanel && (
           <div className="w-1/2 flex flex-col">
             <FilesTouchedPanel sessionId={sessionId} className="flex-1" />

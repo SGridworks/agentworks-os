@@ -103,7 +103,7 @@ export class ProviderHealthService {
    */
   async getStatus(): Promise<TrustStatus> {
     const now = Date.now();
-    
+
     // Return cached data if still valid
     if (this.cache && now < this.cacheExpiry) {
       return this.cache;
@@ -145,9 +145,9 @@ export class ProviderHealthService {
               setTimeout(() => reject(new Error("timeout after 10s")), 10_000)
             ),
           ]);
-          
+
           const latencyMs = Date.now() - start;
-          
+
           return {
             id: provider.id,
             displayName: provider.displayName,
@@ -172,20 +172,20 @@ export class ProviderHealthService {
       });
 
       const providers = await Promise.all(providerPromises);
-      
+
       // Determine aggregate status
       const aggregateStatus = this.calculateAggregateStatus(providers);
-      
+
       this.cache = {
         status: aggregateStatus,
         lastUpdated: new Date().toISOString(),
         providers,
       };
-      
+
       // Set cache expiry with jitter (±10% to avoid thundering herd)
       const jitter = 0.9 + Math.random() * 0.2; // 0.9 to 1.1
       this.cacheExpiry = Date.now() + Math.round(this.pollInterval * jitter);
-      
+
       return this.cache;
     } finally {
       this.polling = false;
@@ -207,10 +207,10 @@ export class ProviderHealthService {
    */
   private calculateAggregateStatus(providers: ProviderStatus[]): "healthy" | "degraded" | "down" {
     if (providers.length === 0) return "healthy";
-    
+
     const hasDown = providers.some(p => p.status === "down");
     const hasDegraded = providers.some(p => p.status === "degraded");
-    
+
     if (hasDown) return "down";
     if (hasDegraded) return "degraded";
     return "healthy";
@@ -244,8 +244,8 @@ export class ProviderHealthService {
         ? { ok: true, latencyMs: Date.now() - start }
         : { ok: false, latencyMs: Date.now() - start, error: `HTTP ${response.status}` };
     } catch (error) {
-      return { 
-        ok: false, 
+      return {
+        ok: false,
         latencyMs: Date.now() - start,
         error: error instanceof Error ? error.message : String(error)
       };
@@ -281,8 +281,8 @@ export class ProviderHealthService {
         ? { ok: true, latencyMs: Date.now() - start }
         : { ok: false, latencyMs: Date.now() - start, error: `HTTP ${response.status}` };
     } catch (error) {
-      return { 
-        ok: false, 
+      return {
+        ok: false,
         latencyMs: Date.now() - start,
         error: error instanceof Error ? error.message : String(error)
       };
@@ -296,7 +296,7 @@ export class ProviderHealthService {
     const start = Date.now();
     try {
       const baseUrl = env.OLLAMA_BASE_URL || "http://localhost:11434";
-      
+
       const response = await fetch(`${baseUrl}/api/tags`, {
         method: "GET",
         signal: AbortSignal.timeout(5000),
@@ -306,8 +306,8 @@ export class ProviderHealthService {
         ? { ok: true, latencyMs: Date.now() - start }
         : { ok: false, latencyMs: Date.now() - start, error: `HTTP ${response.status}` };
     } catch (error) {
-      return { 
-        ok: false, 
+      return {
+        ok: false,
         latencyMs: Date.now() - start,
         error: error instanceof Error ? error.message : String(error)
       };
@@ -321,7 +321,7 @@ export class ProviderHealthService {
     const start = Date.now();
     try {
       const scannerUrl = env.SCANNER_URL || "http://localhost:8001";
-      
+
       const response = await fetch(`${scannerUrl}/health`, {
         method: "GET",
         signal: AbortSignal.timeout(5000),
@@ -340,8 +340,8 @@ export class ProviderHealthService {
           error: `optional scanner sidecar unavailable: ${errorText}`,
         };
       }
-      return { 
-        ok: false, 
+      return {
+        ok: false,
         latencyMs: Date.now() - start,
         error: errorText
       };
@@ -356,10 +356,10 @@ export class ProviderHealthService {
     try {
       const vaultRoot = env.VAULT_ROOT || "/tmp/awo-vault";
       const okFile = join(vaultRoot, ".aw-ok");
-      
+
       // Check if vault root exists and is accessible
       await stat(vaultRoot);
-      
+
       // Check for the OK marker file (creates it if missing)
       try {
         await stat(okFile);
@@ -370,8 +370,8 @@ export class ProviderHealthService {
 
       return { ok: true, latencyMs: Date.now() - start };
     } catch (error) {
-      return { 
-        ok: false, 
+      return {
+        ok: false,
         latencyMs: Date.now() - start,
         error: error instanceof Error ? error.message : String(error)
       };
@@ -410,15 +410,15 @@ export class ProviderHealthService {
     const start = Date.now();
     try {
       const rulePacksDir = env.RULE_PACKS_DIR || "./rule-packs";
-      
+
       // For now, just check if the directory exists
       // In a real implementation, we'd validate manifest.yaml files
       await stat(rulePacksDir);
 
       return { ok: true, latencyMs: Date.now() - start };
     } catch (error) {
-      return { 
-        ok: false, 
+      return {
+        ok: false,
         latencyMs: Date.now() - start,
         error: error instanceof Error ? error.message : String(error)
       };

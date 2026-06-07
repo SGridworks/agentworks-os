@@ -9,7 +9,7 @@ definition:
       name: Create scanner triage issue
       type: issue.create
       params:
-        projectId: aac73df5-2b98-4a58-9546-984a4c73cba5
+        projectId: 00000000-0000-4000-8000-000000000003
         title: Native automation scanner triage
         description: Created from the native scanner-finding triage workflow.
         priority: high

@@ -61,6 +61,8 @@ const forbidden = [
   { label: "private tenant name", pattern: "Cash Money Trading" },
   { label: "private tenant name", pattern: "ProbeWorks" },
   { label: "private tenant name", pattern: "WaterWorks" },
+  { label: "private runtime name", pattern: "Hermes" },
+  { label: "prior internal project name", pattern: "paperclip" },
   { label: "private tenant slug", pattern: "sgridworks-local" },
   { label: "private vault key", pattern: "projects/sgridworks" },
   { label: "private workload name", pattern: "Sgridworks Wildfire" },

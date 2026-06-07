@@ -37,7 +37,7 @@ describe("FileVaultStore provenance stamping", () => {
     await store.write(tenantId, key, body, writeOptions);
 
     const readResult = await store.read(tenantId, key);
-    
+
     expect(readResult.existed).toBe(true);
     expect(readResult.body).toBe(body);
     expect(readResult.lastUpdatedBy).toBe(actorId);
@@ -61,12 +61,12 @@ describe("FileVaultStore provenance stamping", () => {
     await store.write(tenantId, key, initialBody, initialOptions);
 
     // Second write without provenance options (should preserve existing)
-    // Note: This behavior might change based on requirements. Currently, 
+    // Note: This behavior might change based on requirements. Currently,
     // the implementation preserves existing metadata when not explicitly provided.
     await store.write(tenantId, key, updatedBody);
 
     const readResult = await store.read(tenantId, key);
-    
+
     expect(readResult.existed).toBe(true);
     expect(readResult.body).toBe(updatedBody);
     // The current implementation preserves existing provenance when not provided
@@ -81,7 +81,7 @@ describe("FileVaultStore provenance stamping", () => {
     const updatedBody = "Updated content";
     const initialActorId = "initial-actor-123";
     const updatedActorId = "updated-actor-456";
-    
+
     // First write with initial provenance
     const initialOptions: VaultWriteOptions = {
       lastUpdatedBy: initialActorId,
@@ -92,7 +92,7 @@ describe("FileVaultStore provenance stamping", () => {
 
     // Wait a bit to ensure different timestamp
     await new Promise(resolve => setTimeout(resolve, 10));
-    
+
     // Second write with updated provenance
     const updatedTimestamp = new Date().toISOString();
     const updatedOptions: VaultWriteOptions = {
@@ -103,7 +103,7 @@ describe("FileVaultStore provenance stamping", () => {
     await store.write(tenantId, key, updatedBody, updatedOptions);
 
     const readResult = await store.read(tenantId, key);
-    
+
     expect(readResult.existed).toBe(true);
     expect(readResult.body).toBe(updatedBody);
     expect(readResult.lastUpdatedBy).toBe(updatedActorId);
@@ -118,7 +118,7 @@ describe("FileVaultStore provenance stamping", () => {
     await store.write(tenantId, key, body);
 
     const readResult = await store.read(tenantId, key);
-    
+
     expect(readResult.existed).toBe(true);
     expect(readResult.body).toBe(body);
     expect(readResult.lastUpdatedBy).toBeUndefined();
@@ -146,7 +146,7 @@ describe("FileVaultStore provenance stamping", () => {
     await store.write(tenantId, key, appendBody, appendOptions);
 
     const readResult = await store.read(tenantId, key);
-    
+
     expect(readResult.existed).toBe(true);
     expect(readResult.body).toContain(initialBody);
     expect(readResult.body).toContain(appendBody);

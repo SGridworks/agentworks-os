@@ -21,7 +21,8 @@ import {
 } from '@/lib/api';
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
-const COMPANY_ID = '1c626d50-0698-46d9-aed5-aed0df87dced';
+const COMPANY_ID = '00000000-0000-4000-8000-000000000002';
+const EXAMPLE_PROJECT_ID = '00000000-0000-4000-8000-000000000003';
 
 const STEP_GROUPS: Array<{ label: string; types: AutomationStep['type'][] }> = [
   {
@@ -76,7 +77,7 @@ function defaultParams(type: AutomationStep['type']): Record<string, unknown> {
   if (type === 'webhook.response') return { status: 200, body: { ok: true } };
   if (type === 'issue.create') {
     return {
-      projectId: '904ed1c9-76bb-4bfd-96ac-68cda6fb6e89',
+      projectId: EXAMPLE_PROJECT_ID,
       title: 'Automation-created issue',
       description: 'Created from AWOS visual workflow editor.',
       priority: 'medium',

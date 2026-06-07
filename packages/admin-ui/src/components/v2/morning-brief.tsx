@@ -65,7 +65,7 @@ export default function MorningBrief({ tenantId, onNav }: MorningBriefProps) {
 
   const handleDismiss = async () => {
     if (!brief || dismissing) return;
-    
+
     setDismissing(true);
     try {
       await dismissMorningBrief(tenantId);

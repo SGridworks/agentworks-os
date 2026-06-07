@@ -30,12 +30,15 @@ import { runSafeTestCommand } from "./safe-test-runner.js";
 const REPO_ROOT = process.env.AWOS_REPO_ROOT ?? process.cwd();
 const KIMI_BASE_URL = process.env.KIMI_BASE_URL ?? "https://api.moonshot.ai/v1";
 const KIMI_MODEL = process.env.KIMI_REVIEW_MODEL ?? process.env.KIMI_MODEL ?? "kimi-k2-turbo-preview";
-const HERMES_CONFIG_PATH = process.env.HERMES_CONFIG_PATH ?? `${process.env.HOME}/.hermes/config.yaml`;
+const AWOS_PROVIDER_PROFILE_PATH = process.env.AWOS_PROVIDER_PROFILE_PATH ?? `${process.env.HOME}/.agentworks/provider-profile.yaml`;
 const MAX_TURNS = Number(process.env.AWOS_REVIEW_MAX_TURNS ?? "25");
 const FILE_READ_CAP_BYTES = 100_000;
 const TEST_TIMEOUT_MS = 90_000;
 
 const REVIEW_AGENT_ID = "d78ae419-ef4f-4e68-91b9-98405aa2b63f";
+const EXAMPLE_BACKEND_AGENT_ID = "00000000-0000-4000-8000-000000000004";
+const EXAMPLE_FRONTEND_AGENT_ID = "00000000-0000-4000-8000-000000000005";
+const EXAMPLE_PYTHON_AGENT_ID = "00000000-0000-4000-8000-000000000006";
 
 interface ResolvedIssue {
   id: string;
@@ -50,8 +53,8 @@ interface ResolvedIssue {
 function loadKimiKey(): string {
   return loadAwosProviderKey({
     envNames: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
-    hermesConfigPath: HERMES_CONFIG_PATH,
-    hermesProvider: "kimi",
+    providerProfilePath: AWOS_PROVIDER_PROFILE_PATH,
+    providerProfileName: "kimi",
   });
 }
 
@@ -572,18 +575,18 @@ export class KimiReviewAdapter implements AgentAdapter {
 }
 
 function inferAssigneeRoleFromTitle(title: string, body = ""): { agentsDir: string; agentId: string } | null {
-  if (title.startsWith("[BackendEngineer]")) return { agentsDir: "backend", agentId: "d02218d7-7ace-4493-9303-e6e998f9368d" };
-  if (title.startsWith("[FrontendEngineer]")) return { agentsDir: "frontend", agentId: "be1ae040-7cf8-42ff-8d0f-f036ed32ab95" };
-  if (title.startsWith("[PythonEngineer]")) return { agentsDir: "python", agentId: "51d8f54b-2f0b-4cfa-a156-c856cde5e4b4" };
-  if (body.includes("packages/admin-ui/")) return { agentsDir: "frontend", agentId: "be1ae040-7cf8-42ff-8d0f-f036ed32ab95" };
-  if (body.includes("packages/scanner-worker/")) return { agentsDir: "python", agentId: "51d8f54b-2f0b-4cfa-a156-c856cde5e4b4" };
+  if (title.startsWith("[BackendEngineer]")) return { agentsDir: "backend", agentId: EXAMPLE_BACKEND_AGENT_ID };
+  if (title.startsWith("[FrontendEngineer]")) return { agentsDir: "frontend", agentId: EXAMPLE_FRONTEND_AGENT_ID };
+  if (title.startsWith("[PythonEngineer]")) return { agentsDir: "python", agentId: EXAMPLE_PYTHON_AGENT_ID };
+  if (body.includes("packages/admin-ui/")) return { agentsDir: "frontend", agentId: EXAMPLE_FRONTEND_AGENT_ID };
+  if (body.includes("packages/scanner-worker/")) return { agentsDir: "python", agentId: EXAMPLE_PYTHON_AGENT_ID };
   if (
     body.includes("packages/agentos-d/") ||
     body.includes("packages/memory/") ||
     body.includes("packages/policy-engine/") ||
     body.includes("packages/shared/")
   ) {
-    return { agentsDir: "backend", agentId: "d02218d7-7ace-4493-9303-e6e998f9368d" };
+    return { agentsDir: "backend", agentId: EXAMPLE_BACKEND_AGENT_ID };
   }
   return null;
 }

@@ -2,7 +2,7 @@
 
 Connect Claude Desktop, Cursor, and Codex to AgentWorks OS via the Model Context Protocol. Once connected, your agents can read and write vault memory, submit actions through the policy engine, and log activity to the audit trail.
 
-**Last updated:** 2026-04-29  
+**Last updated:** 2026-04-29
 **agentos-d minimum version:** 0.1.0
 
 ---

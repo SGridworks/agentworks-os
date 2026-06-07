@@ -37,7 +37,7 @@ projects/
 Use markdown links. Agents follow them. If `context/compliance.md` mentions your DNC policy, link to it:
 
 ```markdown
-See [DNC policy](./dnc-policy.md) for the current suppression list.
+See the DNC policy page for the current suppression list.
 ```
 
 ### Trim Stale Content

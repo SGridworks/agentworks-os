@@ -25,7 +25,7 @@ import { loadAwosProviderKey } from "./awos-secrets.js";
 const REPO_ROOT = process.env.AWOS_REPO_ROOT ?? process.cwd();
 const KIMI_BASE_URL = process.env.KIMI_BASE_URL ?? "https://api.moonshot.ai/v1";
 const KIMI_MODEL = process.env.KIMI_MODEL ?? "kimi-k2-turbo-preview";
-const HERMES_CONFIG_PATH = process.env.HERMES_CONFIG_PATH ?? `${process.env.HOME}/.hermes/config.yaml`;
+const AWOS_PROVIDER_PROFILE_PATH = process.env.AWOS_PROVIDER_PROFILE_PATH ?? `${process.env.HOME}/.agentworks/provider-profile.yaml`;
 
 const SYSTEM_PROMPT_HEADER = `You are an autonomous AWOS agent running inside the agentos-d daemon.
 You are NOT operating a terminal or filesystem directly. The daemon will
@@ -59,8 +59,8 @@ interface ResolvedAgent {
 function loadKimiKey(): string {
   return loadAwosProviderKey({
     envNames: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
-    hermesConfigPath: HERMES_CONFIG_PATH,
-    hermesProvider: "kimi",
+    providerProfilePath: AWOS_PROVIDER_PROFILE_PATH,
+    providerProfileName: "kimi",
   });
 }
 

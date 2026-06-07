@@ -50,19 +50,19 @@ describe('FlightRecorderTimeline', () => {
     const { container } = render(
       <FlightRecorderTimeline sessionId="test-session" />
     );
-    
+
     expect(container).toBeTruthy();
   });
 
   it('displays the flight recorder header', () => {
     render(<FlightRecorderTimeline sessionId="test-session" />);
-    
+
     expect(screen.getByText('Flight Recorder')).toBeInTheDocument();
   });
 
   it('shows export csv button', () => {
     render(<FlightRecorderTimeline sessionId="test-session" />);
-    
+
     expect(screen.getByText('Export CSV')).toBeInTheDocument();
   });
 });

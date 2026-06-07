@@ -1,12 +1,11 @@
 /**
- * Hermes adapter.
+ * Local gateway adapter.
  *
- * Hermes is the user's local agent platform; it exposes an HTTP gateway that
- * accepts dispatch requests. When an endpoint is configured, this adapter
- * POSTs the action to that endpoint and returns the gateway's reply. When no
- * endpoint is set, it returns a structured "not configured" result so the
- * substrate can route through review or fall back to another adapter without
- * exploding.
+ * Some agent runtimes expose an HTTP gateway that accepts dispatch requests.
+ * When an endpoint is configured, this adapter POSTs the action to that
+ * endpoint and returns the gateway's reply. When no endpoint is set, it returns
+ * a structured "not configured" result so the substrate can route through
+ * review or fall back to another adapter without exploding.
  *
  * Configuration is intentionally minimal: pass `baseUrl` (and optional
  * `apiKey`) at construction time. The substrate (or installer) is responsible
@@ -21,8 +20,8 @@ import type {
   AgentAdapter,
 } from './base';
 
-export interface HermesAdapterConfig {
-  /** Base URL of the Hermes gateway, e.g. "http://127.0.0.1:18789". */
+export interface LocalGatewayAdapterConfig {
+  /** Base URL of the local gateway, e.g. "http://127.0.0.1:18789". */
   baseUrl?: string;
   /** Bearer token presented to the gateway. Optional. */
   apiKey?: string;
@@ -34,16 +33,16 @@ export interface HermesAdapterConfig {
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
-export class HermesAdapter implements AgentAdapter {
+export class LocalGatewayAdapter implements AgentAdapter {
   readonly metadata: AdapterMetadata = {
-    key: 'hermes',
-    label: 'Hermes',
+    key: 'local_gateway',
+    label: 'Local Gateway',
     capabilities: ['agent.dispatch', 'vault.read', 'vault.write', 'shell.run'],
   };
 
-  private readonly config: HermesAdapterConfig;
+  private readonly config: LocalGatewayAdapterConfig;
 
-  constructor(config: HermesAdapterConfig = {}) {
+  constructor(config: LocalGatewayAdapterConfig = {}) {
     this.config = config;
   }
 
@@ -51,8 +50,8 @@ export class HermesAdapter implements AgentAdapter {
     if (!this.config.baseUrl) {
       return {
         success: false,
-        error: 'Hermes adapter has no baseUrl configured',
-        meta: { adapter: 'hermes', configured: false },
+        error: 'Local gateway adapter has no baseUrl configured',
+        meta: { adapter: 'local_gateway', configured: false },
       };
     }
 
@@ -89,9 +88,9 @@ export class HermesAdapter implements AgentAdapter {
       if (!response.ok) {
         return {
           success: false,
-          error: `Hermes returned HTTP ${response.status}`,
+          error: `Local gateway returned HTTP ${response.status}`,
           meta: {
-            adapter: 'hermes',
+            adapter: 'local_gateway',
             url,
             status: response.status,
             latencyMs,
@@ -103,15 +102,15 @@ export class HermesAdapter implements AgentAdapter {
       return {
         success: true,
         data: parsed ?? { raw: text },
-        meta: { adapter: 'hermes', url, status: response.status, latencyMs },
+        meta: { adapter: 'local_gateway', url, status: response.status, latencyMs },
       };
     } catch (err) {
       const latencyMs = Date.now() - startedAt;
       const reason = err instanceof Error ? err.message : 'unknown';
       return {
         success: false,
-        error: `Hermes dispatch failed: ${reason}`,
-        meta: { adapter: 'hermes', url, latencyMs },
+        error: `Local gateway dispatch failed: ${reason}`,
+        meta: { adapter: 'local_gateway', url, latencyMs },
       };
     } finally {
       clearTimeout(timer);

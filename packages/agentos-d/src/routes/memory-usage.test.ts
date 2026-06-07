@@ -48,9 +48,9 @@ describe("Memory Routes - Usage Tracking", () => {
         key: "test-page",
         body: "Test content for usage tracking",
       });
-    
+
     expect(writeResponse.status).toBe(201);
-    
+
     // Now read it with actorId
     const readResponse = await request(server)
       .post("/api/memory/read")
@@ -59,15 +59,15 @@ describe("Memory Routes - Usage Tracking", () => {
         key: "test-page",
         actorId: AGENT_1,
       });
-    
+
     expect(readResponse.status).toBe(200);
     const readData = readResponse.body;
     expect(readData.ok).toBe(true);
     expect(readData.data.existed).toBe(true);
-    
+
     // Wait a bit for the usage tracker to flush
     await new Promise(resolve => setTimeout(resolve, 3500));
-    
+
     // Read again to check if lastUsedBy was updated
     const checkResponse = await request(server)
       .post("/api/memory/read")
@@ -75,17 +75,17 @@ describe("Memory Routes - Usage Tracking", () => {
         tenantId: TENANT_A,
         key: "test-page",
       });
-    
+
     expect(checkResponse.status).toBe(200);
     const checkData = checkResponse.body;
     expect(checkData.ok).toBe(true);
-    
+
     // The provenance endpoint should show the usage
     const provenanceResponse = await request(server)
       .get("/api/memory/provenance")
       .query({ tenantId: TENANT_A, key: "test-page" });
     expect(provenanceResponse.status).toBe(200);
-    
+
     const provenanceData = provenanceResponse.body;
     expect(provenanceData.ok).toBe(true);
     expect(provenanceData.data.frontmatter.lastUsedBy).toBeDefined();
@@ -102,9 +102,9 @@ describe("Memory Routes - Usage Tracking", () => {
         key: "test-page-no-actor",
         body: "Test content without actor tracking",
       });
-    
+
     expect(writeResponse.status).toBe(201);
-    
+
     // Read it without actorId
     const readResponse = await request(server)
       .post("/api/memory/read")
@@ -113,18 +113,18 @@ describe("Memory Routes - Usage Tracking", () => {
         key: "test-page-no-actor",
         // No actorId provided
       });
-    
+
     expect(readResponse.status).toBe(200);
-    
+
     // Wait a bit for any potential usage tracking
     await new Promise(resolve => setTimeout(resolve, 3500));
-    
+
     // Check provenance - should not have lastUsedBy
     const provenanceResponse = await request(server)
       .get("/api/memory/provenance")
       .query({ tenantId: TENANT_A, key: "test-page-no-actor" });
     expect(provenanceResponse.status).toBe(200);
-    
+
     const provenanceData = provenanceResponse.body;
     expect(provenanceData.ok).toBe(true);
     expect(provenanceData.data.frontmatter.lastUsedBy ?? []).toEqual([]);
@@ -139,15 +139,15 @@ describe("Memory Routes - Usage Tracking", () => {
         key: "non-existent-page",
         actorId: AGENT_1,
       });
-    
+
     expect(readResponse.status).toBe(200);
     const readData = readResponse.body;
     expect(readData.ok).toBe(true);
     expect(readData.data.existed).toBe(false);
-    
+
     // Wait a bit for any potential usage tracking
     await new Promise(resolve => setTimeout(resolve, 3500));
-    
+
     // Should not crash or create the document
     const checkResponse = await request(server)
       .post("/api/memory/read")
@@ -155,7 +155,7 @@ describe("Memory Routes - Usage Tracking", () => {
         tenantId: TENANT_A,
         key: "non-existent-page",
       });
-    
+
     expect(checkResponse.status).toBe(200);
     const checkData = checkResponse.body;
     expect(checkData.ok).toBe(true);
@@ -171,9 +171,9 @@ describe("Memory Routes - Usage Tracking", () => {
         key: "multi-actor-page",
         body: "Content for multiple actors",
       });
-    
+
     expect(writeResponse.status).toBe(201);
-    
+
     // Read with first actor
     await request(server)
       .post("/api/memory/read")
@@ -182,7 +182,7 @@ describe("Memory Routes - Usage Tracking", () => {
         key: "multi-actor-page",
         actorId: AGENT_1,
       });
-    
+
     // Read with second actor
     await request(server)
       .post("/api/memory/read")
@@ -191,21 +191,21 @@ describe("Memory Routes - Usage Tracking", () => {
         key: "multi-actor-page",
         actorId: AGENT_2,
       });
-    
+
     // Wait for flush
     await new Promise(resolve => setTimeout(resolve, 3500));
-    
+
     // Check provenance
     const provenanceResponse = await request(server)
       .get("/api/memory/provenance")
       .query({ tenantId: TENANT_A, key: "multi-actor-page" });
     expect(provenanceResponse.status).toBe(200);
-    
+
     const provenanceData = provenanceResponse.body;
     expect(provenanceData.ok).toBe(true);
     expect(provenanceData.data.frontmatter.lastUsedBy).toBeDefined();
     expect(provenanceData.data.frontmatter.lastUsedBy).toHaveLength(2);
-    
+
     const agentIds = provenanceData.data.frontmatter.lastUsedBy.map((entry: any) => entry.agentId).sort();
     expect(agentIds).toEqual([AGENT_1, AGENT_2].sort());
   });

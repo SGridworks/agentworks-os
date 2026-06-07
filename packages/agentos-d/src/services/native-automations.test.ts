@@ -25,7 +25,7 @@ import {
 } from "./native-automations.js";
 
 const TENANT_ID = "00000000-0000-4000-8000-000000000001";
-const COMPANY_ID = "1c626d50-0698-46d9-aed5-aed0df87dced";
+const COMPANY_ID = "00000000-0000-4000-8000-000000000002";
 
 let root: string;
 let config: Config;

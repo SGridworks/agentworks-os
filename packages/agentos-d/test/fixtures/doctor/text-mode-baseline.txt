@@ -4,7 +4,7 @@ PASS port 7710 is listening
 PASS daemon health endpoint responded: {"evidenceCronRunning":true,"status":"ok","version":"0.1.0","awcp":"awcp/v0.1","startedAt":"REDACTED","now":"REDACTED"}
 PASS daemon tenant/company data endpoint responded
 PASS ai.agentworks.bridge running pid=REDACTED
-PASS bridge log contains canonical HERMES_SCRIPT_DIR
+PASS bridge log contains canonical AWOS_SCRIPT_DIR
 FAIL bridge task log does not show canonical FALLBACK_MODEL=nemotron-3-nano:30b
 PASS no rogue bridge writer detected
 PASS com.agentworks.wake-on-assign running pid=REDACTED

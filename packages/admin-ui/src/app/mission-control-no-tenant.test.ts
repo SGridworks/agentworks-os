@@ -23,11 +23,11 @@ describe('Mission Control No-Tenant State', () => {
         </button>
       </div>
     `;
-    
+
     const button = container.querySelector('.btn-primary');
     expect(button).toBeTruthy();
     expect(button?.textContent?.trim()).toBe('Create Tenant');
-    
+
     const title = container.querySelector('.text-sm.font-medium');
     expect(title?.textContent).toBe('No tenant configured');
   });

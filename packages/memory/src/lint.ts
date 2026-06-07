@@ -1,7 +1,7 @@
 /**
  * Vault lint — mechanical health checks over a tenant's vault.
  *
- * Ports the deterministic subset of the Hermes vault-lint skill into a
+ * Ports the deterministic subset of vault linting into a
  * typed module: orphan pages, dead wikilinks, frontmatter gaps, empty
  * sections, kebab-case filename violations, source drift, contradictions,
  * confidence, page oversize, tag audit, log rotation. Semantic checks

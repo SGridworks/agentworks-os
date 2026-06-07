@@ -1,6 +1,6 @@
 /**
  * Provenance service for Memory Provenance Overlay feature.
- * 
+ *
  * Provides comprehensive provenance information for vault documents including:
  * - Frontmatter metadata (author, last updated, usage history)
  * - Citations from action logs that reference this document
@@ -61,7 +61,7 @@ export interface ProvenanceResult {
 
 /**
  * Get comprehensive provenance information for a vault document.
- * 
+ *
  * @param tenantId - The tenant ID
  * @param key - The vault document key
  * @param db - Optional database instance (for testing)
@@ -78,7 +78,7 @@ export async function getProvenance(
     // For now, we'll always return provenance data without checking if the document exists
     // This is because the vault store integration isn't complete yet
     // In a real implementation, we would check if the document exists first
-    
+
     // Get the database queries for citations, decisions, and conflicts
     let sqlite: Database | null = db ?? null;
     if (!sqlite) {
@@ -138,7 +138,7 @@ export async function getProvenance(
     const importance = determineImportance(citations);
     const lastUsedAt = citations.length > 0 ? citations[0]?.loggedAt : undefined;
     const staleRisk = isStale({ lastUsedAt, importance });
-    
+
     return {
       key,
       frontmatter,
@@ -164,7 +164,7 @@ async function getCitations(
 ): Promise<ProvenanceCitations[]> {
   // Query action logs that reference this vault key in vault_refs
   const query = `
-    SELECT 
+    SELECT
       id as actionId,
       action_kind as actionKind,
       actor_id as actorId,
@@ -177,7 +177,7 @@ async function getCitations(
     ORDER BY logged_at DESC
     LIMIT 100
   `;
-  
+
   const rows = sqlite.prepare(query).all(tenantId, `%"${key}"%`) as Array<{
     actionId: string;
     actionKind: string;
@@ -187,7 +187,7 @@ async function getCitations(
     loggedAt: string;
     vaultRefs: string;
   }>;
-  
+
   return rows.map(row => ({
     actionId: row.actionId,
     actionKind: row.actionKind,
@@ -209,7 +209,7 @@ async function getDecisions(
 ): Promise<ProvenanceDecision[]> {
   // Join action_log with policy_decisions to find decisions related to actions that reference this vault key
   const query = `
-    SELECT 
+    SELECT
       pd.id as decisionId,
       pd.action_id as actionId,
       pd.decision,
@@ -224,7 +224,7 @@ async function getDecisions(
     ORDER BY pd.decided_at DESC
     LIMIT 100
   `;
-  
+
   const rows = sqlite.prepare(query).all(tenantId, `%"${key}"%`) as Array<{
     decisionId: string;
     actionId: string;
@@ -235,7 +235,7 @@ async function getDecisions(
     decidedAt: string;
     actorLabel: string;
   }>;
-  
+
   return rows.map(row => ({
     decisionId: row.decisionId,
     actionId: row.actionId,
@@ -267,7 +267,7 @@ async function getConflicts(
       activeOnly: true,
       rerank: false, // Don't rerank for conflicts
     });
-    
+
     // Filter out the document itself and map to conflicts
     return hits
       .filter(hit => {
@@ -303,16 +303,16 @@ async function checkDocumentExists(
     // For this implementation, we'll assume documents exist if there are any episodes or insights
     // for the tenant. This is a simplified approach for testing.
     // In production, this would check the actual vault store.
-    
+
     // Check if we have any content for this tenant
     const episodeCount = sqlite.prepare(`
       SELECT COUNT(*) as count FROM episodes WHERE tenant_id = ?
     `).get(tenantId) as { count: number };
-    
+
     const insightCount = sqlite.prepare(`
       SELECT COUNT(*) as count FROM insights WHERE tenant_id = ?
     `).get(tenantId) as { count: number };
-    
+
     // For testing purposes, if the tenant has any content, we consider the document as existing
     // This allows the tests to proceed with the provenance queries
     return episodeCount.count > 0 || insightCount.count > 0;

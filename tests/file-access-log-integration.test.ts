@@ -48,7 +48,7 @@ describe("File Access Log Integration", () => {
 
   it("should create company, agent, and log file access in a complete workflow", async () => {
     const sqlite = getSqlite();
-    
+
     // Step 1: Create a company
     const tenantId = randomUUID();
     const companyRes = await request(app)
@@ -58,10 +58,10 @@ describe("File Access Log Integration", () => {
         name: "Test Company",
         slug: "test-company",
       });
-    
+
     expect(companyRes.status).toBe(201);
     const companyId = companyRes.body.id;
-    
+
     // Step 2: Create an agent
     const agentRes = await request(app)
       .post("/api/agents")
@@ -72,10 +72,10 @@ describe("File Access Log Integration", () => {
         role: "developer",
         status: "active",
       });
-    
+
     expect(agentRes.status).toBe(201);
     const agentId = agentRes.body.id;
-    
+
     // Step 3: Post runtime state with file operations
     const runId = randomUUID();
     const runtimeRes = await request(app)
@@ -93,16 +93,16 @@ describe("File Access Log Integration", () => {
           { path: "/workspace/project/README.md", op: "create" },
         ],
       });
-    
+
     expect(runtimeRes.status).toBe(200);
-    
+
     // Step 4: Verify file access log entries
     const logs = sqlite.prepare(`
-      SELECT * FROM file_access_log 
+      SELECT * FROM file_access_log
       WHERE tenant_id = ? AND agent_id = ? AND run_id = ?
       ORDER BY file_path
     `).all(tenantId, agentId, runId);
-    
+
     expect(logs).toHaveLength(3);
     expect(logs[0]).toMatchObject({
       tenant_id: tenantId,
@@ -125,31 +125,31 @@ describe("File Access Log Integration", () => {
       file_path: "/workspace/project/src/main.ts",
       op: "write",
     });
-    
+
     // Step 5: Verify we can query file access by tenant
     const tenantLogs = sqlite.prepare(`
-      SELECT * FROM file_access_log 
+      SELECT * FROM file_access_log
       WHERE tenant_id = ?
       ORDER BY created_at DESC
     `).all(tenantId);
-    
+
     expect(tenantLogs).toHaveLength(3);
-    
+
     // Step 6: Verify we can query file access by agent
     const agentLogs = sqlite.prepare(`
-      SELECT * FROM file_access_log 
+      SELECT * FROM file_access_log
       WHERE agent_id = ?
       ORDER BY created_at DESC
     `).all(agentId);
-    
+
     expect(agentLogs).toHaveLength(3);
-    
+
     // Step 7: Verify we can query file access by file path
     const fileLogs = sqlite.prepare(`
-      SELECT * FROM file_access_log 
+      SELECT * FROM file_access_log
       WHERE file_path = ?
     `).all("/workspace/project/src/main.ts");
-    
+
     expect(fileLogs).toHaveLength(1);
     expect(fileLogs[0]).toMatchObject({
       tenant_id: tenantId,
@@ -162,19 +162,19 @@ describe("File Access Log Integration", () => {
 
   it("should handle multiple runtime state updates with different file operations", async () => {
     const sqlite = getSqlite();
-    
+
     // Create company and agent
     const tenantId = randomUUID();
     const companyRes = await request(app)
       .post("/api/companies")
       .send({ tenantId, name: "Test Company" });
     const companyId = companyRes.body.id;
-    
+
     const agentRes = await request(app)
       .post("/api/agents")
       .send({ tenantId, companyId, name: "Test Agent" });
     const agentId = agentRes.body.id;
-    
+
     // First runtime state update
     const runId1 = randomUUID();
     await request(app)
@@ -188,7 +188,7 @@ describe("File Access Log Integration", () => {
           { path: "/tmp/file1.txt", op: "write" },
         ],
       });
-    
+
     // Second runtime state update
     const runId2 = randomUUID();
     await request(app)
@@ -203,14 +203,14 @@ describe("File Access Log Integration", () => {
           { path: "/tmp/file3.txt", op: "delete" },
         ],
       });
-    
+
     // Verify all file access logs
     const allLogs = sqlite.prepare(`
-      SELECT * FROM file_access_log 
+      SELECT * FROM file_access_log
       WHERE tenant_id = ? AND agent_id = ?
       ORDER BY file_path
     `).all(tenantId, agentId);
-    
+
     expect(allLogs).toHaveLength(3);
     expect(allLogs[0]).toMatchObject({
       file_path: "/tmp/file1.txt",

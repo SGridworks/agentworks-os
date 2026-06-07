@@ -35,7 +35,7 @@ const mockActionNoReasons: AutopilotAction = {
 describe('ActionDetailsPopover', () => {
   it('renders nothing when closed', () => {
     const { container } = render(
-      <ActionDetailsPopover 
+      <ActionDetailsPopover
         popover={{ isOpen: false, action: null, position: { top: 0, left: 0 } }}
         onClose={vi.fn()}
       />
@@ -45,7 +45,7 @@ describe('ActionDetailsPopover', () => {
 
   it('renders popover when open with action', () => {
     render(
-      <ActionDetailsPopover 
+      <ActionDetailsPopover
         popover={{ isOpen: true, action: mockAction, position: { top: 100, left: 200 } }}
         onClose={vi.fn()}
       />
@@ -53,15 +53,15 @@ describe('ActionDetailsPopover', () => {
 
     // Check header
     expect(screen.getByText('Action Details')).toBeInTheDocument();
-    
+
     // Check action summary
     expect(screen.getByText('Create issue for customer support')).toBeInTheDocument();
-    
+
     // Check risk assessment
     expect(screen.getByText('Risk Assessment')).toBeInTheDocument();
     expect(screen.getByText('0.65')).toBeInTheDocument();
     expect(screen.getByText('Needs Approval')).toBeInTheDocument();
-    
+
     // Check bucketing reasons
     expect(screen.getByText('Bucketing Reasons')).toBeInTheDocument();
     expect(screen.getByText('Action involves customer data access')).toBeInTheDocument();
@@ -69,7 +69,7 @@ describe('ActionDetailsPopover', () => {
 
   it('renders empty state when no reasons provided', () => {
     render(
-      <ActionDetailsPopover 
+      <ActionDetailsPopover
         popover={{ isOpen: true, action: mockActionNoReasons, position: { top: 100, left: 200 } }}
         onClose={vi.fn()}
       />
@@ -79,7 +79,7 @@ describe('ActionDetailsPopover', () => {
     expect(screen.getByText('Create issue for customer support')).toBeInTheDocument();
     expect(screen.getByText('Safe')).toBeInTheDocument();
     expect(screen.getByText('0.25')).toBeInTheDocument();
-    
+
     // Should not show bucketing reasons section
     expect(screen.queryByTestId('bucketing-reasons')).not.toBeInTheDocument();
   });
@@ -92,7 +92,7 @@ describe('ActionDetailsPopover', () => {
 
   it('applies correct color coding for different risk levels', () => {
     const { rerender } = render(
-      <ActionDetailsPopover 
+      <ActionDetailsPopover
         popover={{ isOpen: true, action: { ...mockAction, riskScore: 0.2, decision: 'allow' }, position: { top: 100, left: 200 } }}
         onClose={vi.fn()}
       />
@@ -103,7 +103,7 @@ describe('ActionDetailsPopover', () => {
 
     // Test medium risk
     rerender(
-      <ActionDetailsPopover 
+      <ActionDetailsPopover
         popover={{ isOpen: true, action: { ...mockAction, riskScore: 0.5, decision: 'needsApproval' }, position: { top: 100, left: 200 } }}
         onClose={vi.fn()}
       />
@@ -114,7 +114,7 @@ describe('ActionDetailsPopover', () => {
 
     // Test high risk
     rerender(
-      <ActionDetailsPopover 
+      <ActionDetailsPopover
         popover={{ isOpen: true, action: { ...mockAction, riskScore: 0.8, decision: 'risky' }, position: { top: 100, left: 200 } }}
         onClose={vi.fn()}
       />
@@ -126,7 +126,7 @@ describe('ActionDetailsPopover', () => {
 
   it('renders all policy decision details correctly', () => {
     render(
-      <ActionDetailsPopover 
+      <ActionDetailsPopover
         popover={{ isOpen: true, action: mockAction, position: { top: 100, left: 200 } }}
         onClose={vi.fn()}
       />

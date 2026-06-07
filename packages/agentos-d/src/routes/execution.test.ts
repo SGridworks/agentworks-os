@@ -48,7 +48,7 @@ describe("GET /api/agents/:id/flight-recorder", () => {
   it("returns 404 for non-existent agent", async () => {
     const res = await request(app)
       .get(`/api/agents/${randomUUID()}/flight-recorder`);
-    
+
     expect(res.status).toBe(404);
     expect(res.body.error).toBe("agent_not_found");
   });
@@ -56,7 +56,7 @@ describe("GET /api/agents/:id/flight-recorder", () => {
   it("returns 404 for invalid agent ID format", async () => {
     const res = await request(app)
       .get("/api/agents/invalid-uuid/flight-recorder");
-    
+
     expect(res.status).toBe(404);
   });
 
@@ -67,44 +67,44 @@ describe("GET /api/agents/:id/flight-recorder", () => {
     const agentId = randomUUID();
     const runId = randomUUID();
     const wakeupId = randomUUID();
-    
+
     // Create company
     sqlite.prepare(`
       INSERT INTO execution_companies (id, tenant_id, name, slug, slug_prefix, status, metadata_json, created_at, updated_at)
       VALUES (?, ?, 'Test Company', 'test', 'TEST', 'active', '{}', datetime('now'), datetime('now'))
     `).run(companyId, tenantId);
-    
+
     // Create agent
     sqlite.prepare(`
       INSERT INTO execution_agents (id, tenant_id, company_id, name, role, status, config_json, created_at, updated_at)
       VALUES (?, ?, ?, 'Test Agent', 'developer', 'active', '{}', datetime('now'), datetime('now'))
     `).run(agentId, tenantId, companyId);
-    
+
     // Create run first (required for foreign key constraint)
     sqlite.prepare(`
       INSERT INTO execution_runs (id, tenant_id, company_id, agent_id, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, 'running', datetime('now'), datetime('now'))
     `).run(runId, tenantId, companyId, agentId);
-    
+
     // Create run event
     sqlite.prepare(`
       INSERT INTO execution_run_events (id, tenant_id, run_id, event_type, message, data_json, created_at)
       VALUES (?, ?, ?, 'status_change', 'Run started', '{}', datetime('now'))
     `).run(randomUUID(), tenantId, runId);
-    
+
     // Create agent wakeup
     sqlite.prepare(`
       INSERT INTO execution_agent_wakeups (id, tenant_id, agent_id, source, trigger_detail, reason, payload_json, idempotency_key, dispatch_id, created_at)
       VALUES (?, ?, ?, 'manual', 'test-trigger', 'Test wakeup', '{}', NULL, ?, datetime('now'))
     `).run(wakeupId, tenantId, agentId, randomUUID());
-    
+
     const res = await request(app)
       .get(`/api/agents/${agentId}/flight-recorder`);
-    
+
     expect(res.status).toBe(200);
     expect(res.body.items).toBeInstanceOf(Array);
     expect(res.body.items.length).toBeGreaterThan(0);
-    
+
     // Verify chronological ordering - run_event should come before wakeup
     // based on the merge order specified in the spec (Action Proposed before System Events)
     expect(res.body.items[0].type).toBe("run_event");
@@ -117,38 +117,38 @@ describe("GET /api/agents/:id/flight-recorder", () => {
     const companyId = randomUUID();
     const agentId = randomUUID();
     const runId = randomUUID();
-    
+
     // Create company
     sqlite.prepare(`
       INSERT INTO execution_companies (id, tenant_id, name, slug, slug_prefix, status, metadata_json, created_at, updated_at)
       VALUES (?, ?, 'Test Company', 'test', 'TEST', 'active', '{}', datetime('now'), datetime('now'))
     `).run(companyId, tenantId);
-    
+
     // Create agent
     sqlite.prepare(`
       INSERT INTO execution_agents (id, tenant_id, company_id, name, role, status, config_json, created_at, updated_at)
       VALUES (?, ?, ?, 'Test Agent', 'developer', 'active', '{}', datetime('now'), datetime('now'))
     `).run(agentId, tenantId, companyId);
-    
+
     // Create runtime state with action log entry
     sqlite.prepare(`
       INSERT INTO execution_agent_runtime_state (agent_id, tenant_id, last_run_id, last_run_status, last_run_at, updated_at)
       VALUES (?, ?, ?, 'succeeded', datetime('now'), datetime('now'))
     `).run(agentId, tenantId, runId);
-    
+
     // Create action log entry for run.*
     const now = new Date().toISOString();
     sqlite.prepare(`
       INSERT INTO action_log (id, tenant_id, actor_id, actor_type, actor_label, action_kind, payload_snapshot, vault_refs, conversation_refs, project_refs, proposed_at, logged_at)
       VALUES (?, ?, ?, 'agent', 'Test Agent', 'run.succeeded', '{"runId": "${runId}"}', '[]', '[]', '[]', ?, ?)
     `).run(randomUUID(), tenantId, agentId, now, now);
-    
+
     const res = await request(app)
       .get(`/api/agents/${agentId}/flight-recorder`);
-    
+
     expect(res.status).toBe(200);
     expect(res.body.items).toBeInstanceOf(Array);
-    
+
     // Should include the runtime state transition
     const runTransition = res.body.items.find((item: any) => item.type === 'action_log' && item.actionKind === 'run.succeeded');
     expect(runTransition).toBeDefined();
@@ -161,31 +161,31 @@ describe("GET /api/agents/:id/flight-recorder", () => {
     const agentId = randomUUID();
     const episodeId = randomUUID();
     const sessionId = randomUUID();
-    
+
     // Create company
     sqlite.prepare(`
       INSERT INTO execution_companies (id, tenant_id, name, slug, slug_prefix, status, metadata_json, created_at, updated_at)
       VALUES (?, ?, 'Test Company', 'test', 'TEST', 'active', '{}', datetime('now'), datetime('now'))
     `).run(companyId, tenantId);
-    
+
     // Create agent
     sqlite.prepare(`
       INSERT INTO execution_agents (id, tenant_id, company_id, name, role, status, config_json, created_at, updated_at)
       VALUES (?, ?, ?, 'Test Agent', 'developer', 'active', '{}', datetime('now'), datetime('now'))
     `).run(agentId, tenantId, companyId);
-    
+
     // Create episode
     sqlite.prepare(`
       INSERT INTO episodes (id, tenant_id, agent_id, session_id, started_at, ended_at, duration_sec, outcome, summary, importance, created_at)
       VALUES (?, ?, ?, ?, datetime('now'), datetime('now'), 300, 'success', 'Test episode', 3, datetime('now'))
     `).run(episodeId, tenantId, agentId, sessionId);
-    
+
     const res = await request(app)
       .get(`/api/agents/${agentId}/flight-recorder`);
-    
+
     expect(res.status).toBe(200);
     expect(res.body.items).toBeInstanceOf(Array);
-    
+
     // Should include the episode
     const episodeItem = res.body.items.find((item: any) => item.type === 'episode');
     expect(episodeItem).toBeDefined();
@@ -200,37 +200,37 @@ describe("GET /api/agents/:id/flight-recorder", () => {
     const episodeId = randomUUID();
     const sessionId = randomUUID();
     const insightId = randomUUID();
-    
+
     // Create company
     sqlite.prepare(`
       INSERT INTO execution_companies (id, tenant_id, name, slug, slug_prefix, status, metadata_json, created_at, updated_at)
       VALUES (?, ?, 'Test Company', 'test', 'TEST', 'active', '{}', datetime('now'), datetime('now'))
     `).run(companyId, tenantId);
-    
+
     // Create agent
     sqlite.prepare(`
       INSERT INTO execution_agents (id, tenant_id, company_id, name, role, status, config_json, created_at, updated_at)
       VALUES (?, ?, ?, 'Test Agent', 'developer', 'active', '{}', datetime('now'), datetime('now'))
     `).run(agentId, tenantId, companyId);
-    
+
     // Create episode
     sqlite.prepare(`
       INSERT INTO episodes (id, tenant_id, agent_id, session_id, started_at, ended_at, duration_sec, outcome, summary, importance, created_at)
       VALUES (?, ?, ?, ?, datetime('now'), datetime('now'), 300, 'success', 'Test episode', 3, datetime('now'))
     `).run(episodeId, tenantId, agentId, sessionId);
-    
+
     // Create insight
     sqlite.prepare(`
       INSERT INTO insights (id, tenant_id, episode_id, frame_type, content, importance, source, validated, created_at)
       VALUES (?, ?, ?, 'fact', 'Test insight', 2, 'agent_reflection', 0, datetime('now'))
     `).run(insightId, tenantId, episodeId);
-    
+
     const res = await request(app)
       .get(`/api/agents/${agentId}/flight-recorder`);
-    
+
     expect(res.status).toBe(200);
     expect(res.body.items).toBeInstanceOf(Array);
-    
+
     // Should include the insight
     const insightItem = res.body.items.find((item: any) => item.type === 'insight');
     expect(insightItem).toBeDefined();
@@ -246,37 +246,37 @@ describe("GET /api/agents/:id/flight-recorder", () => {
     const agentId = randomUUID();
     const runId = randomUUID();
     const eventId = randomUUID();
-    
+
     // Create company
     sqlite.prepare(`
       INSERT INTO execution_companies (id, tenant_id, name, slug, slug_prefix, status, metadata_json, created_at, updated_at)
       VALUES (?, ?, 'Test Company', 'test', 'TEST', 'active', '{}', datetime('now'), datetime('now'))
     `).run(companyId, tenantId);
-    
+
     // Create agent
     sqlite.prepare(`
       INSERT INTO execution_agents (id, tenant_id, company_id, name, role, status, config_json, created_at, updated_at)
       VALUES (?, ?, ?, 'Test Agent', 'developer', 'active', '{}', datetime('now'), datetime('now'))
     `).run(agentId, tenantId, companyId);
-    
+
     // Create run
     sqlite.prepare(`
       INSERT INTO execution_runs (id, tenant_id, company_id, agent_id, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, 'running', datetime('now'), datetime('now'))
     `).run(runId, tenantId, companyId, agentId);
-    
+
     // Create run event with confidence in data_json
     sqlite.prepare(`
       INSERT INTO execution_run_events (id, tenant_id, run_id, event_type, message, data_json, created_at)
       VALUES (?, ?, ?, 'status_change', 'Run started', '{"confidence": 0.85}', datetime('now'))
     `).run(eventId, tenantId, runId);
-    
+
     const res = await request(app)
       .get(`/api/agents/${agentId}/flight-recorder`);
-    
+
     expect(res.status).toBe(200);
     expect(res.body.items).toBeInstanceOf(Array);
-    
+
     // Find the run event with confidence
     const runEvent = res.body.items.find((item: any) => item.type === 'run_event');
     expect(runEvent).toBeDefined();
@@ -291,37 +291,37 @@ describe("GET /api/agents/:id/flight-recorder", () => {
     const agentId = randomUUID();
     const runId = randomUUID();
     const eventId = randomUUID();
-    
+
     // Create company
     sqlite.prepare(`
       INSERT INTO execution_companies (id, tenant_id, name, slug, slug_prefix, status, metadata_json, created_at, updated_at)
       VALUES (?, ?, 'Test Company', 'test', 'TEST', 'active', '{}', datetime('now'), datetime('now'))
     `).run(companyId, tenantId);
-    
+
     // Create agent
     sqlite.prepare(`
       INSERT INTO execution_agents (id, tenant_id, company_id, name, role, status, config_json, created_at, updated_at)
       VALUES (?, ?, ?, 'Test Agent', 'developer', 'active', '{}', datetime('now'), datetime('now'))
     `).run(agentId, tenantId, companyId);
-    
+
     // Create run
     sqlite.prepare(`
       INSERT INTO execution_runs (id, tenant_id, company_id, agent_id, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, 'running', datetime('now'), datetime('now'))
     `).run(runId, tenantId, companyId, agentId);
-    
+
     // Create run event without confidence
     sqlite.prepare(`
       INSERT INTO execution_run_events (id, tenant_id, run_id, event_type, message, data_json, created_at)
       VALUES (?, ?, ?, 'status_change', 'Run started', '{"status": "active"}', datetime('now'))
     `).run(eventId, tenantId, runId);
-    
+
     const res = await request(app)
       .get(`/api/agents/${agentId}/flight-recorder`);
-    
+
     expect(res.status).toBe(200);
     expect(res.body.items).toBeInstanceOf(Array);
-    
+
     // Find the run event without confidence
     const runEvent = res.body.items.find((item: any) => item.type === 'run_event');
     expect(runEvent).toBeDefined();

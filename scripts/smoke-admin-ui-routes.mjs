@@ -10,7 +10,7 @@ const appRoot = path.join(adminRoot, "src", "app");
 const baseUrl = process.env.ADMIN_UI_BASE_URL || "http://127.0.0.1:3000";
 const timeoutMs = Number.parseInt(process.env.ADMIN_UI_SMOKE_TIMEOUT_MS || "10000", 10);
 const companyId =
-  process.env.ADMIN_UI_SMOKE_COMPANY_ID || "1c626d50-0698-46d9-aed5-aed0df87dced";
+  process.env.ADMIN_UI_SMOKE_COMPANY_ID || "00000000-0000-4000-8000-000000000002";
 const issueId =
   process.env.ADMIN_UI_SMOKE_ISSUE_ID || "6bf46049-be20-4a8b-9bf1-52fb5eb335e8";
 

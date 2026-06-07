@@ -301,7 +301,7 @@ function Canvas({ notes, edges, selectedId, onSelect }:
         <span style={{ width: 1, height: 12, background: 'var(--rule-2)' }} />
         <span>NODES · <b style={{ color: 'var(--ink-2)' }} className="tabular">{notes.length}</b></span>
         <span style={{ width: 1, height: 12, background: 'var(--rule-2)' }} />
-        <span>EDGES · <b style={{ color: 'var(--ink-2)' }} className="tabular">{graphEdges.filter(edge => 
+        <span>EDGES · <b style={{ color: 'var(--ink-2)' }} className="tabular">{graphEdges.filter(edge =>
           notes.some(n => n.id === edge.from) && notes.some(n => n.id === edge.to)
         ).length}</b></span>
         <span style={{ marginLeft: 'auto', color: 'var(--ink-4)' }}>click a node to inspect</span>
@@ -321,7 +321,7 @@ function ProvenanceTab({ provenance }: { provenance: ProvenanceMeta | null }) {
     );
   }
 
-  const isStale = provenance.lastUpdatedAt && 
+  const isStale = provenance.lastUpdatedAt &&
     (Date.now() - new Date(provenance.lastUpdatedAt).getTime()) > (30 * 24 * 60 * 60 * 1000);
 
   return (
@@ -459,7 +459,7 @@ function DetailPanel({ id, setId, graph, tenantId }:
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tenantId, key: id }),
     }).then((r) => r.json()).then((r) => setBody(r?.data?.body ?? '')).catch(() => setBody(''));
-    
+
     // Fetch provenance data
     getMemoryProvenance(tenantId, id).then(setProvenance).catch(() => setProvenance(null));
   }, [id, tenantId]);

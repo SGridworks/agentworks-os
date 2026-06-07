@@ -2,10 +2,10 @@ import { Plane } from 'lucide-react';
 
 export function AutopilotStatus() {
   return (
-    <div style={{ 
-      background: 'var(--bg-2)', 
-      border: '1px solid var(--rule)', 
-      borderRadius: 8, 
+    <div style={{
+      background: 'var(--bg-2)',
+      border: '1px solid var(--rule)',
+      borderRadius: 8,
       padding: 16,
       marginTop: 24
     }}>

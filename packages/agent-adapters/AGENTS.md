@@ -10,7 +10,7 @@ Adapter SDK for connecting external agent runtimes and legacy bridge shims to th
 
 Other packages may import:
 
-- `src/hermes.ts` — local runtime adapter
+- `src/localGateway.ts` — local runtime adapter
 - `src/claudeLocal.ts`, `src/codex.ts` — adapter implementations
 - `src/base.ts` — shared adapter base types and helpers
 

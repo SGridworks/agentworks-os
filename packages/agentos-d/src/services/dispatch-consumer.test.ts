@@ -3,7 +3,7 @@ import Database from "better-sqlite3";
 import { migrate } from "../db/migrations/index.js";
 import {
   DispatchConsumer,
-  claimHermesLocalDispatch,
+  claimLocalGatewayDispatch,
   stubAdapter,
   dispatchConsumerEnabled,
   dispatchConsumerOptionsFromEnv,
@@ -199,7 +199,7 @@ describe("DispatchConsumer.tick", () => {
   it("reads autopilot risk information from input JSON", async () => {
     const agentId = "aaaaaaaa-1111-1111-1111-111111111111";
     seedAgent(agentId);
-    
+
     // Enqueue with autopilot risk information
     const now = new Date().toISOString();
     const inputWithRisk = {
@@ -223,11 +223,11 @@ describe("DispatchConsumer.tick", () => {
         return { status: "completed" };
       },
     };
-    
+
     const consumer = new DispatchConsumer({ sqlite, adapter: capturingAdapter });
     const r = await consumer.tick();
     expect(r.completed).toBe(1);
-    
+
     expect(capturedInput).toBeDefined();
     expect(capturedInput!.riskScore).toBe(0.25);
     expect(capturedInput!.reasons).toEqual(["test.reason", "another.reason"]);
@@ -346,18 +346,18 @@ describe("DispatchConsumer.tick", () => {
     expect(second).toEqual({ scanned: 0, claimed: 0, completed: 0, failed: 0 });
   });
 
-  it("leaves hermes_local rows queued unless explicitly opted in", async () => {
+  it("leaves local_gateway rows queued unless explicitly opted in", async () => {
     const agentId = "aaaaaaaa-1111-1111-1111-111111111111";
-    seedAgent(agentId, "active", "hermes_local");
-    enqueue({ id: "d-hermes", targetAgentId: agentId });
+    seedAgent(agentId, "active", "local_gateway");
+    enqueue({ id: "d-local-gateway", targetAgentId: agentId });
 
     const defaultConsumer = new DispatchConsumer({ sqlite });
     expect(await defaultConsumer.tick()).toEqual({ scanned: 0, claimed: 0, completed: 0, failed: 0 });
-    expect(getDispatch("d-hermes").status).toBe("queued");
+    expect(getDispatch("d-local-gateway").status).toBe("queued");
 
-    const optInConsumer = new DispatchConsumer({ sqlite, claimHermesLocal: true });
+    const optInConsumer = new DispatchConsumer({ sqlite, claimLocalGateway: true });
     expect(await optInConsumer.tick()).toEqual({ scanned: 1, claimed: 1, completed: 1, failed: 0 });
-    expect(getDispatch("d-hermes").status).toBe("completed");
+    expect(getDispatch("d-local-gateway").status).toBe("completed");
   });
 });
 
@@ -402,10 +402,10 @@ describe("env helpers", () => {
     ).toEqual({ intervalMs: 5000, batchSize: 5 });
   });
 
-  it("claimHermesLocalDispatch requires explicit opt-in", () => {
-    expect(claimHermesLocalDispatch({})).toBe(false);
-    expect(claimHermesLocalDispatch({ AWOS_CLAIM_HERMES_LOCAL_DISPATCH: "1" })).toBe(true);
-    expect(claimHermesLocalDispatch({ AWOS_CLAIM_HERMES_LOCAL_DISPATCH: "true" })).toBe(true);
+  it("claimLocalGatewayDispatch requires explicit opt-in", () => {
+    expect(claimLocalGatewayDispatch({})).toBe(false);
+    expect(claimLocalGatewayDispatch({ AWOS_CLAIM_LOCAL_GATEWAY_DISPATCH: "1" })).toBe(true);
+    expect(claimLocalGatewayDispatch({ AWOS_CLAIM_LOCAL_GATEWAY_DISPATCH: "true" })).toBe(true);
   });
 });
 

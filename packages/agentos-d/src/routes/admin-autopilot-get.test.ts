@@ -54,14 +54,14 @@ describe("GET /api/admin/autopilot - smoke test", () => {
 
   it("should return 400 when tenantId is missing", async () => {
     const res = await request(app).get("/api/admin/autopilot");
-    
+
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("tenantId required");
   });
 
   it("should return 200 when tenantId is provided", async () => {
     const res = await request(app).get("/api/admin/autopilot?tenantId=test-tenant-id");
-    
+
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("safe");
     expect(res.body).toHaveProperty("needsApproval");
@@ -72,28 +72,28 @@ describe("GET /api/admin/autopilot - smoke test", () => {
 
   it("should return correct structure with all required fields", async () => {
     const res = await request(app).get("/api/admin/autopilot?tenantId=test-tenant-id");
-    
+
     expect(res.status).toBe(200);
     const body = res.body;
-    
+
     // Check main counts
     expect(typeof body.safe).toBe("number");
     expect(typeof body.needsApproval).toBe("number");
     expect(typeof body.risky).toBe("number");
     expect(body.safe + body.needsApproval + body.risky).toBeGreaterThanOrEqual(0);
-    
+
     // Check summary structure
     expect(body.summary).toHaveProperty("triageIssues");
     expect(body.summary).toHaveProperty("approvalQueue");
     expect(body.summary).toHaveProperty("dispatchQueue");
     expect(body.summary).toHaveProperty("recentDecisions");
-    
+
     // Check all summary fields are numbers
     expect(typeof body.summary.triageIssues).toBe("number");
     expect(typeof body.summary.approvalQueue).toBe("number");
     expect(typeof body.summary.dispatchQueue).toBe("number");
     expect(typeof body.summary.recentDecisions).toBe("number");
-    
+
     // Check generatedAt is ISO string
     expect(typeof body.generatedAt).toBe("string");
     expect(() => new Date(body.generatedAt)).not.toThrow();
@@ -102,7 +102,7 @@ describe("GET /api/admin/autopilot - smoke test", () => {
   it("should handle empty tenant gracefully", async () => {
     const fakeTenantId = "00000000-0000-0000-0000-000000000000";
     const res = await request(app).get(`/api/admin/autopilot?tenantId=${fakeTenantId}`);
-    
+
     expect(res.status).toBe(200);
     const body = res.body;
     expect(body.safe).toBe(0);

@@ -13,7 +13,7 @@ describe('Map API Types', () => {
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-01T00:00:00Z',
     };
-    
+
     expect(node.color).toBe('#0F172A');
     expect(node.kind).toBe('company');
   });
@@ -28,21 +28,21 @@ describe('Map API Types', () => {
       updatedAt: '2024-01-01T00:00:00Z',
       // color is optional
     };
-    
+
     expect(node.color).toBeUndefined();
   });
 
   it('should support all node kinds', () => {
     const kinds: Array<MapNode['kind']> = [
       'company',
-      'project', 
+      'project',
       'issue',
       'agent',
       'run',
       'evidence',
       'memory'
     ];
-    
+
     kinds.forEach(kind => {
       const node: MapNode = {
         id: `test-${kind}`,

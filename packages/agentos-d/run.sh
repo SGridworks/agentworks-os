@@ -27,19 +27,4 @@ export VAULT_ROOT="${DAEMON_VAULT_ROOT}"
 export RULE_PACKS_DIR="${DAEMON_RULE_PACKS}"
 export AGENTOS_PORT="${AGENTOS_PORT:-7710}"
 
-# KIMI_API_KEY for the daemon-side LLM adapter. Source from Hermes config
-# unless already set in the env. Single source of truth: ~/.hermes/config.yaml.
-if [ -z "${KIMI_API_KEY:-}" ] && [ -f "${HOME}/.hermes/config.yaml" ]; then
-  KIMI_API_KEY=$(/usr/bin/python3 -c "
-import yaml
-try:
-    with open('${HOME}/.hermes/config.yaml') as f:
-        cfg = yaml.safe_load(f)
-    print(cfg.get('providers', {}).get('kimi', {}).get('api_key', ''), end='')
-except Exception:
-    print('', end='')
-") || true
-  export KIMI_API_KEY
-fi
-
 exec node dist/cli.js "$@"

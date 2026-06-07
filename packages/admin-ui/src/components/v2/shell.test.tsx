@@ -41,7 +41,7 @@ describe('TopBar', () => {
         onCommandPalette={mockOnCommandPalette}
       />
     );
-    
+
     // Should show active agents count
     const activeAgentsElement = screen.getByText('active');
     expect(activeAgentsElement).toBeInTheDocument();
@@ -60,7 +60,7 @@ describe('TopBar', () => {
         onCommandPalette={mockOnCommandPalette}
       />
     );
-    
+
     // Should have the trust info button
     const trustButton = screen.getByLabelText('Trust layer information');
     expect(trustButton).toBeInTheDocument();
@@ -68,7 +68,7 @@ describe('TopBar', () => {
 
   it('does not show active agents count when null', () => {
     const liveStatusWithoutAgents = { ...mockLiveStatus, activeAgentsCount: null };
-    
+
     render(
       <TopBar
         tenant={mockTenant}
@@ -79,7 +79,7 @@ describe('TopBar', () => {
         onCommandPalette={mockOnCommandPalette}
       />
     );
-    
+
     // Should not show active agents count
     expect(screen.queryByText('active')).not.toBeInTheDocument();
   });

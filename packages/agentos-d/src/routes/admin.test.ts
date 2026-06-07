@@ -274,7 +274,7 @@ describe("GET /api/admin/morning-brief", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     app = createApp(makeConfig());
-    
+
     // Setup default mocks
     vi.mocked(actionLogQuery.actionLogSince).mockReturnValue([]);
     vi.mocked(actionLogQuery.getActionLogSummaryByKind).mockReturnValue([]);
@@ -378,7 +378,7 @@ describe("GET /api/admin/morning-brief", () => {
     const mockPrepare = vi.fn().mockReturnThis();
     const mockGet = vi.fn()
       .mockReturnValueOnce({ count: 2 }) // approval queue depth
-      .mockReturnValueOnce({ count: 5 }) // active agents  
+      .mockReturnValueOnce({ count: 5 }) // active agents
       .mockReturnValueOnce(undefined); // oldest approval (no results)
     const mockAll = vi.fn().mockReturnValue([]);
 

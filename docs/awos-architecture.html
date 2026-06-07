@@ -240,8 +240,8 @@
         <div class="box-desc">Browser UI / admin dashboard</div>
       </div>
       <div class="box">
-        <div class="box-name"><span class="box-icon">🧩</span> Hermes Adapter</div>
-        <div class="box-desc">Hermes Agent as orchestration layer</div>
+        <div class="box-name"><span class="box-icon">🧩</span> Local Gateway Adapter</div>
+        <div class="box-desc">Local agent gateway as orchestration layer</div>
         <div class="box-sub">Local AI agent + gateway</div>
       </div>
       <div class="box">
@@ -270,7 +270,7 @@
     </div>
     <div class="layer-items">
       <div class="box">
-        <div class="box-name"><span class="box-icon">🚪</span> Hermes Gateway</div>
+        <div class="box-name"><span class="box-icon">🚪</span> Local Gateway</div>
         <div class="box-desc">Central orchestration gateway — auth, sessions, routing</div>
         <div class="box-sub">Express + middleware</div>
       </div>
@@ -319,7 +319,7 @@
         <div class="box-desc">Third-party company agents via API</div>
       </div>
       <div class="box">
-        <div class="box-name"><span class="box-icon">🧠</span> Hermes</div>
+        <div class="box-name"><span class="box-icon">🧠</span> Agent Runtime</div>
         <div class="box-desc">Primary orchestration agent — spawns subagents, delegates tasks</div>
         <div class="box-sub">Local, MCP-native</div>
       </div>
@@ -507,16 +507,16 @@
 
 <!-- Flow Legend -->
 <div class="flow-legend">
-  <div class="flow-item"><div class="flow-num">①</div><div class="flow-text">User request enters via Hermes gateway or API</div></div>
-  <div class="flow-item"><div class="flow-num">②</div><div class="flow-text">Hermes Gateway authenticates, rate-limits, routes via MCP</div></div>
-  <div class="flow-item"><div class="flow-num">③</div><div class="flow-text">Hermes selects agent adapter based on task type</div></div>
+  <div class="flow-item"><div class="flow-num">①</div><div class="flow-text">User request enters via local gateway or API</div></div>
+  <div class="flow-item"><div class="flow-num">②</div><div class="flow-text">Local Gateway authenticates, rate-limits, routes via MCP</div></div>
+  <div class="flow-item"><div class="flow-num">③</div><div class="flow-text">Agent runtime selects adapter based on task type</div></div>
   <div class="flow-item"><div class="flow-num">④</div><div class="flow-text">MCP servers provide tools, document processing, admin UI</div></div>
   <div class="flow-item"><div class="flow-num">⑤</div><div class="flow-text">Memory retrieval: session context + vault + vector search</div></div>
   <div class="flow-item"><div class="flow-num">⑤b</div><div class="flow-text">RAG pipeline: chunk → embed (text-embedding-3-small) → store in Chroma/Qdrant</div></div>
   <div class="flow-item"><div class="flow-num">⑥</div><div class="flow-text">Policy engine enforces cognitive budget, compliance, guardrails</div></div>
   <div class="flow-item"><div class="flow-num">⑦</div><div class="flow-text">Scanner worker monitors codebase, updates context</div></div>
   <div class="flow-item"><div class="flow-num">⑧</div><div class="flow-text">Infrastructure provides persistence, caching, observability</div></div>
-  <div class="flow-item"><div class="flow-num">⑨</div><div class="flow-text">Response flows back through Hermes gateway to client</div></div>
+  <div class="flow-item"><div class="flow-num">⑨</div><div class="flow-text">Response flows back through local gateway to client</div></div>
 </div>
 
 <div style="text-align:center;margin-top:20px;font-size:10px;color:#30363d;">

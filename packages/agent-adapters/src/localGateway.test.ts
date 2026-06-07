@@ -1,5 +1,5 @@
 /**
- * Hermes adapter tests.
+ * Local gateway adapter tests.
  *
  *   - metadata exposes key/label/capabilities
  *   - missing baseUrl returns success=false with "not configured"
@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { HermesAdapter } from './hermes';
+import { LocalGatewayAdapter } from './localGateway';
 import { ClaudeLocalAdapter } from './claudeLocal';
 import { CodexAdapter } from './codex';
 
@@ -19,27 +19,27 @@ function fakeFetch(impl: (url: string, init: RequestInit) => Promise<Response>):
   return impl as unknown as typeof fetch;
 }
 
-describe('HermesAdapter.metadata', () => {
+describe('LocalGatewayAdapter.metadata', () => {
   it('exposes stable key, label, and capabilities', () => {
-    const a = new HermesAdapter();
-    expect(a.metadata.key).toBe('hermes');
-    expect(a.metadata.label).toBe('Hermes');
+    const a = new LocalGatewayAdapter();
+    expect(a.metadata.key).toBe('local_gateway');
+    expect(a.metadata.label).toBe('Local Gateway');
     expect(a.metadata.capabilities).toContain('agent.dispatch');
   });
 });
 
-describe('HermesAdapter.execute', () => {
+describe('LocalGatewayAdapter.execute', () => {
   it('returns not-configured error when baseUrl is unset', async () => {
-    const a = new HermesAdapter();
+    const a = new LocalGatewayAdapter();
     const r = await a.execute({ actionKind: 'agent.dispatch', payload: {} });
     expect(r.success).toBe(false);
     expect(r.error).toMatch(/no baseUrl/);
-    expect(r.meta).toMatchObject({ adapter: 'hermes', configured: false });
+    expect(r.meta).toMatchObject({ adapter: 'local_gateway', configured: false });
   });
 
   it('POSTs to <baseUrl>/api/dispatch with the envelope and parses JSON reply', async () => {
     let captured: { url: string; init: RequestInit } | null = null;
-    const a = new HermesAdapter({
+    const a = new LocalGatewayAdapter({
       baseUrl: 'http://127.0.0.1:18789/',
       apiKey: 'k1',
       fetchImpl: fakeFetch(async (url, init) => {
@@ -79,7 +79,7 @@ describe('HermesAdapter.execute', () => {
   });
 
   it('non-2xx response surfaces as success=false with status in meta', async () => {
-    const a = new HermesAdapter({
+    const a = new LocalGatewayAdapter({
       baseUrl: 'http://127.0.0.1:18789',
       fetchImpl: fakeFetch(async () =>
         new Response(JSON.stringify({ error: 'denied' }), {
@@ -96,7 +96,7 @@ describe('HermesAdapter.execute', () => {
   });
 
   it('returns the raw text wrapped when reply is non-JSON', async () => {
-    const a = new HermesAdapter({
+    const a = new LocalGatewayAdapter({
       baseUrl: 'http://127.0.0.1:18789',
       fetchImpl: fakeFetch(async () => new Response('ok', { status: 200 })),
     });
@@ -106,7 +106,7 @@ describe('HermesAdapter.execute', () => {
   });
 
   it('network failure returns success=false with error message', async () => {
-    const a = new HermesAdapter({
+    const a = new LocalGatewayAdapter({
       baseUrl: 'http://127.0.0.1:18789',
       fetchImpl: fakeFetch(async () => {
         throw new Error('ECONNREFUSED');
@@ -115,12 +115,12 @@ describe('HermesAdapter.execute', () => {
     const r = await a.execute({ actionKind: 'agent.dispatch', payload: {} });
     expect(r.success).toBe(false);
     expect(r.error).toMatch(/ECONNREFUSED/);
-    expect(r.meta?.adapter).toBe('hermes');
+    expect(r.meta?.adapter).toBe('local_gateway');
   });
 
   it('omits authorization header when no apiKey is set', async () => {
     let headers: Record<string, string> = {};
-    const a = new HermesAdapter({
+    const a = new LocalGatewayAdapter({
       baseUrl: 'http://127.0.0.1:18789',
       fetchImpl: fakeFetch(async (_url, init) => {
         headers = init.headers as Record<string, string>;

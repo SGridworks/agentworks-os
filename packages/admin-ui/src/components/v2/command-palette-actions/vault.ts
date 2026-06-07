@@ -67,13 +67,13 @@ export function createVaultSearchResultActions(
 ): ActionRegistryItem[] {
   return results.map((result, index) => {
     // Create excerpt from text (first 97 characters + ellipsis for 100 total)
-    const excerpt = result.text.length > 97 
+    const excerpt = result.text.length > 97
       ? result.text.substring(0, 97) + '…'
       : result.text;
 
     // Determine icon based on kind
     const icon = result.kind === 'episode' ? '📝' : '💡';
-    
+
     // Create title from meta information or fallback to ID
     const title = result.meta?.subject || result.meta?.taskType || result.meta?.role || result.id;
 

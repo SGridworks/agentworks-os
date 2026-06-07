@@ -1,14 +1,14 @@
 # Autopilot With Guardrails – Design Spec
 
-**Project:** F7 · Autopilot With Guardrails  
-**Wave:** 3  
-**Author:** CEO  
-**Status:** Draft → Review → Locked  
+**Project:** F7 · Autopilot With Guardrails
+**Wave:** 3
+**Author:** CEO
+**Status:** Draft → Review → Locked
 **File:** `docs/operator-ux-v2/autopilot-spec.md`
 
 ## Goal
 
-Give regulated-SMB operators a single “Autopilot” toggle that lets the substrate automatically execute low-risk agent actions while keeping humans in the loop for anything that could create compliance exposure.  
+Give regulated-SMB operators a single “Autopilot” toggle that lets the substrate automatically execute low-risk agent actions while keeping humans in the loop for anything that could create compliance exposure.
 The feature surfaces three buckets—`safe`, `needsApproval`, `risky`—and a deterministic `riskScore` (0..1) plus machine-readable `reasons[]` so the admin UI can render concise explanations and bulk-dispatch controls.
 
 ## Surfaces (user-visible)
@@ -81,8 +81,8 @@ Admin UI maps code → template at render time; no i18n in v1.
 
 ### 4. Bulk-dispatch contract (HTTP POST)
 
-**Endpoint:** `POST /api/tenants/:id/autopilot/dispatch`  
-**Auth:** same JWT as policy check  
+**Endpoint:** `POST /api/tenants/:id/autopilot/dispatch`
+**Auth:** same JWT as policy check
 **Body:**
 
 ```json

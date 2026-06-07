@@ -20,7 +20,7 @@ vi.mock('@/lib/api', () => ({
         updatedAt: '2024-01-01T00:00:00Z'
       },
       {
-        id: 'test-node-2', 
+        id: 'test-node-2',
         tenantId: 'test-tenant',
         kind: 'agent' as const,
         title: 'Test Agent',
