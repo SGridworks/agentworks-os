@@ -1,32 +1,19 @@
 ---
 name: Feature request
-about: Propose a new capability or change
-title: "[feat] "
+about: Suggest an AgentWorks OS improvement
+title: "[Feature]: "
 labels: enhancement
 ---
 
 ## Problem
 
-<!-- What's the user-facing problem this solves? Who hits it? -->
 
-## Proposed solution
+## Proposed Behavior
 
-<!-- What you'd like AgentWorks OS to do. -->
 
-## Alternatives considered
+## Alternatives Considered
 
-<!-- Other approaches you weighed and why you'd recommend the proposal above. -->
 
-## Scope
+## Data Hygiene
 
-- [ ] Substrate daemon (`agentos-d`)
-- [ ] Policy engine / rule packs
-- [ ] Memory / vault
-- [ ] Admin UI
-- [ ] Scanner
-- [ ] Installer / packaging
-- [ ] Docs
-
-## Notes
-
-<!-- Mockups, links to similar features in other tools, etc. -->
+Use synthetic examples. Do not include customer data, private vault content, secrets, or local machine paths.

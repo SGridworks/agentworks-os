@@ -1,19 +1,17 @@
 ---
 name: Bug report
-about: Something is broken or behaving unexpectedly
-title: "[bug] "
+about: Report a reproducible AgentWorks OS bug
+title: "[Bug]: "
 labels: bug
 ---
 
-## What happened
+## What Happened
 
-<!-- A clear description of the problem. -->
 
-## What you expected
+## Expected Behavior
 
-<!-- What did you expect to happen instead? -->
 
-## Steps to reproduce
+## Reproduction Steps
 
 1.
 2.
@@ -21,21 +19,10 @@ labels: bug
 
 ## Environment
 
-- AgentWorks OS version (`agentworks --version`):
-- OS / arch:
-- Docker / Compose versions:
-- Browser (if admin UI):
-- Rule packs loaded:
+- AgentWorks OS version:
+- OS:
+- Install method:
 
 ## Logs
 
-<!-- Output of `docker compose logs agentos-d` or relevant excerpts. -->
-
-```
-```
-
-## Notes
-
-<!-- Anything else useful: screenshots, related issues, workarounds. -->
-
-> Security issues should NOT be filed here — see [SECURITY.md](../../SECURITY.md).
+Paste only redacted logs. Do not include secrets, vault content, customer data, local database files, or support bundles.
