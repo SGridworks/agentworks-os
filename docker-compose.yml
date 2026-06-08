@@ -19,7 +19,7 @@ services:
     build:
       context: ${AGENTWORKS_SOURCE_DIR:-.}
       dockerfile: packages/agentos-d/Dockerfile
-    image: agentworks/agentos-d:${AGENTWORKS_VERSION:-0.1.0}
+    image: ghcr.io/sgridworks/agentworks-os-v0.3/agentos-d:${AGENTWORKS_VERSION:-0.3.0-alpha.0}
     container_name: agentos-d
     restart: unless-stopped
     ports:
@@ -77,7 +77,7 @@ services:
     build:
       context: ${AGENTWORKS_SOURCE_DIR:-.}
       dockerfile: packages/scanner-worker/Dockerfile
-    image: agentworks/scanner-worker:${AGENTWORKS_VERSION:-0.1.0}
+    image: ghcr.io/sgridworks/agentworks-os-v0.3/scanner-worker:${AGENTWORKS_VERSION:-0.3.0-alpha.0}
     container_name: scanner-worker
     restart: unless-stopped
     ports:
@@ -107,7 +107,7 @@ services:
     build:
       context: ${AGENTWORKS_SOURCE_DIR:-.}
       dockerfile: packages/admin-ui/Dockerfile
-    image: agentworks/admin-ui:${AGENTWORKS_VERSION:-0.1.0}
+    image: ghcr.io/sgridworks/agentworks-os-v0.3/admin-ui:${AGENTWORKS_VERSION:-0.3.0-alpha.0}
     container_name: agentworks-admin-ui
     restart: unless-stopped
     ports:

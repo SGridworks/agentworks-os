@@ -3,156 +3,270 @@ name: Release
 on:
   push:
     tags:
+      # Broad glob; resolve-tag below is the real gate (anchored semver
+      # regex, prerelease-aware). A stray non-version tag will start a
+      # run that fails fast at resolve-tag rather than silently never
+      # triggering — the safer failure mode for an alpha line.
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag or commit SHA to release (defaults to the workflow's source ref)"
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/agentworks
+
+# Serialize releases. Two concurrent runs would race on the shared
+# :buildcache-* registry tags and on the floating :<minor> tag,
+# so the loser would silently overwrite the winner's manifest.
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
-  build-and-publish:
+  # ------------------------------------------------------------------
+  # Resolve tag/version/minor/sha7 and the lowercased owner once.
+  # All downstream jobs read these outputs so the image-prefix is
+  # guaranteed lowercase (Docker rejects uppercase repository paths).
+  # ------------------------------------------------------------------
+  resolve-tag:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.r.outputs.tag }}
+      version: ${{ steps.r.outputs.version }}
+      minor: ${{ steps.r.outputs.minor }}
+      sha7: ${{ steps.r.outputs.sha7 }}
+      owner_lc: ${{ steps.r.outputs.owner_lc }}
+      image_prefix: ${{ steps.r.outputs.image_prefix }}
+    steps:
+      - id: validate
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.ref }}"
+          if [ -z "$tag" ]; then
+            tag="${{ github.ref_name }}"
+          fi
+          # Prerelease-aware: accepts vN.N.N and vN.N.N-<prerelease>
+          # (e.g. v0.3.0-alpha.0). The minor is derived from the
+          # numeric core below so the floating :N.N tag stays clean.
+          if [[ ! "$tag" =~ ^v[0-9]+[.][0-9]+[.][0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::release workflow requires a vN.N.N or vN.N.N-<prerelease> tag, got '$tag'. Dispatch with the 'ref' input set to the tag you want to release."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.validate.outputs.tag }}
+          fetch-depth: 1
+      - id: r
+        run: |
+          set -euo pipefail
+          tag="${{ steps.validate.outputs.tag }}"
+          version="${tag#v}"
+          core="${version%%-*}"
+          minor="${core%.*}"
+          sha7="$(git rev-parse HEAD | cut -c1-7)"
+          owner_lc="$(printf '%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          # The `awos` namespace is owned by SGridworks/agentworks-os-vps
+          # and the older `agentworks`/`agentworks-os` org packages are
+          # bound to the archived SGridworks/agentworks-os repo; this
+          # repo's GITHUB_TOKEN cannot write to either. A fresh
+          # namespace lets first-push bind the packages to this repo.
+          image_prefix="ghcr.io/${owner_lc}/agentworks-os-v0.3"
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "minor=$minor"
+            echo "sha7=$sha7"
+            echo "owner_lc=$owner_lc"
+            echo "image_prefix=$image_prefix"
+          } >> "$GITHUB_OUTPUT"
+          echo "Resolved: tag=$tag version=$version minor=$minor sha7=$sha7 image_prefix=$image_prefix"
+
+  # ------------------------------------------------------------------
+  # Build per-platform images on native runners.
+  #
+  # Why native runners and not QEMU: an earlier release run hung for
+  # ~52 minutes because qemu-user-static crashed with SIGILL during
+  # pnpm install on the linux/arm64 emulation path, and buildx never
+  # noticed the dead child. Native arm64 runners eliminate this
+  # class of failure entirely.
+  # ------------------------------------------------------------------
+  build-image:
+    needs: resolve-tag
     permissions:
       contents: read
       packages: write
-      id-token: write   # needed for cosign OIDC federation
-
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - { name: agentos-d,      context: .,                          dockerfile: ./packages/agentos-d/Dockerfile }
+          - { name: scanner-worker, context: ./packages/scanner-worker,  dockerfile: ./packages/scanner-worker/Dockerfile }
+          - { name: admin-ui,       context: .,                          dockerfile: ./packages/admin-ui/Dockerfile }
+        platform:
+          - { runner: ubuntu-latest,    docker: linux/amd64, suffix: amd64 }
+          - { runner: ubuntu-24.04-arm, docker: linux/arm64, suffix: arm64 }
+    runs-on: ${{ matrix.platform.runner }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # ------------------------------------------------------------------
-      # Metadata for agentos-d
-      # ------------------------------------------------------------------
-      - name: Extract metadata for agentos-d
-        id: meta-agentos-d
-        uses: docker/metadata-action@v5
+      - uses: actions/checkout@v4
         with:
-          images: ${{ env.IMAGE_PREFIX }}/agentos-d
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
+          ref: ${{ needs.resolve-tag.outputs.tag }}
 
-      # ------------------------------------------------------------------
-      # Metadata for scanner-worker
-      # ------------------------------------------------------------------
-      - name: Extract metadata for scanner-worker
-        id: meta-scanner-worker
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_PREFIX }}/scanner-worker
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
+      - uses: docker/setup-buildx-action@v3
 
-      # ------------------------------------------------------------------
-      # Metadata for admin-ui
-      # ------------------------------------------------------------------
-      - name: Extract metadata for admin-ui
-        id: meta-admin-ui
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_PREFIX }}/admin-ui
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ------------------------------------------------------------------
-      # Build and push agentos-d
-      # ------------------------------------------------------------------
-      - name: Build and push agentos-d
-        id: push-agentos-d
+      # provenance: false keeps the per-platform image as a simple
+      # manifest, not an OCI image-index with attestation entries, so
+      # the downstream `docker buildx imagetools create` step merges
+      # the two simple manifests into one multi-arch index cleanly.
+      - name: Build and push ${{ matrix.image.name }} (${{ matrix.platform.suffix }})
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ./packages/agentos-d/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          platforms: ${{ matrix.platform.docker }}
           push: true
-          tags: ${{ steps.meta-agentos-d.outputs.tags }}
-          labels: ${{ steps.meta-agentos-d.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          provenance: false
+          tags: ${{ needs.resolve-tag.outputs.image_prefix }}/${{ matrix.image.name }}:${{ needs.resolve-tag.outputs.tag }}-${{ matrix.platform.suffix }}
+          cache-from: type=registry,ref=${{ needs.resolve-tag.outputs.image_prefix }}/${{ matrix.image.name }}:buildcache-${{ matrix.platform.suffix }}
+          cache-to: type=registry,ref=${{ needs.resolve-tag.outputs.image_prefix }}/${{ matrix.image.name }}:buildcache-${{ matrix.platform.suffix }},mode=max
 
-      - name: Sign agentos-d with Cosign
-        if: github.event_name == 'push'
-        uses: actions/cosign-installer@v4
+  # ------------------------------------------------------------------
+  # Merge per-platform tags into multi-arch manifests with the
+  # user-facing tag layout:
+  #   <prefix>/<image>:<version>   (e.g. 0.3.0-alpha.0)
+  #   <prefix>/<image>:<minor>     (e.g. 0.3)
+  #   <prefix>/<image>:sha-<7>
+  # ------------------------------------------------------------------
+  manifest:
+    needs: [resolve-tag, build-image]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    strategy:
+      matrix:
+        image: [agentos-d, scanner-worker, admin-ui]
+    steps:
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create multi-arch manifest for ${{ matrix.image }}
+        env:
+          IMG: ${{ needs.resolve-tag.outputs.image_prefix }}/${{ matrix.image }}
+          TAG: ${{ needs.resolve-tag.outputs.tag }}
+          VERSION: ${{ needs.resolve-tag.outputs.version }}
+          MINOR: ${{ needs.resolve-tag.outputs.minor }}
+          SHA7: ${{ needs.resolve-tag.outputs.sha7 }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            -t "$IMG:$VERSION" \
+            -t "$IMG:$MINOR" \
+            -t "$IMG:sha-$SHA7" \
+            "$IMG:$TAG-amd64" \
+            "$IMG:$TAG-arm64"
+
+  # ------------------------------------------------------------------
+  # Sign the multi-arch manifests with cosign (skipped if the secret
+  # isn't configured) and flip GHCR packages to public so
+  # unauthenticated `docker compose pull` works for end users.
+  # ------------------------------------------------------------------
+  sign-and-publicize:
+    needs: [resolve-tag, manifest]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      id-token: write
+    strategy:
+      matrix:
+        image: [agentos-d, scanner-worker, admin-ui]
+    steps:
+      - uses: sigstore/cosign-installer@v3
         with:
           cosign-release: 'v2.4.1'
 
-      - name: Sign and attest agentos-d images
-        if: github.event_name == 'push'
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sign ${{ matrix.image }} (skipped if key absent)
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          IMG: ${{ needs.resolve-tag.outputs.image_prefix }}/${{ matrix.image }}
+          VERSION: ${{ needs.resolve-tag.outputs.version }}
         run: |
-          echo "$COSIGN_PRIVATE_KEY" | cosign sign --yes --key - \
-            ${{ env.IMAGE_PREFIX }}/agentos-d:${{ github.ref_name }}
+          set -euo pipefail
+          if [ -z "${COSIGN_PRIVATE_KEY:-}" ]; then
+            echo "COSIGN_PRIVATE_KEY not set — skipping signing for ${{ matrix.image }} (image is published unsigned)."
+            exit 0
+          fi
+          echo "$COSIGN_PRIVATE_KEY" | cosign sign --yes --key - "$IMG:$VERSION"
 
-      # ------------------------------------------------------------------
-      # Build and push scanner-worker
-      # ------------------------------------------------------------------
-      - name: Build and push scanner-worker
-        id: push-scanner-worker
-        uses: docker/build-push-action@v6
-        with:
-          context: ./packages/scanner-worker
-          file: ./packages/scanner-worker/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-scanner-worker.outputs.tags }}
-          labels: ${{ steps.meta-scanner-worker.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Sign scanner-worker with Cosign
-        if: github.event_name == 'push'
-        uses: actions/cosign-installer@v4
-        with:
-          cosign-release: 'v2.4.1'
-
-      - name: Sign and attest scanner-worker images
-        if: github.event_name == 'push'
+      # Try /user/... first (works for user-owned packages), fall back
+      # to /orgs/... (org-owned, the SGridworks case). After flipping,
+      # verify the package is actually public by reading visibility
+      # back; a silent flip failure would let a green release ship with
+      # private images and unauthenticated docker pull would 401.
+      - name: Make ${{ matrix.image }} GHCR package public
         env:
-          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "$COSIGN_PRIVATE_KEY" | cosign sign --yes --key - \
-            ${{ env.IMAGE_PREFIX }}/scanner-worker:${{ github.ref_name }}
+          set -euo pipefail
+          pkg="agentworks-os-v0.3/${{ matrix.image }}"
+          enc="${pkg//\//%2F}"
+          owner_lc="${{ needs.resolve-tag.outputs.owner_lc }}"
+          if gh api -X PATCH "/user/packages/container/${enc}/visibility" -f visibility=public >/dev/null 2>&1; then
+            echo "ok: flipped ${pkg} public via /user"
+          elif gh api -X PATCH "/orgs/${owner_lc}/packages/container/${enc}/visibility" -f visibility=public >/dev/null 2>&1; then
+            echo "ok: flipped ${pkg} public via /orgs"
+          else
+            echo "warn: PATCH visibility failed via both /user and /orgs (may already be public)"
+          fi
+          vis="$(gh api "/users/${owner_lc}/packages/container/${enc}" --jq .visibility 2>/dev/null \
+              || gh api "/orgs/${owner_lc}/packages/container/${enc}" --jq .visibility 2>/dev/null \
+              || echo "")"
+          if [ "$vis" != "public" ]; then
+            echo "::error::${pkg} visibility is '${vis:-unknown}', not public — unauthenticated docker pull will fail"
+            exit 1
+          fi
+          echo "verified: ${pkg} visibility=public"
 
-      # ------------------------------------------------------------------
-      # Build and push admin-ui
-      # ------------------------------------------------------------------
-      - name: Build and push admin-ui
-        id: push-admin-ui
-        uses: docker/build-push-action@v6
+  # ------------------------------------------------------------------
+  # Attach install.sh to the GitHub Release for this tag once images
+  # are built, multi-arch manifests exist, and GHCR visibility is
+  # verified. generate_release_notes is false: the release body is
+  # authored separately (RELEASE-NOTES-<tag>.md) so this job only
+  # uploads the asset and never clobbers the curated notes.
+  # ------------------------------------------------------------------
+  publish-installer:
+    needs: [resolve-tag, sign-and-publicize]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
         with:
-          context: .
-          file: ./packages/admin-ui/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-admin-ui.outputs.tags }}
-          labels: ${{ steps.meta-admin-ui.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Sign and attest admin-ui images
-        if: github.event_name == 'push'
-        env:
-          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
-        run: |
-          echo "$COSIGN_PRIVATE_KEY" | cosign sign --yes --key - \
-            ${{ env.IMAGE_PREFIX }}/admin-ui:${{ github.ref_name }}
+          ref: ${{ needs.resolve-tag.outputs.tag }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve-tag.outputs.tag }}
+          files: apps/installer/src/install.sh
+          fail_on_unmatched_files: true
+          generate_release_notes: false
