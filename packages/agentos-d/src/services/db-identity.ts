@@ -6,6 +6,7 @@ export interface DbIdentity {
   inode: number;
   size: number;
   mtime: number;
+  birthtime: number;
 }
 
 export interface IdentityResult {
@@ -24,6 +25,7 @@ class DBIdentityService {
       inode: stats.ino,
       size: stats.size,
       mtime: stats.mtimeMs,
+      birthtime: stats.birthtimeMs,
     };
     this.store.set(dbPath, identity);
     return identity;
@@ -35,7 +37,18 @@ class DBIdentityService {
       return { matched: false, mismatchType: 'unknown', details: 'No stored identity' };
     }
     const stats = await fsPromises.stat(dbPath);
-    if (stored.device !== stats.dev || stored.inode !== stats.ino) {
+    // Detect an unlink+recreate at the same path. Comparing only (device, inode)
+    // is not portable: Linux ext4 reuses a freed inode for the next file, so a
+    // replacement keeps the same inode and would go undetected. birthtime
+    // (creation time) changes on recreate but not on in-place writes, so it
+    // catches the swap without false-positiving on a DB that legitimately grows.
+    // It is purely additive — on a filesystem that does not report birthtime,
+    // both values are equal and the (device, inode) check still applies.
+    if (
+      stored.device !== stats.dev ||
+      stored.inode !== stats.ino ||
+      stored.birthtime !== stats.birthtimeMs
+    ) {
       return {
         matched: false,
         mismatchType: 'path_replaced',
