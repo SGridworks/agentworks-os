@@ -293,6 +293,86 @@ rules:
   });
 });
 
+// ---- evaluatePack: missing-data disposition precedence -----------------------
+
+describe("evaluatePack — missing-data disposition precedence", () => {
+  it("rule disposition_when_missing overrides a stricter pack-level default", () => {
+    // Pack defaults missing data to block; the rule explicitly downgrades to
+    // route_to_review. The rule must win (regression for the inverted-precedence bug).
+    const pack = loadPackFromString(`
+pack_id: precedence-rule-over-pack
+pack_version: "1.0.0"
+schema_version: "awcp/v0.1"
+missing_data_disposition: block
+rules:
+  - rule_id: rule-says-review
+    name: Rule downgrades to review
+    description: Missing data on this rule routes to review, not block
+    required_data: ["consentRecordRef"]
+    disposition_when_missing: route_to_review
+    priority: 10
+    conditions:
+      - when:
+          actionKind: outbound.sms
+        then:
+          decision: block
+          reason: "blocked"
+`);
+    const action = makeAction({ payload: {} });
+    const result = evaluatePack(pack, action);
+    expect(result.decision).toBe("route_to_review");
+    expect(result.missingFields).toContain("consentRecordRef");
+  });
+
+  it("pack-level missing_data_disposition applies when the rule omits its own", () => {
+    const pack = loadPackFromString(`
+pack_id: precedence-pack-default
+pack_version: "1.0.0"
+schema_version: "awcp/v0.1"
+missing_data_disposition: block
+rules:
+  - rule_id: rule-without-disposition
+    name: Inherits pack default
+    description: Missing data falls back to the pack-level disposition
+    required_data: ["consentRecordRef"]
+    priority: 10
+    conditions:
+      - when:
+          actionKind: outbound.sms
+        then:
+          decision: allow
+          reason: "ok"
+`);
+    const action = makeAction({ payload: {} });
+    const result = evaluatePack(pack, action);
+    expect(result.decision).toBe("block");
+    expect(result.missingFields).toContain("consentRecordRef");
+  });
+
+  it("falls back to route_to_review when neither rule nor pack sets a disposition", () => {
+    const pack = loadPackFromString(`
+pack_id: precedence-no-disposition
+pack_version: "1.0.0"
+schema_version: "awcp/v0.1"
+rules:
+  - rule_id: bare-rule
+    name: No disposition anywhere
+    description: Most-conservative fallback
+    required_data: ["consentRecordRef"]
+    priority: 10
+    conditions:
+      - when:
+          actionKind: outbound.sms
+        then:
+          decision: allow
+          reason: "ok"
+`);
+    const action = makeAction({ payload: {} });
+    const result = evaluatePack(pack, action);
+    expect(result.decision).toBe("route_to_review");
+  });
+});
+
 // ---- evaluatePack: route_to_review scenarios ----------------------------------
 
 describe("evaluatePack — route_to_review scenarios", () => {

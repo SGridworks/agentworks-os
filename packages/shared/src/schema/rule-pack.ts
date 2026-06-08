@@ -157,9 +157,13 @@ export const RuleSchema = z.object({
 
   /**
    * What to do when any required_data field is null or absent.
-   * Default: route_to_review (most conservative).
+   * Optional with no default: when unset, the pack-level
+   * missing_data_disposition applies (which defaults to route_to_review,
+   * the most conservative). When set, it overrides the pack-level value
+   * for this rule. The absence of a Zod default is deliberate — it lets
+   * the evaluator distinguish "unset" from an explicit choice.
    */
-  disposition_when_missing: DispositionSchema.default("route_to_review"),
+  disposition_when_missing: DispositionSchema.optional(),
 
   /**
    * Evaluation priority. Lower = earlier.
