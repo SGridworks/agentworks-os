@@ -1,9 +1,11 @@
 {
   "name": "n8n-nodes-agentworks-memory-write",
-  "version": "0.1.0",
+  "version": "0.3.0-alpha.0",
   "description": "AgentWorks Memory Write node for n8n",
   "n8n": {
     "n8nNodesApiVersion": 1,
-    "nodes": ["MemoryWrite.node.js"]
+    "nodes": [
+      "MemoryWrite.node.js"
+    ]
   }
 }

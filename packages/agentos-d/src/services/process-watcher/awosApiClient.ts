@@ -57,6 +57,7 @@ export class AwosApiClient {
 
   // Fetch all issues for the given company in the given statuses.
   async getIssues(companyId: string, statuses: string[]): Promise<AwosIssue[]> {
+    if (!companyId) return [];
     const results: AwosIssue[][] = await Promise.all(
       statuses.map(async (status) => {
         const data = await this.get<{ items: AwosIssue[] }>(
@@ -70,6 +71,7 @@ export class AwosApiClient {
 
   // Get all agents for the company.
   async getAgents(companyId: string): Promise<Array<{ id: string; name: string }>> {
+    if (!companyId) return [];
     const data = await this.get<{ items: Array<{ id: string; name: string }> }>(
       `/api/companies/${companyId}/agents`
     );

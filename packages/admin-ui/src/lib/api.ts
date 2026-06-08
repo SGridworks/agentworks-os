@@ -2,7 +2,11 @@
  * AgentWorks OS API client.
  * All calls go to the local agentos-d daemon.
  */
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
+export function getApiBase(hasWindow = typeof window !== 'undefined') {
+  return hasWindow ? '' : process.env.AGENTOS_API_URL ?? '';
+}
+
+const BASE = getApiBase();
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -30,6 +34,357 @@ export interface Health {
 
 export function getHealth() {
   return request<Health>('/api/health');
+}
+
+export interface AutomationTemplate {
+  id: string;
+  name: string;
+  trigger: string;
+  status: string;
+  description: string;
+  definition: AutomationDefinition;
+  source?: string;
+}
+
+export interface AutomationStep {
+  id: string;
+  name: string;
+  type:
+    | 'schedule.cron'
+    | 'schedule.interval'
+    | 'issue.created'
+    | 'issue.updated'
+    | 'approval.decided'
+    | 'agent.completed'
+    | 'dispatch.failed'
+    | 'vault.changed'
+    | 'webhook.response'
+    | 'policy.check'
+    | 'approval.enqueue'
+    | 'approval.wait'
+    | 'vault.read'
+    | 'vault.write'
+    | 'issue.create'
+    | 'issue.update'
+    | 'dispatch'
+    | 'handoff.contract'
+    | 'scanner.finding'
+    | 'webhook.intake'
+    | 'condition.if'
+    | 'branch.switch'
+    | 'loop.each'
+    | 'merge.join'
+    | 'delay.wait'
+    | 'error.catch'
+    | 'data.set'
+    | 'data.transform'
+    | 'data.filter'
+    | 'data.dedupe'
+    | 'data.extract'
+    | 'json.parse'
+    | 'http.request'
+    | 'email.send'
+    | 'message.send'
+    | 'adapter.call'
+    | 'rss.read'
+    | 'file.read'
+    | 'file.write'
+    | 'ai.classify'
+    | 'ai.summarize'
+    | 'ai.extract'
+    | 'ai.route'
+    | 'ai.generate'
+    | 'ai.review'
+    | 'operator.brief'
+    | 'friction.detect'
+    | 'evidence.pack'
+    | 'agent.panel'
+    | 'workflow.self_heal';
+  params: Record<string, unknown>;
+}
+
+export interface AutomationDefinition {
+  trigger: 'manual' | 'webhook' | 'event';
+  steps: AutomationStep[];
+}
+
+export type AutomationRunStatus =
+  | 'running'
+  | 'waiting_approval'
+  | 'waiting_dispatch'
+  | 'paused'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled';
+
+export interface AutomationRunStep {
+  id: string;
+  name: string;
+  type: string;
+  stepIndex?: number;
+  status: string;
+  input?: Record<string, unknown>;
+  startedAt: string;
+  finishedAt: string | null;
+  output: Record<string, unknown>;
+  context?: Record<string, unknown>;
+  retryCount?: number;
+  maxRetries?: number;
+  error: string | null;
+}
+
+export interface AutomationRun {
+  id: string;
+  workflowId?: string;
+  workflowName?: string;
+  workflowVersionId?: string | null;
+  status: AutomationRunStatus | string;
+  startedAt: string;
+  finishedAt?: string | null;
+  terminalReason?: string | null;
+  currentStepIndex?: number;
+  replayOfRunId?: string | null;
+  replayFromStepIndex?: number | null;
+  waitingForApprovalId?: string | null;
+  waitingForDispatchId?: string | null;
+  dryRun?: boolean;
+  steps?: AutomationRunStep[];
+  error?: string | null;
+}
+
+export interface AutomationWorkflowVersion {
+  id: string;
+  workflowId: string;
+  tenantId: string;
+  companyId: string;
+  version: number;
+  definitionHash: string;
+  definition: AutomationDefinition;
+  changeSummary: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface AutomationEvidencePack {
+  id: string;
+  runId: string;
+  status: string;
+  summary: Record<string, unknown>;
+  markdown: string;
+  createdAt: string;
+}
+
+export interface AutomationSimulationResult {
+  workflowId: string;
+  runId: string;
+  dryRun: true;
+  status: string;
+  wouldRun: Array<{ stepId: string; stepType: string; name: string }>;
+  wouldSkip: Array<{ stepId: string; name: string; reason: string }>;
+  sideEffectsSuppressed: string[];
+  unresolvedRisks: string[];
+  run: AutomationRun;
+}
+
+export interface AutomationStatus {
+  engine: {
+    name: string;
+    state: 'online' | 'offline';
+    checkedAt: string;
+    latencyMs: number | null;
+    error: string | null;
+    privateBackend: boolean;
+  };
+  runtime: {
+    mode: string;
+    localOnly: boolean;
+    dataDir: string;
+    stateEntries: number;
+    customExtensions: string;
+  };
+  bridge?: {
+    state: 'online' | 'offline';
+    baseUrl: string;
+    latencyMs: number | null;
+    error: string | null;
+    warnings: string[];
+  };
+  warnings?: string[];
+  suggestions?: Array<{
+    id: string;
+    title: string;
+    description: string;
+    status: string;
+  }>;
+  templates: AutomationTemplate[];
+  workflows: Array<{
+    id: string;
+    name: string;
+    active: boolean;
+    status?: string;
+    trigger?: string;
+    description?: string | null;
+    definition: AutomationDefinition;
+    updatedAt: string | null;
+    currentVersion?: number | null;
+    definitionHash?: string | null;
+    sourceTemplateId?: string | null;
+    externalEngine?: string | null;
+    externalWorkflowId?: string | null;
+    externalSyncStatus?: string | null;
+    externalSyncedAt?: string | null;
+    externalSyncError?: string | null;
+  }>;
+  recentRuns: AutomationRun[];
+}
+
+export function getAutomationStatus() {
+  return request<AutomationStatus>('/api/admin/automations');
+}
+
+export function installAutomationTemplate(templateId: string, body: { tenantId?: string; companyId?: string } = {}) {
+  return request(`/api/admin/automations/templates/${templateId}/install`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function createAutomationTemplate(body: {
+  tenantId?: string;
+  companyId?: string;
+  name: string;
+  trigger: 'manual' | 'webhook' | 'event';
+  description: string;
+  definition: AutomationDefinition;
+}) {
+  return request('/api/admin/automations/templates', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function createAutomationWorkflow(body: {
+  tenantId?: string;
+  companyId?: string;
+  name: string;
+  trigger: 'manual' | 'webhook' | 'event';
+  description?: string;
+  status?: 'active' | 'paused';
+  definition: AutomationDefinition;
+}) {
+  return request('/api/admin/automations/workflows', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function runAutomationWorkflow(workflowId: string, input: Record<string, unknown> = {}) {
+  return request<AutomationRun>(`/api/admin/automations/workflows/${workflowId}/run`, {
+    method: 'POST',
+    body: JSON.stringify({ input }),
+  });
+}
+
+export function simulateAutomationWorkflow(workflowId: string, input: Record<string, unknown> = {}) {
+  return request<AutomationSimulationResult>(`/api/admin/automations/workflows/${workflowId}/simulate`, {
+    method: 'POST',
+    body: JSON.stringify({ input }),
+  });
+}
+
+export function setAutomationWorkflowStatus(workflowId: string, status: 'active' | 'paused') {
+  return request(`/api/admin/automations/workflows/${workflowId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function updateAutomationWorkflow(workflowId: string, body: {
+  name?: string;
+  description?: string | null;
+  status?: 'active' | 'paused';
+  definition?: AutomationDefinition;
+}) {
+  return request(`/api/admin/automations/workflows/${workflowId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export function listAutomationWorkflowVersions(workflowId: string) {
+  return request<{ items: AutomationWorkflowVersion[] }>(`/api/admin/automations/workflows/${workflowId}/versions`);
+}
+
+export function getAutomationWorkflowVersion(workflowId: string, version: number) {
+  return request<{ item: AutomationWorkflowVersion; diff: Record<string, unknown> | null }>(
+    `/api/admin/automations/workflows/${workflowId}/versions/${version}`,
+  );
+}
+
+export function rollbackAutomationWorkflow(workflowId: string, version: number) {
+  return request(`/api/admin/automations/workflows/${workflowId}/rollback`, {
+    method: 'POST',
+    body: JSON.stringify({ version }),
+  });
+}
+
+export function selfHealAutomationWorkflow(workflowId: string) {
+  return request<Record<string, unknown>>(`/api/admin/automations/workflows/${workflowId}/self-heal`, {
+    method: 'POST',
+  });
+}
+
+export function resumeAutomationRun(runId: string, input: Record<string, unknown> = {}) {
+  return request<AutomationRun>(`/api/admin/automations/runs/${runId}/resume`, {
+    method: 'POST',
+    body: JSON.stringify({ input }),
+  });
+}
+
+export function replayAutomationRun(runId: string, fromStepIndex = 0, inputOverride: Record<string, unknown> = {}) {
+  return request<AutomationRun>(`/api/admin/automations/runs/${runId}/replay`, {
+    method: 'POST',
+    body: JSON.stringify({ fromStepIndex, inputOverride }),
+  });
+}
+
+export function cancelAutomationRun(runId: string, reason = 'cancelled_by_operator') {
+  return request<AutomationRun>(`/api/admin/automations/runs/${runId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function createAutomationRunEvidencePack(runId: string) {
+  return request<AutomationEvidencePack>(`/api/admin/automations/runs/${runId}/evidence-pack`, {
+    method: 'POST',
+  });
+}
+
+export function getAutomationRunEvidencePack(runId: string) {
+  return request<AutomationEvidencePack>(`/api/admin/automations/runs/${runId}/evidence-pack`);
+}
+
+export function draftAutomationTemplate(body: {
+  tenantId?: string;
+  companyId?: string;
+  prompt: string;
+  issueId?: string;
+}) {
+  return request('/api/admin/automations/ai/draft-template', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function syncAutomationWorkflowToN8n(workflowId: string) {
+  return request(`/api/admin/automations/workflows/${workflowId}/n8n-sync`, {
+    method: 'POST',
+  });
+}
+
+export function exportAutomationWorkflowToN8n(workflowId: string) {
+  return request<Record<string, unknown>>(`/api/admin/automations/workflows/${workflowId}/n8n-export`);
 }
 
 // ---------------------------------------------------------------------------
@@ -129,16 +484,21 @@ export interface ExecutionIssue {
   id: string;
   tenantId: string;
   companyId: string;
+  projectId: string;
   identifier: string;
   title: string;
   description: string | null;
-  status: 'triage' | 'inbox' | 'in_progress' | 'blocked' | 'done' | 'closed' | string;
+  status: 'todo' | 'in_progress' | 'blocked' | 'review' | 'done' | 'closed' | string;
   priority: string | null;
   assigneeAgentId: string | null;
+  parentIssueId: string | null;
+  blockedOn: string[];
+  metadata: Record<string, unknown>;
   executionRunId: string | null;
   latestCommentAt: string | null;
   createdAt: string;
   updatedAt: string;
+  completedAt: string | null;
 }
 
 export interface ExecutionRun {
@@ -174,6 +534,10 @@ export function listAgents(params: ListAgentsParams) {
   if (params.status) q.set('status', params.status);
   if (params.limit) q.set('limit', String(params.limit));
   return request<{ items: ExecutionAgent[] }>(`/api/agents?${q.toString()}`).then((r) => r.items);
+}
+
+export function getActiveAgentsCount(tenantId: string) {
+  return listAgents({ tenantId, status: 'active' }).then(agents => agents.length);
 }
 
 export function getAgent(agentId: string) {
@@ -240,8 +604,37 @@ export function createIssue(companyId: string, body: CreateIssueBody) {
   });
 }
 
-export function listCompanyIssues(companyId: string) {
-  return request<{ items: ExecutionIssue[] }>(`/api/companies/${companyId}/issues`).then(r => r.items);
+export interface ListCompanyIssuesParams {
+  status?: 'todo' | 'in_progress' | 'blocked' | 'review' | 'done' | 'closed';
+  limit?: number;
+}
+
+export function listCompanyIssues(companyId: string, params: ListCompanyIssuesParams = {}) {
+  const search = new URLSearchParams();
+  if (params.status) search.set('status', params.status);
+  if (params.limit) search.set('limit', String(params.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : '';
+  return request<{ items: ExecutionIssue[] }>(`/api/companies/${companyId}/issues${suffix}`).then(r => r.items);
+}
+
+export interface UpdateIssueBody {
+  title?: string;
+  description?: string | null;
+  status?: 'todo' | 'in_progress' | 'blocked' | 'review' | 'done' | 'closed';
+  priority?: 'critical' | 'high' | 'medium' | 'low';
+  assigneeAgentId?: string | null;
+  comment?: string;
+}
+
+export function patchIssue(issueId: string, body: UpdateIssueBody) {
+  return request<ExecutionIssue>(`/api/issues/${issueId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export function getIssue(issueId: string) {
+  return request<ExecutionIssue>(`/api/issues/${issueId}`);
 }
 
 export function listCompanyRuns(companyId: string) {
@@ -252,6 +645,43 @@ export function wakeAgent(agentId: string, payload: Record<string, unknown> = {}
   return request<{ wakeupId: string; dispatchId: string; status: string }>(
     `/api/agents/${agentId}/wakeup`,
     { method: 'POST', body: JSON.stringify(payload) }
+  );
+}
+
+export type DispatchStatus = 'queued' | 'dispatched' | 'completed' | 'failed' | string;
+
+export interface DispatchQueueRow {
+  id: string;
+  tenantId: string;
+  taskKind: string;
+  targetAgentId: string;
+  input: unknown;
+  status: DispatchStatus;
+  policyDecisionId: string | null;
+  createdAt: string;
+  dispatchedAt: string | null;
+  completedAt: string | null;
+  error: string | null;
+}
+
+export interface ListDispatchQueueParams {
+  tenantId?: string;
+  status?: DispatchStatus;
+  targetAgentId?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function listDispatchQueue(params: ListDispatchQueueParams = {}) {
+  const search = new URLSearchParams();
+  if (params.tenantId) search.set('tenantId', params.tenantId);
+  if (params.status) search.set('status', params.status);
+  if (params.targetAgentId) search.set('targetAgentId', params.targetAgentId);
+  if (params.limit) search.set('limit', String(params.limit));
+  if (params.offset) search.set('offset', String(params.offset));
+  const suffix = search.toString() ? `?${search.toString()}` : '';
+  return request<{ items: DispatchQueueRow[]; total: number; limit: number; offset: number }>(
+    `/api/dispatch${suffix}`
   );
 }
 
@@ -413,6 +843,7 @@ export interface MapNode {
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
+  color?: string; // Server-computed color per mission-map-spec.md
 }
 
 export interface MapEdge {
@@ -432,11 +863,11 @@ export interface MapGraph {
 
 export async function getMapGraph(tenantId: string, root?: string, depth?: number): Promise<MapGraph> {
   const params = new URLSearchParams();
-  params.set('tenant_id', tenantId);
+  params.set('tenantId', tenantId);
   if (root) params.set('root', root);
   if (depth) params.set('depth', String(depth));
-  
-  return request<MapGraph>(`/api/map/graph?${params.toString()}`);
+
+  return request<MapGraph>(`/api/admin/mission-map?${params.toString()}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -481,25 +912,69 @@ export type VaultLintKind =
   | 'dead_link'
   | 'frontmatter_gap'
   | 'empty_section'
-  | 'kebab_case_violation';
+  | 'kebab_case_violation'
+  | 'source_drift'
+  | 'contradiction_flagged'
+  | 'confidence_low'
+  | 'page_oversize'
+  | 'tag_audit'
+  | 'log_rotation_due';
+
+export const ALL_VAULT_LINT_KINDS: VaultLintKind[] = [
+  'orphan_page',
+  'dead_link',
+  'frontmatter_gap',
+  'empty_section',
+  'kebab_case_violation',
+  'source_drift',
+  'contradiction_flagged',
+  'confidence_low',
+  'page_oversize',
+  'tag_audit',
+  'log_rotation_due',
+];
+
+export type VaultLintSeverity = 'info' | 'warn' | 'error';
 
 export interface VaultLintFinding {
   kind: VaultLintKind;
-  severity: 'warn' | 'info';
+  severity: VaultLintSeverity;
   path: string;
   message: string;
+  detail?: string;
 }
 
 export interface VaultLintReport {
   tenantId: string;
   ranAt: string;
+  runId: string;
   pageCount: number;
   findings: VaultLintFinding[];
   totals: Record<VaultLintKind, number>;
+  executed: VaultLintKind[];
 }
 
 export async function getVaultLint(tenantId: string): Promise<VaultLintReport> {
   const r = await request<{ ok: boolean; data: VaultLintReport }>(`/api/memory/lint?tenantId=${tenantId}`);
+  return r.data;
+}
+
+export interface VaultLintDiff {
+  tenantId: string;
+  currentRunId: string;
+  currentRanAt: string;
+  currentExecuted: VaultLintKind[];
+  previousRunId: string | null;
+  previousRanAt: string | null;
+  previousExecuted: VaultLintKind[] | null;
+  baselineReason: string | null;
+  added: VaultLintFinding[];
+  removed: VaultLintFinding[];
+  summary: Record<string, number> | null;
+}
+
+export async function getVaultLintDiff(tenantId: string): Promise<VaultLintDiff> {
+  const r = await request<{ ok: boolean; data: VaultLintDiff }>(`/api/memory/lint/diff?tenantId=${tenantId}`);
   return r.data;
 }
 
@@ -528,6 +1003,40 @@ export async function rebuildHotCache(tenantId: string): Promise<HotCacheRebuild
   const r = await request<{ ok: boolean; data: HotCacheRebuildResult }>(
     '/api/memory/hot-cache/rebuild',
     { method: 'POST', body: JSON.stringify({ tenantId }) },
+  );
+  return r.data;
+}
+
+// ---------------------------------------------------------------------------
+// Memory search
+// ---------------------------------------------------------------------------
+
+export interface SearchMemoryRequest {
+  tenantId: string;
+  query: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SearchMemoryResult {
+  path: string;
+  title: string;
+  excerpt: string;
+  score: number;
+  lastModified: string;
+}
+
+export interface SearchResponse {
+  results: SearchMemoryResult[];
+  total: number;
+  query: string;
+  tookMs: number;
+}
+
+export async function searchMemory(req: SearchMemoryRequest): Promise<SearchResponse> {
+  const r = await request<{ ok: boolean; data: SearchResponse }>(
+    '/api/memory/search',
+    { method: 'POST', body: JSON.stringify(req) },
   );
   return r.data;
 }
@@ -993,50 +1502,109 @@ export function initializeOnboarding(body: InitializeOnboardingRequest) {
 export interface AutopilotAction {
   id: string;
   actionId: string;
+  policyDecisionId: string;
+  tenantId: string;
+  actorLabel: string;
+  proposedActionKind: string;
+  proposedActionSummary: string;
+  decisionReason: string;
+  status: string;
+  autopilotDecision: 'allow' | 'needsApproval' | 'risky';
+  riskScore: number;
+  reasons: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PolicyDecisionDetail {
+  id: string;
+  actionId: string;
   actorId: string;
   actorType: 'human' | 'agent' | 'system';
   actorLabel: string;
   tenantId: string;
   proposedActionKind: string;
   proposedActionSummary: string;
-  decision: 'allow' | 'needsApproval' | 'risky';
-  riskScore: number;
-  reasons: string[];
+  decision: 'allow' | 'block' | 'route_to_review';
+  decisionReason: string;
+  shadowMode: boolean;
   proposedAt: string;
   decidedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  overriddenBy: string | null;
+  overriddenByLabel: string | null;
+  originalDecision: string | null;
+  overrideReason: string | null;
+  overriddenAt: string | null;
+  reviewedBy: string | null;
+  reviewedByLabel: string | null;
+  reviewDecision: 'approve' | 'reject' | 'return_to_author' | null;
+  reviewNote: string | null;
+  reviewedAt: string | null;
 }
 
 export interface AutopilotDispatchResponse {
+  dispatched: number;
+  skipped: number;
+  failed: number;
+  idempotent: boolean;
   results: Array<{
     actionId: string;
     decision: 'allow' | 'needsApproval' | 'risky';
     riskScore: number;
     reasons: string[];
+    dispatched: boolean;
   }>;
 }
 
-export function listAutopilotActions(tenantId?: string, decision?: 'allow' | 'needsApproval' | 'risky') {
+interface RawApprovalQueueItem {
+  id: string;
+  policyDecisionId: string;
+  tenantId: string;
+  actorLabel: string;
+  proposedActionKind: string;
+  proposedActionSummary: string;
+  decisionReason: string;
+  status: string;
+  autopilotDecision: 'allow' | 'needsApproval' | 'risky';
+  riskScore: number | null;
+  reasons: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function listAutopilotActions(tenantId?: string) {
   const params = new URLSearchParams();
+  params.set('status', 'pending');
   if (tenantId) params.set('tenantId', tenantId);
-  if (decision) params.set('decision', decision);
-  
-  const query = params.toString();
-  return request<{ items: AutopilotAction[] }>(`/api/autopilot${query ? `?${query}` : ''}`).then(r => r.items);
+
+  return request<{ items: RawApprovalQueueItem[]; total: number; limit: number; offset: number }>(`/api/approval-queue?${params.toString()}`)
+    .then(r => r.items.map(item => ({
+      ...item,
+      actionId: item.policyDecisionId,
+      riskScore: item.riskScore ?? 0,
+      reasons: item.reasons ? (JSON.parse(item.reasons) as string[]) : [],
+    })) as AutopilotAction[]);
+}
+
+export function getPolicyDecision(id: string) {
+  return request<PolicyDecisionDetail>(`/api/policy/decisions/${id}`);
 }
 
 export function dispatchAutopilotActions(actionIds: string[], dryRun = false) {
-  return request<AutopilotDispatchResponse>('/api/autopilot/dispatch', {
+  return request<AutopilotDispatchResponse>('/api/admin/autopilot/dispatch', {
     method: 'POST',
     body: JSON.stringify({ actionIds, dryRun }),
   });
 }
 
 export function getAutopilotSettings(tenantId: string) {
-  return request<{ enabled: boolean; threshold: number }>(`/api/tenants/${tenantId}/autopilot`);
+  return request<{ enabled: boolean; threshold: number }>(`/api/admin/autopilot/settings?tenantId=${tenantId}`);
 }
 
 export function updateAutopilotSettings(tenantId: string, enabled: boolean, threshold = 0.3) {
-  return request<{ enabled: boolean; threshold: number }>(`/api/tenants/${tenantId}/autopilot`, {
+  return request<{ enabled: boolean; threshold: number }>(`/api/admin/autopilot/settings?tenantId=${tenantId}`, {
     method: 'PATCH',
     body: JSON.stringify({ enabled, threshold }),
   });
@@ -1051,7 +1619,9 @@ export interface ProvenanceMeta {
   authoringAgent: string | null;
   lastUpdatedBy: string | null;
   lastUpdatedAt: string | null;
-  lastUsedBy: string[];
+  lastUsedBy: Array<{ agentId: string; usedAt: string }>;
+  readCount: number;
+  writeCount: number;
   readWindowDays: number;
 }
 
@@ -1063,6 +1633,217 @@ export async function getMemoryProvenance(tenantId: string, path: string): Promi
     // Return null if provenance doesn't exist (404) or any other error
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Morning Brief
+// ---------------------------------------------------------------------------
+
+export interface MorningBriefItem {
+  id: string;
+  kind: 'policy_review' | 'agent_blocked' | 'vault_anomaly';
+  severity: 'block' | 'review' | 'info';
+  title: string;
+  body: string;
+  call_to_action: {
+    label: string;
+    href: string;
+  };
+  evidence?: Record<string, unknown>;
+}
+
+export interface MorningBriefResponse {
+  generated_at: string;
+  dismissible_until: string;
+  items: MorningBriefItem[];
+}
+
+export function getMorningBrief(tenantId: string) {
+  return request<MorningBriefResponse | null>(`/api/tenant/${tenantId}/morning-brief`);
+}
+
+export function dismissMorningBrief(tenantId: string) {
+  return request<void>(`/api/tenant/${tenantId}/morning-brief/dismiss`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Trust Layer
+// ---------------------------------------------------------------------------
+
+export interface TrustProvider {
+  id: string;
+  kind?: 'model_host' | 'vector_store' | 'object_store' | 'sidecar' | 'rule_pack';
+  category?: 'llm' | 'sidecar' | 'storage' | 'rules';
+  display_name?: string;
+  displayName?: string;
+  status: 'healthy' | 'degraded' | 'down';
+  last_ok?: string;
+  lastSeen?: string;
+  latency_ms?: number | null;
+  latencyMs?: number | null;
+  errors_last_24h?: number;
+  endpoint?: string | null;
+  note?: string | null;
+  error?: string | null;
+}
+
+export interface TrustCompany {
+  name: string;
+  expected: boolean;
+  present: boolean;
+  status: string | null;
+}
+
+export interface TrustStatus {
+  summary: 'healthy' | 'degraded' | 'down';
+  checked_at: string;
+  providers: TrustProvider[];
+  // Enriched fields from Agent 1 trust-aggregator
+  daemon?: {
+    pid: number;
+    version: string;
+    startedAt: string;
+    uptimeS: number;
+  };
+  db?: {
+    path: string;
+    sizeBytes: number;
+    usingProfile: boolean;
+    writable: boolean;
+    identity?: {
+      current: string | null;
+      daemonLock: string | null;
+      matchesDaemonLock: boolean | null;
+    };
+  };
+  vault?: {
+    path: string;
+    fileCount: number;
+    manifestUpdatedAt: string | null;
+  };
+  profile?: {
+    loaded: boolean;
+    path: string | null;
+    version: number | null;
+    drift: string[];
+  };
+  companies?: TrustCompany[];
+  agents?: {
+    active: number;
+    paused: number;
+    retired: number;
+  };
+  dispatch?: {
+    queued: number;
+    dispatched: number;
+    stale: number;
+    duplicateWakeups: number;
+  };
+  backup?: {
+    backupDir: string;
+    latestSnapshot: string | null;
+    latestVerifiedAt: string | null;
+  };
+  inspector?: {
+    listening: boolean;
+  };
+  warnings?: string[];
+}
+
+export function getTrustStatus(tenantId: string, fresh = false) {
+  const params = new URLSearchParams({ tenantId });
+  if (fresh) params.set('fresh', '1');
+  return request<TrustStatus>(`/api/admin/trust?${params.toString()}`);
+}
+
+// ---------------------------------------------------------------------------
+// Flight Recorder Timeline
+// ---------------------------------------------------------------------------
+
+export type TimelineEventType = 'action' | 'policy' | 'file';
+
+export type TimelineEventSeverity = 'allow' | 'route_to_review' | 'block' | 'info' | 'audit';
+
+export interface TimelineEvent {
+  id: string;
+  type: TimelineEventType;
+  timestamp: string;
+  actor: string;
+  summary: string;
+  severity?: TimelineEventSeverity;
+  pack?: string;
+  rule?: string;
+  hitId?: string;
+  action?: 'read' | 'write' | 'delete' | 'rename';
+  filePath?: string;
+  size?: number;
+  sha256?: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface TimelineResponse {
+  events: TimelineEvent[];
+  nextCursor: string | null;
+  prevCursor: string | null;
+}
+
+export interface PolicyHitDetail {
+  id: string;
+  ruleId: string;
+  packName: string;
+  packVersion: string;
+  severity: 'allow' | 'route_to_review' | 'block';
+  evidence: string;
+  evidenceUrl: string;
+}
+
+export function getSessionTimeline(sessionId: string, pageSize = 50, before?: string, after?: string) {
+  const params = new URLSearchParams();
+  params.set('pageSize', String(pageSize));
+  if (before) params.set('before', before);
+  if (after) params.set('after', after);
+
+  return request<TimelineResponse>(`/api/sessions/${sessionId}/timeline?${params.toString()}`);
+}
+
+export function getPolicyHitDetail(hitId: string) {
+  return request<PolicyHitDetail>(`/api/policy-hits/${hitId}`);
+}
+
+export function downloadSessionTimelineCsv(sessionId: string) {
+  return fetch(`${BASE}/api/sessions/${sessionId}/timeline.csv`)
+    .then(res => {
+      if (!res.ok) {
+        throw new Error(`${res.status} ${res.statusText}`);
+      }
+      return res.blob();
+    });
+}
+
+// ---------------------------------------------------------------------------
+// File access log
+// ---------------------------------------------------------------------------
+
+export interface FileAccessEntry {
+  id: string;
+  tenantId: string;
+  agentId: string;
+  runId: string | null;
+  filePath: string;
+  op: 'read' | 'write' | 'create' | 'delete';
+  createdAt: string;
+}
+
+export interface FileAccessResponse {
+  entries: FileAccessEntry[];
+  total: number;
+}
+
+export function getSessionFileAccess(sessionId: string) {
+  return request<FileAccessResponse>(`/api/sessions/${sessionId}/file-access`);
 }
 
 // ---------------------------------------------------------------------------

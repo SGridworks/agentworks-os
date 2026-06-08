@@ -1,6 +1,6 @@
 # Error Messages
 
-Every error visible to the customer has a plain-English explanation here. If you see an error not listed, report it to sgridworks support.
+Every error visible to the customer has a plain-English explanation here. If you see an error not listed, report it to the project maintainers with the version and logs.
 
 ## Installer Errors
 
@@ -36,7 +36,7 @@ The installer couldn't pull the container image from GitHub Container Registry. 
 echo $GITHUB_TOKEN | docker login ghcr.io -u GITHUB_USERNAME --password-stdin
 ```
 
-If you don't have a GitHub token with read:packages scope, contact sgridworks support.
+If you do not have a GitHub token with `read:packages` scope, create one in GitHub or use a published image that does not require authentication.
 
 ---
 
@@ -44,7 +44,7 @@ If you don't have a GitHub token with read:packages scope, contact sgridworks su
 
 The installer printed the admin password but the parsing failed.
 
-**Fix:** Contact sgridworks support to request a password reset, or reinstall if no other data needs to be preserved.
+**Fix:** Reset the admin password through your deployment process, or reinstall if no other data needs to be preserved.
 
 ---
 
@@ -254,4 +254,4 @@ Then retry the update.
 
 A database migration failed during the update.
 
-**Fix:** Contact sgridworks support. Do not attempt to bypass the migration or restore from backup without consulting support first.
+**Fix:** Open an issue with the migration logs. Do not bypass the migration or restore from backup until you understand the failed step.

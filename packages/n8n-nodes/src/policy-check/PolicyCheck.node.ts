@@ -17,6 +17,7 @@ import {
   decisionOutputIndex,
   type PolicyCheckParams,
 } from "./policy-check-core.js";
+import { defaultAgentWorksBaseUrl } from "../runtime.js";
 
 interface N8nNodeProperty {
   displayName: string;
@@ -118,7 +119,7 @@ const description: N8nNodeDescription = {
       name: "baseUrl",
       type: "string",
       required: false,
-      default: "http://127.0.0.1:3100",
+      default: defaultAgentWorksBaseUrl(),
     },
   ],
 };
@@ -147,8 +148,8 @@ export class PolicyCheck {
       if (shadow) params.shadowMode = true;
 
       const baseUrl =
-        (this.getNodeParameter("baseUrl", i, "http://127.0.0.1:3100") as string) ||
-        "http://127.0.0.1:3100";
+        (this.getNodeParameter("baseUrl", i, defaultAgentWorksBaseUrl()) as string) ||
+        defaultAgentWorksBaseUrl();
 
       const result = await runPolicyCheck(params, { baseUrl });
       const out: N8nExecutionItem = { json: { ...items[i]?.json, policyCheck: result } };

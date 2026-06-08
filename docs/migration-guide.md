@@ -17,10 +17,10 @@ If you are doing a greenfield install, go to the [Install Runbook](./install-run
 Run the installer on your target machine before beginning migration:
 
 ```bash
-curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.9/install.sh | bash
+curl -fsSL https://get.agentworks.os/install.sh | bash
 ```
 
-Make sure all services show `Up` before proceeding. v0.1.x does not start the Admin UI from the default Docker Compose stack, so use the REST/MCP checks below unless you are running the UI package separately.
+Complete the onboarding wizard (or skip it — you can fill it in later from Settings). Make sure all services show `Up` before proceeding.
 
 ---
 
@@ -36,11 +36,11 @@ Each file is a vault page. The filename (without `.md`) is the page key.
 
 ### Exporting from Your Existing System
 
-#### From a markdown-vault system
+#### From a local markdown vault
 
-If your current setup is a directory of markdown files (Obsidian-style or similar), the simplest path is to copy the vault directory into the AgentWorks vault structure.
+If your current setup uses a local markdown vault, the simplest path is to copy the vault directory into the AgentWorks vault structure.
 
-1. Find your existing vault directory
+1. Find your existing vault directory (commonly `~/vault/` or wherever your vault is mounted)
 2. Copy all `.md` files into your tenant's vault directory:
 
 ```bash
@@ -59,7 +59,7 @@ curl -X POST http://localhost:7710/api/memory/reindex \
   -d '{ "tenantId": "YOUR_TENANT_ID" }'
 ```
 
-#### From a structured-record system
+#### From a structured source system
 
 If your existing system stores memory as structured records (JSON, SQLite, etc.), write a one-shot migration script:
 
@@ -70,7 +70,7 @@ from pathlib import Path
 VAULT_ROOT = Path("/home/ubuntu/.agentworks/data/vault/YOUR_TENANT_ID")
 VAULT_ROOT.mkdir(parents=True, exist_ok=True)
 
-# Example: structured memory records
+# Example: source memory records
 records = [
     {"key": "company/overview", "body": "# Acme Corp\n\nWe sell widgets..."},
     {"key": "context/contacts/jane-doe", "body": "# Jane Doe\n\nVP of Sales..."},
@@ -236,7 +236,7 @@ Then write those entries to the vault as reference material.
 
 After migration, verify each piece is working:
 
-- [ ] Daemon health returns HTTP 200 at `http://localhost:7710/api/health`
+- [ ] Admin UI accessible at `http://localhost:7710` — logged in as admin
 - [ ] Claude Desktop connected — `/memory read` returns vault content
 - [ ] Vault pages visible — key pages (company/overview, context/conventions) readable
 - [ ] Scanner findings — no critical findings on migrated agent configs

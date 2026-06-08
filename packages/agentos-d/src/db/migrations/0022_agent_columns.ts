@@ -1,12 +1,12 @@
 /**
  * Migration 0022: agent operability columns + wakeup audit log.
  *
- * Promotes structured fields from `execution_agents.config_json` JSON into
- * top-level columns:
- *   - adapter_type            (e.g. "claude_local")
- *   - model                   (e.g. "claude-opus-4-7")
+ * Adds the structured fields that the source runtime carried but the AWOS
+ * `execution_agents` schema only stored as JSON inside `config_json`:
+ *   - adapter_type            (e.g. "local_gateway")
+ *   - model                   (e.g. "minimax/MiniMax-M2.7-highspeed")
  *   - instructions_path       (path to the agent's AGENTS.md)
- *   - capabilities            (free-text)
+ *   - capabilities            (free-text, was a source column)
  *   - heartbeat_interval_sec  (runtime_config.heartbeat.intervalSec)
  *   - wake_on_demand          (runtime_config.heartbeat.wakeOnDemand, 0/1)
  *   - last_heartbeat_at       (stamped whenever the agent calls AWOS)

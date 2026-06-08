@@ -12,7 +12,7 @@ The implementation consists of:
 
 1. **CircuitBreaker class** - Core state machine implementation
 2. **API routes** - REST endpoints for monitoring and control
-3. **Integration points** - Where external adapters should call the circuit breaker
+3. **Integration points** - Where provider adapters or cost-meter proxy should call the circuit breaker
 
 ## State Machine
 
@@ -84,10 +84,10 @@ Manually reset a circuit breaker to CLOSED state.
 ### Record Call Result
 ```
 POST /api/providers/:provider/record-result
-Body: { 
-  tenantId: string, 
-  success: boolean, 
-  errorCode?: string 
+Body: {
+  tenantId: string,
+  success: boolean,
+  errorCode?: string
 }
 ```
 
@@ -100,9 +100,9 @@ GET /api/providers/:provider/should-allow?tenantId=<tenant-id>
 
 Check if a call should be allowed based on circuit state.
 
-## Integration
+## Integration with Provider Adapters
 
-The circuit breaker should be integrated into adapter implementations at the provider level:
+The circuit breaker should be integrated at the provider adapter level:
 
 1. Before making an LLM call, check `shouldAllow(provider, tenantId)`
 2. If not allowed, use fallback provider immediately
@@ -118,19 +118,19 @@ async function makeLlmCall(provider: string, tenantId: string, prompt: string) {
     // Use fallback provider
     return await makeLlmCall(fallbackProvider, tenantId, prompt);
   }
-  
+
   try {
     const result = await primaryAdapter.call(prompt);
     circuitBreaker.recordSuccess(provider, tenantId);
     return result;
   } catch (error) {
     circuitBreaker.recordFailure(provider, tenantId, error.code);
-    
+
     // Retry on transient errors
     if (isTransientError(error.code)) {
       return await makeLlmCall(fallbackProvider, tenantId, prompt);
     }
-    
+
     throw error;
   }
 }

@@ -337,8 +337,8 @@ export const tenantRulePackAssignments = sqliteTable("tenant_rule_pack_assignmen
 // ---------------------------------------------------------------------------
 // Dispatch queue — substrate-initiated tasks bound for a target agent.
 // Rows sit at status='queued' until an adapter picks them up; status moves
-// through 'dispatched' to 'completed' or 'failed'. v1 has no built-in
-// worker — adapters poll, or webhooks fan out, or an operator drains.
+// through waiting/dispatched to completed, failed, cancelled, or dead-letter.
+// Workers can lease rows and report retry metadata as part of recovery.
 // ---------------------------------------------------------------------------
 export const dispatchQueue = sqliteTable("dispatch_queue", {
   id: text("id").primaryKey(),
@@ -347,7 +347,7 @@ export const dispatchQueue = sqliteTable("dispatch_queue", {
   targetAgentId: text("target_agent_id").notNull(),
   input: text("input").notNull(), // JSON-stringified payload
   status: text("status", {
-    enum: ["queued", "dispatched", "completed", "failed"],
+    enum: ["queued", "waiting", "dispatched", "completed", "failed", "dead_letter", "cancelled"],
   })
     .notNull()
     .default("queued"),
@@ -355,6 +355,12 @@ export const dispatchQueue = sqliteTable("dispatch_queue", {
   createdAt: text("created_at").notNull(),
   dispatchedAt: text("dispatched_at"),
   completedAt: text("completed_at"),
+  retryCount: integer("retry_count").notNull().default(0),
+  maxRetries: integer("max_retries").notNull().default(0),
+  leaseExpiresAt: text("lease_expires_at"),
+  contractJson: text("contract_json"),
+  acceptedAt: text("accepted_at"),
+  acceptanceError: text("acceptance_error"),
   error: text("error"),
 });
 

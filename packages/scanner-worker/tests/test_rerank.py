@@ -66,9 +66,9 @@ class TestRerankRoute:
         assert res.status_code == 422
 
     def test_real_mode_503_or_200(self):
-        # Real mode uses sentence-transformers' CrossEncoder; the dep is a
-        # base requirement so it's usually present, but the model download
-        # may fail on a fresh CI box. Endpoint must never 500.
+        # Real mode uses sentence-transformers' CrossEncoder; the dep is an
+        # optional "real" extra and model download can also fail on a fresh
+        # CI box. Endpoint must never 500.
         with patch.dict("os.environ", {"RERANKER_MODE": "real"}, clear=False):
             reset_service_for_testing()
             client = self._client()

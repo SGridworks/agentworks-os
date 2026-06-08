@@ -50,7 +50,9 @@ class _RerankService:
             if self._model is not None:
                 return self._model
             try:
-                from sentence_transformers import CrossEncoder  # type: ignore[import-not-found]
+                from sentence_transformers import (
+                    CrossEncoder,
+                )
             except ImportError as e:
                 raise RuntimeError(
                     "RERANKER_MODE=real but sentence-transformers is not installed; "

@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import request from "supertest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createApp } from "../app.js";
-import { loadConfig } from "../config.js";
-import { initDb, resetDb } from "../db/index.js";
-import { migrate } from "../db/migrations/index.js";
+import express from "express";
+import request from "supertest";
+import type { Server } from "node:http";
+import { createMemoryRouter } from "./memory.js";
+import type { Config } from "../config.js";
 import { _resetVaultStoreForTesting } from "./memory.js";
 
 const TENANT_A = "11111111-1111-1111-1111-111111111111";
@@ -15,38 +15,33 @@ const AGENT_2 = "8c3e9fa1-4b91-4c2a-9f12-6e8d4f2c1a03";
 
 describe("Memory Routes - Usage Tracking", () => {
   let root: string;
-  let dataDir: string;
-  let app: ReturnType<typeof createApp>;
   let originalVaultRoot: string | undefined;
-  let originalDataDir: string | undefined;
+  let app: express.Express;
+  let server: Server;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "memory-routes-usage-test-"));
-    dataDir = mkdtempSync(join(tmpdir(), "memory-routes-usage-db-"));
     originalVaultRoot = process.env.VAULT_ROOT;
-    originalDataDir = process.env.AGENTOS_DATA_DIR;
     process.env.VAULT_ROOT = root;
-    process.env.AGENTOS_DATA_DIR = dataDir;
     _resetVaultStoreForTesting();
-    resetDb();
-    const config = loadConfig({});
-    initDb({ config, migrations: migrate });
-    app = createApp(config);
+    app = express();
+    app.use(express.json());
+    app.use("/api/memory", createMemoryRouter({} as Config));
+    await new Promise<void>((resolve) => {
+      server = app.listen(0, "127.0.0.1", () => resolve());
+    });
   });
 
-  afterEach(() => {
-    if (originalVaultRoot === undefined) delete process.env.VAULT_ROOT;
-    else process.env.VAULT_ROOT = originalVaultRoot;
-    if (originalDataDir === undefined) delete process.env.AGENTOS_DATA_DIR;
-    else process.env.AGENTOS_DATA_DIR = originalDataDir;
+  afterEach(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    process.env.VAULT_ROOT = originalVaultRoot;
     _resetVaultStoreForTesting();
-    resetDb();
     rmSync(root, { recursive: true, force: true });
-    rmSync(dataDir, { recursive: true, force: true });
   });
 
   it("should track usage when reading with actorId", async () => {
-    const writeResponse = await request(app)
+    // First, create a document
+    const writeResponse = await request(server)
       .post("/api/memory/write")
       .send({
         tenantId: TENANT_A,
@@ -56,7 +51,8 @@ describe("Memory Routes - Usage Tracking", () => {
 
     expect(writeResponse.status).toBe(201);
 
-    const readResponse = await request(app)
+    // Now read it with actorId
+    const readResponse = await request(server)
       .post("/api/memory/read")
       .send({
         tenantId: TENANT_A,
@@ -65,12 +61,15 @@ describe("Memory Routes - Usage Tracking", () => {
       });
 
     expect(readResponse.status).toBe(200);
-    expect(readResponse.body.ok).toBe(true);
-    expect(readResponse.body.data.existed).toBe(true);
+    const readData = readResponse.body;
+    expect(readData.ok).toBe(true);
+    expect(readData.data.existed).toBe(true);
 
+    // Wait a bit for the usage tracker to flush
     await new Promise(resolve => setTimeout(resolve, 3500));
 
-    const checkResponse = await request(app)
+    // Read again to check if lastUsedBy was updated
+    const checkResponse = await request(server)
       .post("/api/memory/read")
       .send({
         tenantId: TENANT_A,
@@ -78,9 +77,11 @@ describe("Memory Routes - Usage Tracking", () => {
       });
 
     expect(checkResponse.status).toBe(200);
-    expect(checkResponse.body.ok).toBe(true);
+    const checkData = checkResponse.body;
+    expect(checkData.ok).toBe(true);
 
-    const provenanceResponse = await request(app)
+    // The provenance endpoint should show the usage
+    const provenanceResponse = await request(server)
       .get("/api/memory/provenance")
       .query({ tenantId: TENANT_A, key: "test-page" });
     expect(provenanceResponse.status).toBe(200);
@@ -93,7 +94,8 @@ describe("Memory Routes - Usage Tracking", () => {
   });
 
   it("should not track usage when reading without actorId", async () => {
-    const writeResponse = await request(app)
+    // First, create a document
+    const writeResponse = await request(server)
       .post("/api/memory/write")
       .send({
         tenantId: TENANT_A,
@@ -103,29 +105,34 @@ describe("Memory Routes - Usage Tracking", () => {
 
     expect(writeResponse.status).toBe(201);
 
-    const readResponse = await request(app)
+    // Read it without actorId
+    const readResponse = await request(server)
       .post("/api/memory/read")
       .send({
         tenantId: TENANT_A,
         key: "test-page-no-actor",
+        // No actorId provided
       });
 
     expect(readResponse.status).toBe(200);
 
+    // Wait a bit for any potential usage tracking
     await new Promise(resolve => setTimeout(resolve, 3500));
 
-    const provenanceResponse = await request(app)
+    // Check provenance - should not have lastUsedBy
+    const provenanceResponse = await request(server)
       .get("/api/memory/provenance")
       .query({ tenantId: TENANT_A, key: "test-page-no-actor" });
     expect(provenanceResponse.status).toBe(200);
 
     const provenanceData = provenanceResponse.body;
     expect(provenanceData.ok).toBe(true);
-    expect(provenanceData.data.frontmatter.lastUsedBy).toBeUndefined();
+    expect(provenanceData.data.frontmatter.lastUsedBy ?? []).toEqual([]);
   });
 
   it("should not track usage for non-existent documents", async () => {
-    const readResponse = await request(app)
+    // Try to read a non-existent document with actorId
+    const readResponse = await request(server)
       .post("/api/memory/read")
       .send({
         tenantId: TENANT_A,
@@ -134,12 +141,15 @@ describe("Memory Routes - Usage Tracking", () => {
       });
 
     expect(readResponse.status).toBe(200);
-    expect(readResponse.body.ok).toBe(true);
-    expect(readResponse.body.data.existed).toBe(false);
+    const readData = readResponse.body;
+    expect(readData.ok).toBe(true);
+    expect(readData.data.existed).toBe(false);
 
+    // Wait a bit for any potential usage tracking
     await new Promise(resolve => setTimeout(resolve, 3500));
 
-    const checkResponse = await request(app)
+    // Should not crash or create the document
+    const checkResponse = await request(server)
       .post("/api/memory/read")
       .send({
         tenantId: TENANT_A,
@@ -147,12 +157,14 @@ describe("Memory Routes - Usage Tracking", () => {
       });
 
     expect(checkResponse.status).toBe(200);
-    expect(checkResponse.body.ok).toBe(true);
-    expect(checkResponse.body.data.existed).toBe(false);
+    const checkData = checkResponse.body;
+    expect(checkData.ok).toBe(true);
+    expect(checkData.data.existed).toBe(false);
   });
 
   it("should handle multiple actors reading the same document", async () => {
-    const writeResponse = await request(app)
+    // Create a document
+    const writeResponse = await request(server)
       .post("/api/memory/write")
       .send({
         tenantId: TENANT_A,
@@ -162,7 +174,8 @@ describe("Memory Routes - Usage Tracking", () => {
 
     expect(writeResponse.status).toBe(201);
 
-    await request(app)
+    // Read with first actor
+    await request(server)
       .post("/api/memory/read")
       .send({
         tenantId: TENANT_A,
@@ -170,7 +183,8 @@ describe("Memory Routes - Usage Tracking", () => {
         actorId: AGENT_1,
       });
 
-    await request(app)
+    // Read with second actor
+    await request(server)
       .post("/api/memory/read")
       .send({
         tenantId: TENANT_A,
@@ -178,9 +192,11 @@ describe("Memory Routes - Usage Tracking", () => {
         actorId: AGENT_2,
       });
 
+    // Wait for flush
     await new Promise(resolve => setTimeout(resolve, 3500));
 
-    const provenanceResponse = await request(app)
+    // Check provenance
+    const provenanceResponse = await request(server)
       .get("/api/memory/provenance")
       .query({ tenantId: TENANT_A, key: "multi-actor-page" });
     expect(provenanceResponse.status).toBe(200);

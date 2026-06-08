@@ -1,6 +1,6 @@
 # AgentWorks `packages/memory`
 
-Tenant-isolated, file-backed memory wrapper that ports vault-contract logic into a TypeScript library. Used by `agentos-d` to persist agent memory, session state, and per-tenant vault shards without reaching out to the Hermes vault directly.
+Tenant-isolated, file-backed memory wrapper that ports vault-contract logic into a TypeScript library. Used by `agentos-d` to persist agent memory, session state, and per-tenant vault shards without reaching out to operator vaults directly.
 
 ## Your lane
 

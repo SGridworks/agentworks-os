@@ -6,8 +6,8 @@
  * Examples: BackendEngineer -> backend, FrontendEngineer -> frontend,
  * TechLead -> techlead, ProcessWatcher -> processwatcher.
  *
- * Run after 0027 (role-folder match). Idempotent: only writes when the
- * existing value is NULL.
+ * Run after 0027 (role-folder match) and 0028 (legacy per-agent import).
+ * Idempotent: only writes when the existing value is NULL.
  */
 
 import fs from "node:fs";

@@ -14,12 +14,7 @@ import { createHmac } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { tenantWebhooks } from "./db/schema.js";
 import { getDb } from "./db/index.js";
-
-// Capture the real fetch at module load time — before any vi.fn() wrappers are
-// installed by tests. This guards against singleFork mode where all test files
-// run in one process and one file's mock can pollute globalThis.fetch before
-// another file's module is even imported.
-const REAL_FETCH: typeof global.fetch = globalThis.fetch;
+import { requestBuffer } from "./http-client.js";
 
 export interface WebhookPayload {
   event: string;
@@ -45,7 +40,7 @@ export async function fireWebhook(
   if (secret) headers["X-AgentWorks-Signature"] = sign(body, secret);
 
   try {
-    const res = await REAL_FETCH(url, { method: "POST", headers, body });
+    const res = await requestBuffer(url, { method: "POST", headers, body });
     return { ok: res.ok, status: res.status };
   } catch (err: unknown) {
     return { ok: false, error: (err as Error).message };

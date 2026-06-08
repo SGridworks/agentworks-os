@@ -25,9 +25,9 @@ function testConfig(port: number, enabled = true): Config {
     auditLogRetentionDays: 30,
     companyId: "00000000-0000-4000-8000-000000000001",
     standingIssueId: "standing",
-    legacyAdapterUrl: `http://127.0.0.1:${port}`,
-    legacyAdapterApiKey: "local-trusted",
-    legacyAdapterEnabled: enabled,
+    legacyBridgeUrl: `http://127.0.0.1:${port}`,
+    legacyBridgeApiKey: "local-trusted",
+    legacyBridgeEnabled: enabled,
     logger: {
       fatal: () => undefined,
       error: () => undefined,
@@ -114,7 +114,7 @@ describe("compat proxy", () => {
     const app = createApp(testConfig(upstream.port));
     const res = await request(app)
       .post("/api/agents/agent-1/wakeup")
-      .set("X-Paperclip-Run-Id", "run-123")
+      .set("X-AgentWorks-Run-Id", "run-123")
       .send({ payload: { issueId: "issue-1" } });
 
     expect(res.status).toBe(200);

@@ -1,0 +1,62 @@
+# Files intentionally excluded from the public release migration.
+# This is not a gitignore. It is consumed by scripts/check-public-release-safety.mjs
+# and should be mirrored by any public export/migration tooling.
+
+# Internal strategy, agent handoff, and local incident notes.
+agents/**
+PLAN.md
+CLAUDE.md
+CLAUDE-ONBOARDING.md
+docs/internal-*
+docs/handoff-*
+docs/awos-local-*
+docs/sprint-*
+docs/plans/**
+docs/sgridworks-managed-service-tier.md
+docs/brand-naming-convention.md
+LOCAL.md
+admin-ui-redesign-brief.md
+docs/awos-public-package-readiness-*.md
+docs/first-customer-learnings.md
+docs/kill-criterion-checkpoint.md
+docs/naming-ab-test.md
+docs/local-native-automation-runbook.md
+docs/agentic-memory-recommendations.md
+docs/rfc/**
+docs/rfcs/**
+tests/plans/**
+
+# Generated/runtime output and local state.
+AWOS_*.md
+AWOS_*.json
+AWOS_E2E_*.json
+AWOS_E2E_*.md
+CURRENT_STATE_AUDIT.md
+FINAL_REPORT.md
+FIX_LOG.md
+SYSTEM_MAP.md
+TRIM_CANDIDATES.md
+packages/*/data/**
+packages/*/logs/**
+protected-files.json
+
+# Local verification scratch and one-off debug harnesses.
+packages/admin-ui/AGE-*.md
+packages/admin-ui/*VERIFICATION*.md
+packages/admin-ui/*verification*
+packages/admin-ui/build-test*
+packages/admin-ui/check-*
+packages/admin-ui/compile-test*
+packages/admin-ui/count-lines.js
+packages/admin-ui/final-verification.js
+packages/admin-ui/simple-test.ts
+packages/admin-ui/test-*.js
+packages/admin-ui/test-*.ts
+packages/admin-ui/verify-*
+packages/agentos-d/test-*.js
+packages/agentos-d/test-*.ts
+packages/memory/debug-*.js
+packages/memory/test-debug.test.ts
+packages/memory/src/debug-*.ts
+packages/memory/src/*debug*.test.ts
+packages/scanner_worker/**

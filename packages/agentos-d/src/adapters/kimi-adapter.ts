@@ -20,10 +20,12 @@ import path from "node:path";
 import OpenAI from "openai";
 import type Database from "better-sqlite3";
 import type { AgentAdapter, AdapterInput, AdapterOutcome } from "../services/dispatch-consumer.js";
+import { loadAwosProviderKey } from "./awos-secrets.js";
 
 const REPO_ROOT = process.env.AWOS_REPO_ROOT ?? process.cwd();
 const KIMI_BASE_URL = process.env.KIMI_BASE_URL ?? "https://api.moonshot.ai/v1";
 const KIMI_MODEL = process.env.KIMI_MODEL ?? "kimi-k2-turbo-preview";
+const AWOS_PROVIDER_PROFILE_PATH = process.env.AWOS_PROVIDER_PROFILE_PATH ?? `${process.env.HOME}/.agentworks/provider-profile.yaml`;
 
 const SYSTEM_PROMPT_HEADER = `You are an autonomous AWOS agent running inside the agentos-d daemon.
 You are NOT operating a terminal or filesystem directly. The daemon will
@@ -55,9 +57,11 @@ interface ResolvedAgent {
 }
 
 function loadKimiKey(): string {
-  const k = process.env.KIMI_API_KEY ?? process.env.MOONSHOT_API_KEY;
-  if (k) return k;
-  throw new Error("KIMI_API_KEY missing: set KIMI_API_KEY or MOONSHOT_API_KEY env var");
+  return loadAwosProviderKey({
+    envNames: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
+    providerProfilePath: AWOS_PROVIDER_PROFILE_PATH,
+    providerProfileName: "kimi",
+  });
 }
 
 export interface KimiAdapterOptions {
@@ -310,12 +314,20 @@ export class KimiAdapter implements AgentAdapter {
   }
 
   private validatePath(p: string): { ok: true } | { ok: false; reason: string } {
-    if (path.isAbsolute(p)) return { ok: false, reason: "absolute path not allowed" };
-    if (p.includes("..")) return { ok: false, reason: "path traversal not allowed" };
-    if (!p.startsWith("docs/operator-ux-v2/")) {
-      return { ok: false, reason: `must start with docs/operator-ux-v2/, got "${p}"` };
+    const repoRoot = path.resolve(this.repoRoot);
+    const repoPath = path.isAbsolute(p)
+      ? path.relative(repoRoot, path.resolve(p))
+      : p;
+    if (!repoPath || repoPath.startsWith("..") || path.isAbsolute(repoPath)) {
+      return { ok: false, reason: "path must stay inside repo root" };
     }
-    if (!p.endsWith(".md")) return { ok: false, reason: "must end with .md" };
+    if (repoPath.split(path.sep).includes("..")) {
+      return { ok: false, reason: "path traversal not allowed" };
+    }
+    if (!repoPath.startsWith("docs/operator-ux-v2/")) {
+      return { ok: false, reason: `must start with docs/operator-ux-v2/, got "${repoPath}"` };
+    }
+    if (!repoPath.endsWith(".md")) return { ok: false, reason: "must end with .md" };
     return { ok: true };
   }
 

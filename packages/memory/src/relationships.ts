@@ -85,9 +85,9 @@ export function renderRelatedFrontmatter(keys: string[]): string {
 
 /**
  * Normalize a wikilink or mention to a vault key.
- * "[[projects/sgridworks]]" → "projects/sgridworks"
+ * "[[projects/acme]]" → "projects/acme"
  * "@john" → "people/john"  (convention: @mentions map to people/ namespace)
- * "projects/sgridworks" → "projects/sgridworks"
+ * "projects/acme" → "projects/acme"
  */
 export function normalizeWikilink(raw: string): string {
   const stripped = raw.replace(/^\[\[|\]\]$/g, "").trim();

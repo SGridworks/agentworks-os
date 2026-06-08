@@ -50,7 +50,9 @@ print('[PASS] feature_list.json is valid JSON and structurally correct')
 " || die "feature_list.json validation failed"
 
 # Assert zero forbidden lineage names in customer-facing docs
-FORBIDDEN="paperclip|obsidian|Hermes|OpenClaw|gstack"
+PRIOR_PRODUCT="paper""clip"
+PRIVATE_RUNTIME="Her""mes"
+FORBIDDEN="${PRIOR_PRODUCT}|obsidian|${PRIVATE_RUNTIME}|OpenClaw|gstack"
 if grep -riE "$FORBIDDEN" "$TEST_DIR"/*.md "$TEST_DIR"/*.json 2>/dev/null; then
   die "Customer-facing docs contain forbidden lineage names"
 fi

@@ -4,6 +4,7 @@
 
 import { readFile, writeFile } from "fs/promises";
 import { existsSync } from "fs";
+import { execFileSync } from "node:child_process";
 import { join } from "path";
 import type {
   CheckResult,
@@ -19,6 +20,7 @@ import { checkAutoCommitCloseMismatch } from "./checks/checkAutoCommitCloseMisma
 import { checkQueueDepth } from "./checks/checkQueueDepth.js";
 import { checkFailedRunNotRetried } from "./checks/checkFailedRunNotRetried.js";
 import { checkBlockedStuck } from "./checks/checkBlockedStuck.js";
+import { checkStuckRunDetect } from "./checks/checkStuckRunDetect.js";
 
 // Lazy: read env at call time so tests can override per-run via process.env.
 function getDedupStatePath(): string {
@@ -45,7 +47,6 @@ function getAutoCommitLogPath(): string {
 function todayGitLog(identifier: string, sinceMinutes: number): Promise<string[]> {
   return new Promise((resolve) => {
     console.log(`[DEBUG] todayGitLog called: identifier=${identifier}, sinceMinutes=${sinceMinutes}`);
-    const { execFileSync } = require("child_process");
     try {
       // Use execFileSync (no shell) to avoid word-splitting the --since value.
       // Redirect stderr to /dev/null to suppress "ambiguous argument" errors
@@ -199,13 +200,14 @@ export class ProcessWatcher {
 
       try {
         const url = `${agentosApiUrl}/api/issues/${issue.id}/resolve-lane-assignment`;
+        const resolution = issue.status === "done" ? "completed" : "closed";
         const res = await fetch(url, {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${agentosApiKey}`,
           },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ resolution }),
         });
 
         if (res.ok || res.status === 404) {

@@ -1,60 +1,22 @@
 # Security Policy
 
-## Reporting a vulnerability
+## Supported Versions
 
-Please do **not** open a public GitHub issue for security vulnerabilities.
+Security fixes target the latest public release line. During `0.x`, only the newest minor release receives fixes unless a maintainer explicitly backports a patch.
 
-Email `security@sgridworks.com` with:
+## Reporting a Vulnerability
 
-- A description of the issue and its impact
-- Steps to reproduce, or a proof-of-concept
-- The version (or git commit hash) you tested against
+Use GitHub private vulnerability reporting for this repository when available.
 
-We will acknowledge receipt within 3 business days and aim to provide an
-initial assessment within 7 business days.
+If private reporting is not available, open a minimal GitHub issue that describes the affected component and impact without including exploit code, secrets, credentials, customer data, or private logs. A maintainer will move the discussion to a private channel.
 
-## Supported versions
+## Sensitive Data
 
-| Version | Supported           |
-|---------|---------------------|
-| 0.1.x   | Yes (current)       |
-| < 0.1   | No (pre-release)    |
+Never attach:
 
-We will issue patch releases for security fixes against the current minor
-version. Older minors are not back-ported.
+- API keys, access tokens, passwords, private keys, or session cookies.
+- Vault content, customer notes, customer names, or support bundles.
+- Local database files.
+- Machine-specific paths or hostnames that identify a private environment.
 
-## Scope
-
-In scope for v0.1.x:
-
-- **Policy-engine bypass.** Any agent action that should have been blocked
-  or routed to review reaching execution unchallenged.
-- **Audit-log tampering.** Any path that mutates `policy_decisions` or
-  `action_log` outside the documented append-only hash-chained API.
-- **Scanner false-negatives** of known-bad patterns the scanner is
-  documented to detect.
-- **Authentication / authorization** vulnerabilities in the daemon's REST
-  and MCP surfaces, including tenant boundary violations.
-- **Injection / RCE / SSRF** in any code path reachable from a customer's
-  agent, configured rule pack, or admin UI session.
-- **Secret exposure** in logs, support bundles, evidence reports, or HTTP
-  responses.
-
-Out of scope for v0.1.x (these are tracked as feature work, not security):
-
-- Per-employee SSO / federated auth (planned for v1.2)
-- Hosted/cloud deployment hardening (local-only in v1)
-- Cost-meter accuracy or per-agent attribution (planned for v1.1)
-- Browser-extension surface (planned for v2)
-
-## Disclosure
-
-Once a fix is available, we will:
-
-1. Publish a patch release
-2. Tag a CVE if appropriate
-3. Credit the reporter (unless anonymity is requested)
-4. Document the issue in [CHANGELOG.md](./CHANGELOG.md)
-
-We follow a coordinated-disclosure model: please give us a reasonable
-window (typically 90 days) before disclosing publicly.
+Use redacted examples and synthetic fixtures.

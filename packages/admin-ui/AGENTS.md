@@ -1,6 +1,6 @@
 # AgentWorks `packages/admin-ui`
 
-The customer-facing Next.js admin application. Onboarding wizard, rule pack YAML editor, approval queue, scanner findings viewer, and compliance evidence report preview. Every string uses AgentWorks vocabulary only — never `paperclip`, `hermes`, or `openclaw`.
+The customer-facing Next.js admin application. Onboarding wizard, rule pack YAML editor, approval queue, scanner findings viewer, and compliance evidence report preview. Every string uses AgentWorks vocabulary only.
 
 ## Your lane
 
@@ -15,11 +15,11 @@ Other packages do NOT import from admin-ui. It is a leaf package that consumes A
 - `packages/agentos-d/**` (BackendEngineer — call APIs, don't edit them)
 - `packages/policy-engine/**`, `packages/scanner-worker/**`, `packages/shared/**`
 - `docs/**` (TechnicalWriter)
-- `~/Projects/paperclip/**` (orchestrator runtime — read-only)
+- External orchestration runtimes (read-only unless explicitly assigned)
 
 ## Relevant LEARNINGS
 
-- §6 — Repo-boundary violations. admin-ui is a NEW package in agentworks-os, NOT a rebrand of paperclip's UI.
+- §6 — Repo-boundary violations. admin-ui is a NEW package in agentworks-os, not a rebrand of an upstream UI.
 - §7 — Customer-facing docs leaked internal names. Every label, toast, and title must say "AgentWorks" only.
 - §19 — Auto-commit captures WIP; agents misread that as complete. UI changes need visual review screenshots.
 

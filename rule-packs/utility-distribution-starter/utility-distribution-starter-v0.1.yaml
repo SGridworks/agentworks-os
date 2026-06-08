@@ -1,0 +1,316 @@
+# Utility Distribution Starter Pack
+# Version: 0.1.0-draft
+# Tier: Free
+# Credentialed by: SGridworks (not attorney-reviewed — see tier notice)
+# Jurisdiction: United States (electric/gas/water distribution utilities)
+#
+# This pack provides baseline compliance guardrails for utility distribution
+# companies using AI agents. It covers NERC CIP, FERC, customer data privacy,
+# and outage-communication boundaries.
+#
+# Required-data declarations: see each rule's `required_data` field.
+# If data is missing for a rule, the action is routed to review by default.
+
+schema_version: "awcp/v0.1"
+pack_id: "utility-distribution-starter"
+pack_version: "0.1.0"
+pack_name: "Utility Distribution Starter"
+pack_description: |
+  Baseline compliance guardrails for electric, gas, and water distribution
+  utilities running AI agents. Covers NERC CIP cyber boundaries, FERC
+  communication rules, customer data privacy (CPU/CIRPA), outage messaging
+  protocols, and rate/regulatory filing separation.
+  Not a substitute for jurisdiction-specific legal advice.
+tier: free
+credentialed_by: "SGridworks"
+attorney_reviewed: false
+
+missing_data_disposition: route_to_review
+
+required_data_declarations:
+  - field: action_kind
+    description: "Type of action being performed"
+    data_provider: substrate
+  - field: contact_id
+    description: "Unique identifier of the customer being contacted"
+    data_provider: substrate
+  - field: contact_type
+    description: "residential | commercial | industrial | critical_infrastructure"
+    data_provider: customer_integration
+  - field: cip_asset_zone
+    description: "none | low | medium | high | critical — NERC CIP asset classification"
+    data_provider: customer_integration
+  - field: data_classification
+    description: "public | internal | confidential | critical_cyber"
+    data_provider: customer_integration
+  - field: message_body
+    description: "Content of the outbound message"
+    data_provider: substrate
+  - field: message_category
+    description: "outage | billing | rate_change | emergency | marketing | other"
+    data_provider: substrate
+  - field: consent.verified
+    description: "Boolean — has consent been verified for non-operational contact?"
+    data_provider: customer_integration
+  - field: consent.source
+    description: "written | verbal | inferred | none | unknown"
+    data_provider: customer_integration
+  - field: payload_destination
+    description: "internal | third_party | cloud | scada | oms"
+    data_provider: substrate
+  - field: payload_contains_cyber_data
+    description: "Boolean — does payload contain CIP-002 identified cyber asset data?"
+    data_provider: substrate
+  - field: filing_boundary
+    description: "Boolean — does the action cross FERC/state regulatory filing boundaries?"
+    data_provider: customer_integration
+  - field: is_emergency
+    description: "Boolean — is this an emergency/life-safety communication?"
+    data_provider: substrate
+  - field: local_time_of_contact
+    description: "HH:MM in 24-hour format in contact's local timezone"
+    data_provider: substrate
+
+rules:
+
+  - rule_id: UTIL-001
+    name: "NERC CIP cyber-asset data boundary"
+    description: |
+      Block any action that would transmit Critical Cyber Asset information
+      (CCA) or Critical Asset data outside the Electronic Security Perimeter
+      (ESP) or to unauthorized systems. NERC CIP-002 through CIP-011 apply.
+    required_data:
+      - payload_contains_cyber_data
+      - payload_destination
+      - cip_asset_zone
+    disposition_when_missing: block
+    conditions:
+      - when:
+          payload_contains_cyber_data: true
+          payload_destination: ["third_party", "cloud"]
+        then:
+          decision: block
+          reason: "Critical Cyber Asset data cannot leave the ESP to unapproved third-party or cloud systems"
+          citation: "NERC CIP-005, CIP-011; 18 C.F.R. § 40"
+      - when:
+          payload_contains_cyber_data: true
+          cip_asset_zone: ["high", "critical"]
+          payload_destination: "internal"
+        then:
+          decision: route_to_review
+          reason: "High/critical CIP zone data movement requires documented need-to-know authorization"
+          citation: "NERC CIP-004; 18 C.F.R. § 40"
+
+  - rule_id: UTIL-002
+    name: "Customer data privacy — opt-in for non-operational contact"
+    description: |
+      Utility customer data (usage, billing, account) is protected under
+      state CPU/CIRPA frameworks. Non-operational (marketing) contact
+      requires verified opt-in consent. Operational contact (outage,
+      billing, emergency) is exempt.
+    required_data:
+      - action_kind
+      - message_category
+      - consent.verified
+      - consent.source
+    disposition_when_missing: route_to_review
+    conditions:
+      - when:
+          message_category: "marketing"
+          consent.verified: false
+        then:
+          decision: block
+          reason: "Marketing contact to utility customer without verified opt-in consent"
+          citation: "State consumer protection laws; CPU/CIRPA frameworks"
+      - when:
+          message_category: "marketing"
+          consent.verified: true
+          consent.source: ["written", "web_form", "app"]
+        then:
+          decision: allow
+          reason: "Verified opt-in consent on file for marketing contact"
+
+  - rule_id: UTIL-003
+    name: "Outage communication — authorized channels only"
+    description: |
+      Outage notifications must use utility-approved channels and templates.
+      Do-not-contact preferences are waived for emergency/life-safety
+      communications but must be respected for non-emergency outage updates.
+    required_data:
+      - message_category
+      - is_emergency
+      - contact_type
+    disposition_when_missing: route_to_review
+    conditions:
+      - when:
+          message_category: "outage"
+          is_emergency: false
+          contact_type: "critical_infrastructure"
+        then:
+          decision: route_to_review
+          reason: "Non-emergency outage communication to critical-infrastructure customer requires pre-approved protocol"
+          citation: "NERC CIP-008; utility emergency response plans"
+
+  - rule_id: UTIL-004
+    name: "Rate/regulatory filing separation"
+    description: |
+      Block any automated action that could be construed as a regulatory
+      filing, rate case submission, or FERC/PUC notice without human review.
+      AI agents may draft, but may not submit, regulatory documents.
+    required_data:
+      - action_kind
+      - filing_boundary
+    disposition_when_missing: route_to_review
+    conditions:
+      - when:
+          filing_boundary: true
+        then:
+          decision: block
+          reason: "Action crosses regulatory filing boundary — human review and sign-off required"
+          citation: "FERC Rules of Practice and Procedure, 18 C.F.R. § 385; state PUC rules"
+
+  - rule_id: UTIL-005
+    name: "No SCADA/OMS command automation"
+    description: |
+      Block any action that would issue a control command to SCADA,
+      DMS, OMS, or other operational technology (OT) systems via the
+      substrate. Read-only queries are permitted if authenticated.
+    required_data:
+      - action_kind
+      - payload_destination
+    disposition_when_missing: block
+    conditions:
+      - when:
+          payload_destination: ["scada", "oms", "dms"]
+          action_kind: ["control.command", "setpoint.change", "switch.operation"]
+        then:
+          decision: block
+          reason: "OT control commands cannot be issued by AI agents — manual operator action required"
+          citation: "NERC CIP-005; NIST SP 800-82; utility OT security policy"
+
+  - rule_id: UTIL-006
+    name: "Third-party data sharing disclosure"
+    description: |
+      Any action that shares utility customer data with a third party
+      must have a documented data-sharing agreement and customer notice
+      on file. This includes sharing with affiliates.
+    required_data:
+      - data_classification
+      - payload_destination
+      - consent.verified
+    disposition_when_missing: route_to_review
+    conditions:
+      - when:
+          data_classification: ["confidential", "critical_cyber"]
+          payload_destination: "third_party"
+          consent.verified: false
+        then:
+          decision: block
+          reason: "Confidential/critical customer or cyber data shared with third party without documented agreement and consent"
+          citation: "CCPA, Cal. Civ. Code § 1798.100; GLBA, 15 U.S.C. § 6801; state data privacy laws"
+
+  - rule_id: UTIL-007
+    name: "Contact-time restriction for non-emergency"
+    description: |
+      Non-emergency outbound contact to residential customers must occur
+      between 08:00 and 21:00 in the customer's local timezone.
+    required_data:
+      - contact_type
+      - is_emergency
+      - local_time_of_contact
+    disposition_when_missing: allow
+    conditions:
+      - when:
+          contact_type: "residential"
+          is_emergency: false
+          local_time_of_contact_before: "08:00"
+        then:
+          decision: block
+          reason: "Non-emergency contact to residential customer before 08:00 local time"
+          citation: "TCPA, 47 U.S.C. § 227; FCC rules 47 C.F.R. § 64.1200; state Do-Not-Call laws"
+      - when:
+          contact_type: "residential"
+          is_emergency: false
+          local_time_of_contact_after: "21:00"
+        then:
+          decision: block
+          reason: "Non-emergency contact to residential customer after 21:00 local time"
+          citation: "TCPA, 47 U.S.C. § 227; FCC rules 47 C.F.R. § 64.1200; state Do-Not-Call laws"
+
+  - rule_id: UTIL-008
+    name: "Critical infrastructure customer notification"
+    description: |
+      Any action affecting a critical-infrastructure customer must be
+      logged and, if adverse, require advance notice per contractual SLA
+      or utility tariff.
+    required_data:
+      - contact_type
+      - action_kind
+    disposition_when_missing: allow
+    conditions:
+      - when:
+          contact_type: "critical_infrastructure"
+          action_kind: ["service.interruption", "maintenance.scheduled", "rate.change"]
+        then:
+          decision: route_to_review
+          reason: "Action affects critical-infrastructure customer — verify SLA/tariff notice requirements"
+          citation: "NERC CIP-008; utility tariff provisions; contractual SLA"
+
+test_fixtures:
+
+  - name: "CIP data to cloud — should block"
+    input:
+      action_kind: "llm.completion"
+      payload_contains_cyber_data: true
+      payload_destination: "cloud"
+      cip_asset_zone: "critical"
+    expected:
+      decision: block
+      rule_id: "UTIL-001"
+
+  - name: "Marketing without consent — should block"
+    input:
+      action_kind: "outbound.email"
+      message_category: "marketing"
+      consent:
+        verified: false
+        source: "none"
+    expected:
+      decision: block
+      rule_id: "UTIL-002"
+
+  - name: "Emergency outage to residential — should allow"
+    input:
+      action_kind: "outbound.sms"
+      message_category: "outage"
+      is_emergency: true
+      contact_type: "residential"
+    expected:
+      decision: allow
+      rule_id: null
+
+  - name: "SCADA control command — should block"
+    input:
+      action_kind: "control.command"
+      payload_destination: "scada"
+    expected:
+      decision: block
+      rule_id: "UTIL-005"
+
+  - name: "Rate filing boundary — should block"
+    input:
+      action_kind: "document.submit"
+      filing_boundary: true
+    expected:
+      decision: block
+      rule_id: "UTIL-004"
+
+  - name: "Late-night non-emergency SMS — should block"
+    input:
+      action_kind: "outbound.sms"
+      contact_type: "residential"
+      is_emergency: false
+      local_time_of_contact: "22:30"
+    expected:
+      decision: block
+      rule_id: "UTIL-007"

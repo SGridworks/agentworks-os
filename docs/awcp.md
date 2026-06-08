@@ -3,8 +3,8 @@
 **Spec version:** awcp/v0.1
 **Status:** DRAFT v0.1 — breaking changes allowed until v1.0 stable
 **Last updated:** 2026-04-30
-**Schema source:** [`packages/shared/src/schema/action.ts`](https://github.com/SGridworks/agentworks-os/blob/v0.1.9/packages/shared/src/schema/action.ts)
-**Policy engine types:** [`packages/policy-engine/src/types.ts`](https://github.com/SGridworks/agentworks-os/blob/v0.1.9/packages/policy-engine/src/types.ts)
+**Schema source:** [`packages/shared/src/schema/action.ts`](https://github.com/SGridworks/agentworks-os/blob/main/packages/shared/src/schema/action.ts)
+**Policy engine types:** [`packages/policy-engine/src/types.ts`](https://github.com/SGridworks/agentworks-os/blob/main/packages/policy-engine/src/types.ts)
 
 **Authors:** ComplianceConsultant (prose and legal), TechLead (technical review)
 
@@ -473,7 +473,7 @@ Policy engine response:
 
 ### v0.1 Draft Posture
 
-AWCP v0.1 is a draft. It reflects the design decisions locked in PLAN.md as of 2026-04-27. It is:
+AWCP v0.1 is a draft. It reflects the current AgentWorks OS policy-decision design as of 2026-04-27. It is:
 
 - Intended for internal review and early implementer feedback
 - Subject to breaking changes without a deprecation notice

@@ -15,8 +15,9 @@ function makeConfig(): Config {
     listenPort: 0,
     vaultDir: "",
     dataDir: "",
-    awosBaseUrl: "http://127.0.0.1:3100",
-    awosApiKey: "test",
+    legacyBridgeUrl: "http://127.0.0.1:3100",
+    legacyBridgeApiKey: "test",
+    legacyBridgeEnabled: false,
     jwtSecret: "test",
     googleClientId: "",
     googleClientSecret: "",
@@ -31,7 +32,7 @@ describe("GET /api/admin/autopilot - smoke test", () => {
   it("should return 400 when tenantId is missing", async () => {
     const app = createApp(makeConfig());
     const res = await request(app).get("/api/admin/autopilot");
-    
+
     // Should return 400, not 404
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("tenantId required");
@@ -40,7 +41,7 @@ describe("GET /api/admin/autopilot - smoke test", () => {
   it("should return 200 when tenantId is provided", async () => {
     const app = createApp(makeConfig());
     const res = await request(app).get("/api/admin/autopilot?tenantId=test-tenant-id");
-    
+
     // Should return 200, not 404
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("safe");

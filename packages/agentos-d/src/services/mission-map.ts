@@ -31,39 +31,39 @@ export interface NodeMeta {
   plan_tier?: string;
   seats?: number;
   billing_status?: string;
-  
+
   // project
   slug?: string;
   visibility?: string;
   repo_url?: string;
   lead_agent_id?: string;
-  
+
   // issue
   priority?: string;
   estimate?: number;
   assignee_agent_id?: string;
   tags?: string[];
-  
+
   // agent
   role?: string;
   lane?: string;
   last_heartbeat?: string;
   budget_cents?: number;
-  
+
   // run
   trigger?: string;
   exit_code?: number;
   cost_cents?: number;
   log_url?: string;
   artifact_urls?: string[];
-  
+
   // evidence
   rule_pack_id?: string;
-  severity?: "critical" | "block" | "high" | "medium" | "low" | "info";
+  severity?: "critical" | "high" | "medium" | "low" | "info";
   verdict?: string;
   scanner?: string;
   sha256?: string;
-  
+
   // memory
   mime_type?: string;
   size_bytes?: number;
@@ -120,19 +120,19 @@ function computeNodeColor(node: {
   meta: NodeMeta;
 }): string {
   if (node.deleted_at) return "#d1d5db"; // gray-300
-  
+
   if (node.kind === "issue") {
     switch (node.status) {
       case "done":  return "#10b981"; // green-500
       case "review":return "#8b5cf6"; // purple-500
-      case "blocked":return "#ef4444"; // red-500: danger; red-900 is reserved for severe evidence
+      case "blocked":return "#991b1b"; // red-900 for blocked severity
     }
   }
-  
+
   if (node.kind === "run" && node.status === "failed") return "#ef4444"; // red-500
-  
-  if (node.kind === "evidence" && (node.meta.severity === "critical" || node.meta.severity === "block")) return "#991b1b"; // red-900
-  
+
+  if (node.kind === "evidence" && node.meta.severity === "critical") return "#991b1b"; // red-900
+
   return PALETTE[node.kind].default;
 }
 
@@ -155,7 +155,7 @@ export function getGraph(opts: GetGraphOptions): { nodes: Node[]; edges: Edge[] 
   const db = getDb();
   const { tenantId, root, depth = 3 } = opts;
   const maxDepth = Math.min(depth, 5);
-  
+
   if (root) {
     // Get subgraph rooted at the specified node
     return getSubgraph(db, tenantId, root, maxDepth);
@@ -173,13 +173,13 @@ function getFullGraph(db: ReturnType<typeof getDb>, tenantId: string): { nodes: 
     .where(eq(nodes.tenant_id, tenantId))
     .limit(1000)
     .all();
-  
+
   if (nodeRows.length === 0) {
     return { nodes: [], edges: [] };
   }
-  
+
   const nodeIds = nodeRows.map(n => n.id);
-  
+
   // Get edges that connect these nodes
   const edgeRows = db
     .select()
@@ -191,9 +191,9 @@ function getFullGraph(db: ReturnType<typeof getDb>, tenantId: string): { nodes: 
     ))
     .limit(2000)
     .all();
-  
+
   const nodeMap = new Map(nodeRows.map(n => [n.id, n]));
-  
+
   return {
     nodes: nodeRows.map(n => ({
       id: n.id,
@@ -227,17 +227,17 @@ function getFullGraph(db: ReturnType<typeof getDb>, tenantId: string): { nodes: 
 function getSubgraph(db: ReturnType<typeof getDb>, tenantId: string, rootId: string, maxDepth: number): { nodes: Node[]; edges: Edge[] } {
   // For now, implement a simple 1-hop neighborhood
   // TODO: implement proper BFS traversal with depth limiting
-  
+
   const rootNode = db
     .select()
     .from(nodes)
     .where(and(eq(nodes.id, rootId), eq(nodes.tenant_id, tenantId)))
     .get();
-  
+
   if (!rootNode) {
     return { nodes: [], edges: [] };
   }
-  
+
   // Get direct edges from/to the root node
   const edgeRows = db
     .select()
@@ -247,15 +247,15 @@ function getSubgraph(db: ReturnType<typeof getDb>, tenantId: string, rootId: str
       sql`${edges.from_node_id} = ${rootId} OR ${edges.to_node_id} = ${rootId}`
     ))
     .all();
-  
+
   const connectedNodeIds = new Set<string>();
   connectedNodeIds.add(rootId);
-  
+
   for (const edge of edgeRows) {
     connectedNodeIds.add(edge.from_node_id);
     connectedNodeIds.add(edge.to_node_id);
   }
-  
+
   // Get all connected nodes
   const nodeRows = db
     .select()
@@ -265,7 +265,7 @@ function getSubgraph(db: ReturnType<typeof getDb>, tenantId: string, rootId: str
       sql`${nodes.id} IN ${Array.from(connectedNodeIds)}`
     ))
     .all();
-  
+
   return {
     nodes: nodeRows.map(n => ({
       id: n.id,
@@ -312,10 +312,10 @@ export function createNode(input: CreateNodeInput): Node {
   const db = getDb();
   const now = new Date().toISOString();
   const id = randomUUID();
-  
+
   const meta = input.meta || {};
   const status = input.status || "active";
-  
+
   const nodeRow = {
     id,
     tenant_id: input.tenantId,
@@ -327,9 +327,9 @@ export function createNode(input: CreateNodeInput): Node {
     updated_at: now,
     deleted_at: null
   };
-  
+
   db.insert(nodes).values(nodeRow).run();
-  
+
   return {
     id,
     tenant_id: input.tenantId,
@@ -356,26 +356,26 @@ export function createEdge(input: CreateEdgeInput): Edge {
   const db = getDb();
   const now = new Date().toISOString();
   const id = randomUUID();
-  
+
   const meta = input.meta || {};
-  
+
   // Verify both nodes exist and belong to the tenant
   const fromNode = db
     .select()
     .from(nodes)
     .where(and(eq(nodes.id, input.fromNodeId), eq(nodes.tenant_id, input.tenantId)))
     .get();
-    
+
   const toNode = db
     .select()
     .from(nodes)
     .where(and(eq(nodes.id, input.toNodeId), eq(nodes.tenant_id, input.tenantId)))
     .get();
-  
+
   if (!fromNode || !toNode) {
     throw new Error("One or both nodes not found or do not belong to tenant");
   }
-  
+
   const edgeRow = {
     id,
     tenant_id: input.tenantId,
@@ -385,9 +385,9 @@ export function createEdge(input: CreateEdgeInput): Edge {
     meta: JSON.stringify(meta),
     created_at: now
   };
-  
+
   db.insert(edges).values(edgeRow).run();
-  
+
   return {
     id,
     tenant_id: input.tenantId,

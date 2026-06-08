@@ -6,4 +6,4 @@ export type {
 } from './base';
 export { ClaudeLocalAdapter } from './claudeLocal';
 export { CodexAdapter } from './codex';
-export { HermesAdapter, type HermesAdapterConfig } from './hermes';
+export { LocalGatewayAdapter, type LocalGatewayAdapterConfig } from './localGateway';

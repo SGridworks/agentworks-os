@@ -156,7 +156,7 @@ describe("GET /api/admin/mission-map", () => {
 
     const res = await request(app)
       .get("/api/admin/mission-map")
-      .query({ 
+      .query({
         tenantId: testTenantId,
         root: rootProject.id,
         depth: 1
@@ -190,7 +190,7 @@ describe("GET /api/admin/mission-map", () => {
 
     const res = await request(app)
       .get("/api/admin/mission-map")
-      .query({ 
+      .query({
         tenantId: testTenantId,
         depth: 2
       })
@@ -227,7 +227,7 @@ describe("GET /api/admin/mission-map", () => {
       tenantId: testTenantId,
       kind: "evidence",
       title: "Block Evidence",
-      meta: { severity: "block" }
+      meta: { severity: "critical" }
     });
 
     const res = await request(app)
@@ -236,12 +236,12 @@ describe("GET /api/admin/mission-map", () => {
       .expect(200);
 
     const nodes = res.body.nodes;
-    
+
     const doneNode = nodes.find((n: any) => n.id === doneIssue.id);
     expect(doneNode.color).toBe("#10b981"); // green for done issues
 
     const blockedNode = nodes.find((n: any) => n.id === blockedIssue.id);
-    expect(blockedNode.color).toBe("#ef4444"); // red for blocked issues
+    expect(blockedNode.color).toBe("#991b1b"); // dark red for blocked issues
 
     const failedNode = nodes.find((n: any) => n.id === failedRun.id);
     expect(failedNode.color).toBe("#ef4444"); // red for failed runs

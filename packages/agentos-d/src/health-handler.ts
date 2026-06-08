@@ -1,8 +1,8 @@
 import type { Request, Response } from "express";
 import type { Config } from "./config.js";
 
-const STARTED_AT = new Date().toISOString();
-const PACKAGE_VERSION = "0.1.0";
+export const STARTED_AT = new Date().toISOString();
+export const PACKAGE_VERSION = "0.1.0";
 
 export function healthHandler(
   _req: Request,

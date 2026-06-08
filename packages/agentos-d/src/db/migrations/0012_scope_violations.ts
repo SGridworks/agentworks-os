@@ -34,8 +34,8 @@ export function migrate(sqlite: Database): void {
     CREATE TABLE IF NOT EXISTS scope_violations (
       id               TEXT PRIMARY KEY,  -- UUID
       reverted_from_commit TEXT NOT NULL, -- the commit hash that was reverted
-      agent_run_id    TEXT,              -- run ID of the offending agent
-      agent_id        TEXT,              -- agent ID
+      agent_run_id    TEXT,              -- source run ID of the offending agent
+      agent_id        TEXT,              -- source agent ID
       agent_role      TEXT,              -- e.g. BackendEngineer, FrontendEngineer
       files           TEXT NOT NULL,     -- JSON array of reverted file paths
       reason          TEXT,              -- scope-guard reason or lane violation type

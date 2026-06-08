@@ -10,7 +10,7 @@ Python/FastAPI sidecar that wraps the Apache-2.0 `agentguard-scanner` package. E
 
 Other packages may import:
 
-- None. This is a sidecar service. `agentos-d` calls it over HTTP at `http://scanner-worker:${SCANNER_WORKER_PORT:-8001}`.
+- None. This is a sidecar service. `agentos-d` calls it over HTTP at `http://scanner-worker:${SCANNER_WORKER_PORT:-3101}`.
 
 ## Do not edit
 
@@ -18,7 +18,7 @@ Other packages may import:
 - `packages/policy-engine/**` (BackendEngineer)
 - `packages/admin-ui/**` (FrontendEngineer)
 - `docs/**` (TechnicalWriter)
-- `/Users/example/Projects/paperclip/**` (orchestrator runtime — no Python there)
+- External orchestration runtimes (read-only unless explicitly assigned)
 
 ## Relevant LEARNINGS
 

@@ -22,10 +22,13 @@ import { homedir } from "node:os";
 import {
   FileVaultStore,
   type VaultStore,
-  extractWikilinks,
+  type VaultWriteOptions,
   OperatorMemoryStore,
   OperatorMemoryError,
   lintVault,
+  ALL_LINT_KINDS,
+  type LintKind,
+  buildVaultMetadataIndex,
   wordCount,
   UsageTracker,
 } from "@agentworks/memory";
@@ -33,6 +36,13 @@ import { EmbedClient } from "../services/embed-client.js";
 import { hybridSearch } from "../services/retrieval.js";
 import { recordInsight, listInsights, updateInsight, archiveInsight } from "../services/insights.js";
 import { rebuildHotMd } from "../services/hot-md-builder.js";
+import {
+  readPreviousReport,
+  writeReportToHistory,
+  diffAdded,
+  diffRemoved,
+  diffSummary,
+} from "../services/lint-history.js";
 import { loadPackFromFile } from "@agentworks/policy-engine";
 import type { RulePack } from "@agentworks/shared";
 import { getDb } from "../db/index.js";
@@ -116,7 +126,8 @@ export function createMemoryRouter(_config: Config): Router {
   const ReadRequestSchema = z.object({
     tenantId: z.string().uuid(),
     key: z.string().min(1),
-    actorId: z.string().uuid().optional(), // Agent ID for usage tracking
+    actorId: z.string().optional(),
+
   });
 
   const WriteRequestSchema = z.object({
@@ -124,6 +135,8 @@ export function createMemoryRouter(_config: Config): Router {
     key: z.string().min(1),
     body: z.string(),
     mode: z.enum(["replace", "append"]).default("replace"),
+    actorId: z.string().optional(),
+
   });
 
   router.post("/read", async (req, res) => {
@@ -135,12 +148,12 @@ export function createMemoryRouter(_config: Config): Router {
     const { tenantId, key, actorId } = parsed.data;
     try {
       const r = await getVaultStore().read(tenantId, key);
-      
-      // Track usage if actorId is provided and document exists
+
+
       if (actorId && r.existed) {
         getUsageTracker().recordUsage(tenantId, key, actorId);
       }
-      
+
       res.status(200).json({
         ok: true,
         data: {
@@ -170,20 +183,13 @@ export function createMemoryRouter(_config: Config): Router {
     }
     const { tenantId } = parsed.data;
     try {
-      const store = getVaultStore();
-      if (!store.list) {
-        res.status(500).json({ ok: false, error: "vault store does not support list" });
-        return;
-      }
-      const keys = await store.list(tenantId);
-      const reads = await Promise.all(keys.map((k) => store.read(tenantId, k)));
-      const pages = reads.filter((r) => r.existed);
+      const index = await buildVaultMetadataIndex(vaultRootDir(), tenantId);
 
       const dirHueMap = new Map<string, number>();
       const dirCount = new Map<string, number>();
       const goldenAngle = 137.508;
 
-      const notes = pages.map((p) => {
+      const notes = index.pages.map((p) => {
         const segments = p.key.split("/");
         const dir = segments.length > 1 ? segments.slice(0, -1).join("/") : "";
         const top = dir.split("/")[0] ?? "(root)";
@@ -192,47 +198,36 @@ export function createMemoryRouter(_config: Config): Router {
         }
         dirCount.set(dir, (dirCount.get(dir) ?? 0) + 1);
 
-        const fmTitle = /(?:^|\n)title:\s*(.+)/i.exec(p.body)?.[1]?.trim().replace(/^["']|["']$/g, "");
-        const title = fmTitle || segments[segments.length - 1] || p.key;
-        const fmType = /(?:^|\n)type:\s*(.+)/i.exec(p.body)?.[1]?.trim().toLowerCase();
-        const fmTags = /(?:^|\n)tags:\s*\[([^\]]*)\]/i.exec(p.body)?.[1]
-          ?.split(",").map((t) => t.trim().replace(/^["']|["']$/g, "")).filter(Boolean) ?? [];
+        const fmType = typeof p.frontmatter["type"] === "string" ? p.frontmatter["type"].toLowerCase() : undefined;
         const kind = inferKind(fmType, dir);
 
         return {
           id: p.key,
-          title,
+          title: p.title || segments[segments.length - 1] || p.key,
           dir,
           kind,
-          tags: fmTags,
-          chars: p.body.length,
+          tags: p.tags,
+          chars: p.bytes,
           edited: p.updatedAt,
           outgoing: 0,
           backlinks: 0,
+          unresolvedOutgoing: p.links.filter((link) => !link.resolved).length,
         };
       });
 
-      const noteIds = new Set(notes.map((n) => n.id));
-      const edges: [string, string][] = [];
+      const edgeSet = new Set<string>();
       const outCount = new Map<string, number>();
       const inCount = new Map<string, number>();
 
-      for (const p of pages) {
-        const links = extractWikilinks(p.body);
-        for (const wl of links) {
-          // best-effort: try wl as-is, then with the page's directory prefix
-          let target: string | undefined = noteIds.has(wl) ? wl : undefined;
-          if (!target) {
-            const dirPrefix = p.key.includes("/") ? p.key.slice(0, p.key.lastIndexOf("/") + 1) : "";
-            const candidate = dirPrefix + wl.replace(/^\//, "");
-            if (noteIds.has(candidate)) target = candidate;
-          }
-          if (!target || target === p.key) continue;
-          edges.push([p.key, target]);
-          outCount.set(p.key, (outCount.get(p.key) ?? 0) + 1);
-          inCount.set(target, (inCount.get(target) ?? 0) + 1);
-        }
+      for (const link of index.links) {
+        if (!link.targetKey || link.targetKey === link.source) continue;
+        const sig = `${link.source}\0${link.targetKey}`;
+        if (edgeSet.has(sig)) continue;
+        edgeSet.add(sig);
+        outCount.set(link.source, (outCount.get(link.source) ?? 0) + 1);
+        inCount.set(link.targetKey, (inCount.get(link.targetKey) ?? 0) + 1);
       }
+      const edges = Array.from(edgeSet).map((sig) => sig.split("\0") as [string, string]);
 
       for (const n of notes) {
         n.outgoing = outCount.get(n.id) ?? 0;
@@ -247,10 +242,33 @@ export function createMemoryRouter(_config: Config): Router {
 
       res.status(200).json({
         ok: true,
-        data: { tenantId, notes, edges, dirs, generatedAt: new Date().toISOString() },
+        data: {
+          tenantId,
+          notes,
+          edges,
+          dirs,
+          generatedAt: index.generatedAt,
+          unresolvedLinks: index.unresolvedLinks.length,
+          duplicateSlugs: index.duplicateSlugs.length,
+        },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "vault graph failed";
+      res.status(500).json({ ok: false, error: message });
+    }
+  });
+
+  router.get("/metadata", async (req, res) => {
+    const parsed = GraphRequestSchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    try {
+      const index = await buildVaultMetadataIndex(vaultRootDir(), parsed.data.tenantId);
+      res.status(200).json({ ok: true, data: index.toJSON() });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "vault metadata failed";
       res.status(500).json({ ok: false, error: message });
     }
   });
@@ -422,8 +440,40 @@ export function createMemoryRouter(_config: Config): Router {
     }
   });
 
+  const LintKindEnum = z.enum(ALL_LINT_KINDS as [LintKind, ...LintKind[]]);
+
   const LintQuerySchema = z.object({
     tenantId: z.string().uuid(),
+    /**
+     * Optional subset of LintKind to run. Default: all 11. Repeat the
+     * param or pass a comma-separated list:
+     *   ?checks=source_drift&checks=page_oversize
+     *   ?checks=source_drift,page_oversize
+     *
+     * Unknown check names are rejected with 400 — a silently-ignored
+     * typo would mask a missing lint pass.
+     */
+    checks: z
+      .union([z.string(), z.array(z.string())])
+      .optional()
+      .transform((v, ctx) => {
+        if (!v) return undefined;
+        const raw = Array.isArray(v) ? v.join(",") : v;
+        const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
+        const out: LintKind[] = [];
+        for (const p of parts) {
+          const r = LintKindEnum.safeParse(p);
+          if (!r.success) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `unknown check name: '${p}'. Valid: ${ALL_LINT_KINDS.join(", ")}`,
+            });
+            return z.NEVER;
+          }
+          out.push(r.data);
+        }
+        return out;
+      }),
   });
 
   router.get("/lint", async (req, res) => {
@@ -433,10 +483,143 @@ export function createMemoryRouter(_config: Config): Router {
       return;
     }
     try {
-      const report = await lintVault(vaultRootDir(), parsed.data.tenantId);
+      const report = await lintVault(vaultRootDir(), parsed.data.tenantId, {
+        ...(parsed.data.checks ? { checks: parsed.data.checks } : {}),
+      });
+      // Best-effort history write. Failures here must not break the
+      // /lint response (lint is read-only against the vault; the
+      // history write is a side effect).
+      try {
+        const historyDir = join(vaultRootDir(), parsed.data.tenantId, "wiki", "lint-history");
+        await writeReportToHistory(historyDir, report);
+      } catch (historyErr) {
+        // Log to console; do not surface to caller.
+        // eslint-disable-next-line no-console
+        console.warn("[memory/lint] history write failed:", historyErr);
+      }
       res.status(200).json({ ok: true, data: report });
     } catch (err) {
       const message = err instanceof Error ? err.message : "vault lint failed";
+      res.status(500).json({ ok: false, error: message });
+    }
+  });
+
+  // /lint/diff?tenantId=…&since=<runId|isoTimestamp>
+  //
+  // File-history-based delta. The lint report is itself the audit log:
+  // we cache the most recent report per tenant under
+  // `<vaultRoot>/<tenantId>/wiki/lint-history/<runId>-<iso>.json` and
+  // serve the diff against `since`.
+  //
+  // **Baseline matching:** the previous report must have the SAME
+  // `executed` check set as the current run. A subset run does not
+  // diff against a full run, and vice versa — the finding sets are
+  // not comparable (a full run has findings the subset never even
+  // looked for; comparing them as "added" would be a lie).
+  //
+  // If no matching baseline exists, the response includes
+  //   { baseline: null, reason: "no_matching_baseline", ... }
+  // instead of a fake diff.
+  //
+  // `since` accepts:
+  //   - a 16-char runId (exact match against a stored report)
+  //   - an ISO timestamp (the most recent stored report strictly
+  //     older that ALSO matches the executed set)
+  //   - omit for "diff against the most recent matching report"
+  const LintDiffQuerySchema = z.object({
+    tenantId: z.string().uuid(),
+    since: z.string().min(1).max(64).optional(),
+  });
+
+  router.get("/lint/diff", async (req, res) => {
+    const parsed = LintDiffQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ ok: false, error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    const { tenantId, since } = parsed.data;
+    try {
+      const historyDir = join(vaultRootDir(), tenantId, "wiki", "lint-history");
+      // The current run is always a full run — /lint/diff only
+      // compares full→full by default. Subset diffs require
+      // ?checks=<subset> on /lint/diff itself (handled by the
+      // LintDiffWithChecksSchema below).
+      const current = await lintVault(vaultRootDir(), tenantId);
+      const previous = await readPreviousReport(historyDir, since, current.executed);
+      res.status(200).json({
+        ok: true,
+        data: {
+          tenantId,
+          currentRunId: current.runId,
+          currentRanAt: current.ranAt,
+          currentExecuted: current.executed,
+          previousRunId: previous?.runId ?? null,
+          previousRanAt: previous?.ranAt ?? null,
+          previousExecuted: previous?.executed ?? null,
+          baselineReason: previous ? null : "no_matching_baseline",
+          added: previous ? diffAdded(previous, current) : [],
+          removed: previous ? diffRemoved(previous, current) : [],
+          summary: previous ? diffSummary(previous, current) : null,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "lint diff failed";
+      res.status(500).json({ ok: false, error: message });
+    }
+  });
+
+  // /lint/diff with an explicit `checks` subset. Compares a
+  // current subset run against the most recent prior subset run
+  // with the same executed set. Same baseline-matching rules as
+  // the full-only /lint/diff above.
+  const LintDiffWithChecksQuerySchema = LintQuerySchema.extend({
+    since: z.string().min(1).max(64).optional(),
+  });
+
+  router.get("/lint/diff/subset", async (req, res) => {
+    const parsed = LintDiffWithChecksQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ ok: false, error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    const { tenantId, since, checks } = parsed.data;
+    try {
+      const historyDir = join(vaultRootDir(), tenantId, "wiki", "lint-history");
+      const current = await lintVault(vaultRootDir(), tenantId, {
+        ...(checks ? { checks } : {}),
+      });
+      // Resolve the baseline BEFORE persisting the current run,
+      // otherwise readPreviousReport would see the just-written
+      // current report as the "previous" and diff against itself.
+      const previous = await readPreviousReport(historyDir, since, current.executed);
+      // Persist the subset run so future diffs have a baseline to
+      // match against. Subset reports are first-class — the MCP
+      // wrapper and admin UI drawer will subscribe to narrow check
+      // sets and need history to diff against.
+      try {
+        await writeReportToHistory(historyDir, current);
+      } catch (historyErr) {
+        // eslint-disable-next-line no-console
+        console.warn("[memory/lint/diff/subset] history write failed:", historyErr);
+      }
+      res.status(200).json({
+        ok: true,
+        data: {
+          tenantId,
+          currentRunId: current.runId,
+          currentRanAt: current.ranAt,
+          currentExecuted: current.executed,
+          previousRunId: previous?.runId ?? null,
+          previousRanAt: previous?.ranAt ?? null,
+          previousExecuted: previous?.executed ?? null,
+          baselineReason: previous ? null : "no_matching_baseline",
+          added: previous ? diffAdded(previous, current) : [],
+          removed: previous ? diffRemoved(previous, current) : [],
+          summary: previous ? diffSummary(previous, current) : null,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "lint subset diff failed";
       res.status(500).json({ ok: false, error: message });
     }
   });
@@ -518,9 +701,17 @@ export function createMemoryRouter(_config: Config): Router {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
     }
-    const { tenantId, key, body, mode } = parsed.data;
+    const { tenantId, key, body, mode, actorId } = parsed.data;
+
+    // Build write options with provenance tracking
+    const writeOptions: VaultWriteOptions = { mode };
+    if (actorId) {
+      writeOptions.lastUpdatedBy = actorId;
+      writeOptions.lastUpdatedAt = new Date().toISOString();
+    }
+
     try {
-      const w = await getVaultStore().write(tenantId, key, body, { mode });
+      const w = await getVaultStore().write(tenantId, key, body, writeOptions);
       res.status(201).json({
         ok: true,
         data: {

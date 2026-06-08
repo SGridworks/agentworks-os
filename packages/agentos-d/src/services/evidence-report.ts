@@ -323,10 +323,7 @@ const RULE_PACK_LABELS: Record<string, string> = {
   "smb-starter": "SMB Baseline",
   "tcpa-real-estate": "TCPA — Real Estate",
   "fair-housing": "Fair Housing",
-  // Match the YAML pack_id (rule-packs/hipaa-placeholder/*.yaml declares
-  // pack_id: hipaa-healthcare). The directory name is legacy "placeholder"
-  // and is not what the loader keys on.
-  "hipaa-healthcare": "HIPAA — Healthcare",
+  "hipaa-placeholder": "HIPAA (placeholder)",
 };
 
 function humanizeRulePack(packId: string): string {

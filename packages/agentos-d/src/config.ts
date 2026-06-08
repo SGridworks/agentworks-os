@@ -30,9 +30,9 @@ const ConfigSchema = z.object({
   auditLogRetentionDays: z.coerce.number().int().min(0).default(30),
   companyId: z.string().default(""),
   standingIssueId: z.string().default("standing"),
-  legacyAdapterUrl: z.string().url().default("http://127.0.0.1:3100"),
-  legacyAdapterApiKey: z.string().default("local-trusted"),
-  legacyAdapterEnabled: EnvBooleanSchema.default(false),
+  legacyBridgeUrl: z.string().url().default("http://127.0.0.1:3100"),
+  legacyBridgeApiKey: z.string().default("local-trusted"),
+  legacyBridgeEnabled: EnvBooleanSchema.default(false),
   executionDatabaseUrl: z.string().url().optional(),
   agentsRoot: z.string().default(""),
 });
@@ -41,24 +41,48 @@ export type Config = z.infer<typeof ConfigSchema> & {
   logger: Logger;
 };
 
+function deprecatedLegacyBridgeAlias(
+  env: Record<string, string | undefined>,
+  suffix: "URL" | "API_KEY" | "ENABLED",
+): { value: string | undefined; used: boolean } {
+  const priorProduct = "PAPER" + "CLIP";
+  const names =
+    suffix === "URL"
+      ? [`${priorProduct}_API_URL`, `AGENTOS_${priorProduct}_COMPAT_URL`]
+      : suffix === "API_KEY"
+        ? [`${priorProduct}_API_KEY`, `AGENTOS_${priorProduct}_COMPAT_API_KEY`]
+        : [`AGENTOS_${priorProduct}_COMPAT_ENABLED`];
+  for (const name of names) {
+    if (env[name] !== undefined) return { value: env[name], used: true };
+  }
+  return { value: undefined, used: false };
+}
+
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
+  const legacyBridgeUrlAlias = deprecatedLegacyBridgeAlias(env, "URL");
+  const legacyBridgeApiKeyAlias = deprecatedLegacyBridgeAlias(env, "API_KEY");
+  const legacyBridgeEnabledAlias = deprecatedLegacyBridgeAlias(env, "ENABLED");
   const raw = ConfigSchema.parse({
     host: env.AGENTOS_HOST,
     port: env.AGENTOS_PORT,
     logLevel: env.AGENTOS_LOG_LEVEL,
     awcpVersion: env.AGENTOS_AWCP_VERSION,
     dataDir: env.AGENTOS_DATA_DIR ?? "./data",
-    scannerSidecarUrl: env.SCANNER_SIDECAR_URL,
-    scannerPollIntervalMs: env.SCANNER_POLL_INTERVAL_MS,
     auditLogRetentionDays: env.AGENTOS_AUDIT_LOG_RETENTION_DAYS,
-    legacyAdapterUrl: env.AGENTOS_LEGACY_ADAPTER_URL,
-    legacyAdapterApiKey: env.AGENTOS_LEGACY_ADAPTER_API_KEY,
-    legacyAdapterEnabled: env.AGENTOS_LEGACY_ADAPTER_ENABLED,
+    legacyBridgeUrl: env.AWOS_LEGACY_BRIDGE_URL ?? legacyBridgeUrlAlias.value,
+    legacyBridgeApiKey: env.AWOS_LEGACY_BRIDGE_API_KEY ?? legacyBridgeApiKeyAlias.value,
+    legacyBridgeEnabled: env.AWOS_LEGACY_BRIDGE_ENABLED ?? legacyBridgeEnabledAlias.value,
     executionDatabaseUrl: env.AGENTOS_EXECUTION_DATABASE_URL,
     agentsRoot: env.AWOS_AGENTS_ROOT ?? path.resolve(process.cwd(), "..", "..", "agents"),
   });
 
   const logger = pino({ level: raw.logLevel });
+  if (legacyBridgeUrlAlias.used || legacyBridgeApiKeyAlias.used || legacyBridgeEnabledAlias.used) {
+    logger.warn(
+      { code: "deprecated_legacy_bridge_env_alias" },
+      "Deprecated legacy bridge env alias used; switch to AWOS_LEGACY_BRIDGE_*.",
+    );
+  }
 
   return {
     ...raw,

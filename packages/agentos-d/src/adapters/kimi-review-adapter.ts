@@ -1,7 +1,7 @@
 /**
- * KimiReviewAdapter — CEO auto-review of BE/FE submissions.
+ * KimiReviewAdapter — ReviewAgent auto-review of BE/FE submissions.
  *
- * Triggered when an issue lands at status=review with assignee=CEO. The
+ * Triggered when an issue lands at status=review with assignee=ReviewAgent. The
  * adapter:
  *   1. Loads the issue body's pass/fail checklist + the assignee's
  *      "Ready for review" close comment + the assignee role's AGENTS.md
@@ -24,15 +24,21 @@ import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import type Database from "better-sqlite3";
 import type { AgentAdapter, AdapterInput, AdapterOutcome } from "../services/dispatch-consumer.js";
+import { loadAwosProviderKey } from "./awos-secrets.js";
+import { runSafeTestCommand } from "./safe-test-runner.js";
 
 const REPO_ROOT = process.env.AWOS_REPO_ROOT ?? process.cwd();
 const KIMI_BASE_URL = process.env.KIMI_BASE_URL ?? "https://api.moonshot.ai/v1";
 const KIMI_MODEL = process.env.KIMI_REVIEW_MODEL ?? process.env.KIMI_MODEL ?? "kimi-k2-turbo-preview";
+const AWOS_PROVIDER_PROFILE_PATH = process.env.AWOS_PROVIDER_PROFILE_PATH ?? `${process.env.HOME}/.agentworks/provider-profile.yaml`;
 const MAX_TURNS = Number(process.env.AWOS_REVIEW_MAX_TURNS ?? "25");
 const FILE_READ_CAP_BYTES = 100_000;
 const TEST_TIMEOUT_MS = 90_000;
 
-const CEO_AGENT_ID = "704c0f26-757a-4e4d-922f-3695895bc95c";
+const REVIEW_AGENT_ID = "d78ae419-ef4f-4e68-91b9-98405aa2b63f";
+const EXAMPLE_BACKEND_AGENT_ID = "00000000-0000-4000-8000-000000000004";
+const EXAMPLE_FRONTEND_AGENT_ID = "00000000-0000-4000-8000-000000000005";
+const EXAMPLE_PYTHON_AGENT_ID = "00000000-0000-4000-8000-000000000006";
 
 interface ResolvedIssue {
   id: string;
@@ -45,9 +51,11 @@ interface ResolvedIssue {
 }
 
 function loadKimiKey(): string {
-  const k = process.env.KIMI_API_KEY ?? process.env.MOONSHOT_API_KEY;
-  if (k) return k;
-  throw new Error("KIMI_API_KEY missing: set KIMI_API_KEY or MOONSHOT_API_KEY env var");
+  return loadAwosProviderKey({
+    envNames: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
+    providerProfilePath: AWOS_PROVIDER_PROFILE_PATH,
+    providerProfileName: "kimi",
+  });
 }
 
 const TOOL_DEFS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -166,11 +174,12 @@ export class KimiReviewAdapter implements AgentAdapter {
     if (issue.status !== "review") {
       return { status: "completed", summary: `kimi-review: skipped — status=${issue.status}` };
     }
-    if (issue.assigneeAgentId !== CEO_AGENT_ID) {
-      return { status: "completed", summary: `kimi-review: skipped — assignee is not CEO` };
+    if (issue.assigneeAgentId !== REVIEW_AGENT_ID) {
+      return { status: "completed", summary: `kimi-review: skipped — assignee is not ReviewAgent` };
     }
 
-    const reviewedRole = inferAssigneeRoleFromTitle(issue.title);
+    const closeComment = this.loadLatestCloseComment(issue.id);
+    const reviewedRole = inferAssigneeRoleFromTitle(issue.title, closeComment?.body ?? issue.description);
     if (!reviewedRole) {
       return {
         status: "failed",
@@ -180,15 +189,14 @@ export class KimiReviewAdapter implements AgentAdapter {
 
     this.log.info(`REVIEW start ${issue.identifier} title="${issue.title.slice(0, 50)}"`);
 
-    const closeComment = this.loadLatestCloseComment(issue.id);
-    const ceoMd = this.safeRead(path.join(this.repoRoot, "agents/ceo/AGENTS.md")) ?? "";
+    const reviewMd = this.safeRead(path.join(this.repoRoot, "agents/review/AGENTS.md")) ?? "";
     const reviewedAgentMd =
       this.safeRead(path.join(this.repoRoot, `agents/${reviewedRole.agentsDir}/AGENTS.md`)) ?? "";
     const repoMd = this.safeRead(path.join(this.repoRoot, "CLAUDE.md")) ?? "";
     const gateMd = this.safeRead(path.join(this.repoRoot, "agents/_shared/CEO-REVIEW-GATE.md")) ?? "";
 
     const systemPrompt = [
-      "You are the CEO running the Operator UX v2 review gate against a submission from a BE or FE engineer.",
+      "You are ReviewAgent running the Operator UX v2 review gate against a submission from a BE or FE engineer.",
       "Your job: verify the submission against the issue body's pass/fail checklist AND the engineer's AGENTS.md quality bar.",
       "",
       "## Workflow",
@@ -206,10 +214,10 @@ export class KimiReviewAdapter implements AgentAdapter {
       "## Engineer's AGENTS.md (the quality bar this submission must meet)",
       reviewedAgentMd,
       "",
-      "## Your CEO AGENTS.md (review responsibilities)",
-      ceoMd,
+      "## Review responsibilities",
+      reviewMd,
       "",
-      "## CEO review gate (close-comment lifecycle)",
+      "## Review gate (close-comment lifecycle)",
       gateMd,
       "",
       "## Repo conventions (CLAUDE.md)",
@@ -217,7 +225,7 @@ export class KimiReviewAdapter implements AgentAdapter {
     ].join("\n");
 
     const userPrompt = [
-      `# Issue ${issue.identifier} (status=review, assignee=CEO)`,
+      `# Issue ${issue.identifier} (status=review, assignee=ReviewAgent)`,
       `Title: ${issue.title}`,
       "",
       "## Engineer's close comment (\"Ready for review\")",
@@ -438,30 +446,7 @@ export class KimiReviewAdapter implements AgentAdapter {
     const abs = this.absInRepo(rel);
     if (!abs) return `error: invalid package_dir "${rel}"`;
     if (!existsSync(abs)) return `error: package_dir not found: ${rel}`;
-    return await new Promise((resolve) => {
-      const args = ["vitest", "run", "--reporter=basic"];
-      if (testFile) args.push(testFile);
-      const proc = spawn("npx", args, { cwd: abs, env: { ...process.env, CI: "1" } });
-      let out = "";
-      let bytes = 0;
-      const cap = (chunk: Buffer) => {
-        bytes += chunk.length;
-        if (bytes < 12_000) out += chunk.toString("utf8");
-      };
-      proc.stdout.on("data", cap);
-      proc.stderr.on("data", cap);
-      let killed = false;
-      const timer = setTimeout(() => {
-        killed = true;
-        proc.kill("SIGKILL");
-      }, TEST_TIMEOUT_MS);
-      proc.on("close", (code) => {
-        clearTimeout(timer);
-        const verdict = killed ? "TIMED_OUT" : code === 0 ? "PASS" : "FAIL";
-        const tail = out.split("\n").slice(-60).join("\n");
-        resolve(`run_test: ${verdict} (exit=${code ?? "killed"})\n--- tail ---\n${tail}`);
-      });
-    });
+    return await runSafeTestCommand({ cwd: abs, testFile, timeoutMs: TEST_TIMEOUT_MS });
   }
 
   private absInRepo(rel: string): string | null {
@@ -589,9 +574,19 @@ export class KimiReviewAdapter implements AgentAdapter {
   }
 }
 
-function inferAssigneeRoleFromTitle(title: string): { agentsDir: string; agentId: string } | null {
-  if (title.startsWith("[BackendEngineer]")) return { agentsDir: "backend", agentId: "d02218d7-7ace-4493-9303-e6e998f9368d" };
-  if (title.startsWith("[FrontendEngineer]")) return { agentsDir: "frontend", agentId: "be1ae040-7cf8-42ff-8d0f-f036ed32ab95" };
-  if (title.startsWith("[PythonEngineer]")) return { agentsDir: "python", agentId: "51d8f54b-2f0b-4cfa-a156-c856cde5e4b4" };
+function inferAssigneeRoleFromTitle(title: string, body = ""): { agentsDir: string; agentId: string } | null {
+  if (title.startsWith("[BackendEngineer]")) return { agentsDir: "backend", agentId: EXAMPLE_BACKEND_AGENT_ID };
+  if (title.startsWith("[FrontendEngineer]")) return { agentsDir: "frontend", agentId: EXAMPLE_FRONTEND_AGENT_ID };
+  if (title.startsWith("[PythonEngineer]")) return { agentsDir: "python", agentId: EXAMPLE_PYTHON_AGENT_ID };
+  if (body.includes("packages/admin-ui/")) return { agentsDir: "frontend", agentId: EXAMPLE_FRONTEND_AGENT_ID };
+  if (body.includes("packages/scanner-worker/")) return { agentsDir: "python", agentId: EXAMPLE_PYTHON_AGENT_ID };
+  if (
+    body.includes("packages/agentos-d/") ||
+    body.includes("packages/memory/") ||
+    body.includes("packages/policy-engine/") ||
+    body.includes("packages/shared/")
+  ) {
+    return { agentsDir: "backend", agentId: EXAMPLE_BACKEND_AGENT_ID };
+  }
   return null;
 }

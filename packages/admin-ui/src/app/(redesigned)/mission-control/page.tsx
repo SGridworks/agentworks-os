@@ -16,6 +16,7 @@ import {
 import { V2Shell, FilterBar } from '@/components/v2/shell';
 import { StatusDot, StatusPill } from '@/components/v2/primitives';
 import { useV2Nav } from '@/components/v2/nav';
+import MorningBrief from '@/components/v2/morning-brief';
 import { Plus, Zap } from 'lucide-react';
 
 const POLL_MS = 5000;
@@ -49,7 +50,7 @@ export default function MissionControlV2() {
         const t = tenants[0];
         if (!t) {
           if (!cancelled) {
-            setTopError('No tenants registered. Run onboarding to create one.');
+            setTopError('No tenants found. Create your first tenant to get started.');
             setTenant(null);
             setTiles([]);
           }
@@ -121,6 +122,8 @@ export default function MissionControlV2() {
       <div className="page-scroll">
         <div className="poll-bar" />
 
+        {tenant && <MorningBrief tenantId={tenant.id} onNav={(path) => router.push(path)} />}
+
         <div className="pageheader">
           <div>
             <div className="eyebrow accent" style={{ marginBottom: 8 }}>
@@ -145,7 +148,27 @@ export default function MissionControlV2() {
 
         {topError && (
           <div style={{ margin: '0 28px 16px' }}>
-            <StatusPill kind="error">{topError}</StatusPill>
+            {tenant ? (
+              <StatusPill kind="error">{topError}</StatusPill>
+            ) : (
+              <div className="flex items-center justify-between rounded-lg border border-dashed border-border p-6 bg-muted/20">
+                <div className="flex items-center gap-3">
+                  <StatusDot kind="muted" />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">No tenant configured</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Create a tenant to start using AgentWorks OS
+                    </p>
+                  </div>
+                </div>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => router.push('/onboarding')}
+                >
+                  Create Tenant
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -303,6 +326,8 @@ function CompanyTile({ tile, onOpen }: { tile: CompanyTile; onOpen: () => void }
   return (
     <div
       className="card"
+      data-testid="company-card"
+      data-company-name={company.name}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       onClick={onOpen}

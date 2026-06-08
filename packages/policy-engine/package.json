@@ -1,6 +1,6 @@
 {
   "name": "@agentworks/policy-engine",
-  "version": "0.1.9",
+  "version": "0.3.0-alpha.0",
   "description": "YAML rule pack loader and evaluator for AgentWorks OS compliance engine",
   "type": "module",
   "main": "./dist/index.js",
@@ -14,6 +14,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "validate:pack": "tsx src/validate-pack.ts",
     "test": "vitest run"
   },
   "dependencies": {

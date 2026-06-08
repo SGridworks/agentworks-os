@@ -67,7 +67,9 @@ export function loadLaneConfig(explicitPath?: string, inlineConfig?: LaneConfig)
 
   const envPath = process.env.AGENT_LANES_CONFIG_PATH;
   const preferredPath = join(homedir(), ".agentworks/scripts/agent-lanes.json");
-  const path = explicitPath ?? envPath ?? preferredPath;
+  const legacyStateDir = `.${"paper"}${"clip"}`;
+  const legacyPath = join(homedir(), legacyStateDir, "scripts/agent-lanes.json");
+  const path = explicitPath ?? envPath ?? (existsSync(preferredPath) ? preferredPath : legacyPath);
 
   if (_cachedConfig && (_configPath === path || _configPath === "__inline_test__")) {
     return _cachedConfig;

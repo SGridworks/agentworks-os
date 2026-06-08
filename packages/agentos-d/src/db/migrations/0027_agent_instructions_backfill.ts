@@ -1,9 +1,8 @@
 /**
  * Migration 0027: backfill instructions_path from on-disk agents/<role>/AGENTS.md.
  *
- * Agents imported from a legacy system kept only their adapter type and
- * source id — the link to their prompt file (AGENTS.md) was never set. The
- * Agents detail
+ * Agents imported from a legacy source kept only their adapter type and source id -
+ * the link to their prompt file (AGENTS.md) was never set. The Agents detail
  * page therefore showed dashes for every config field. We resolve the prompt
  * file by role: if `agents/<role>/AGENTS.md` exists relative to AWOS_AGENTS_ROOT,
  * we set `instructions_path = "<role>/AGENTS.md"`. Idempotent: only writes when

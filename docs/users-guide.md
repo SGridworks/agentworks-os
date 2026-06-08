@@ -207,10 +207,12 @@ If `docker ps` cannot connect, start Docker before installing.
 Run the installer on the machine that will host AgentWorks OS:
 
 ```bash
-curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.9/install.sh | bash
+curl -fsSL https://get.agentworks.os/install.sh | bash
 ```
 
-The installer creates `~/.agentworks/`, generates secrets, starts services, and creates the first tenant.
+The installer creates `~/.agentworks/`, generates secrets, starts services, creates the first tenant, and prints the admin URL and temporary password.
+
+Save the temporary password immediately.
 
 ### Verify Services
 
@@ -222,7 +224,7 @@ Expected services:
 
 | Service | Purpose | Default port |
 |---|---|---|
-| `agentos-d` | Main daemon, REST API, MCP | 7710 |
+| `agentos-d` | Main daemon, REST API, MCP, admin surface | 7710 |
 | `scanner-worker` | Security scanner | 3101 |
 | `n8n` | Workflow automation | 5678 |
 
@@ -232,26 +234,39 @@ Check daemon health:
 curl http://localhost:7710/api/health
 ```
 
-### Admin UI Status
+### Open the Admin UI
 
-v0.1.x does not start the Admin UI from the default Docker Compose stack.
-Use REST/MCP flows for a default install, or run the `admin-ui` package
-separately if you are testing the UI.
+Open:
 
-### Tenant Setup
+```text
+http://localhost:7710
+```
 
-The Admin UI package includes an onboarding wizard when you run it separately.
-For the default v0.1.x compose stack, use the REST API and MCP setup docs.
+Log in with:
 
-Set up:
+- Username: `admin`
+- Password: the temporary password printed by the installer
+
+If your install prints a different host or port, use the printed URL.
+
+### Complete Onboarding
+
+The onboarding wizard has five steps:
+
+1. Welcome.
+2. Tenant details.
+3. Rule pack selection.
+4. Editor pairing.
+5. Launch.
+
+During onboarding, choose:
 
 - Company or tenant name.
 - Optional description.
 - Starting rule pack mode: blank, minimal, or standard.
 - Which local editors or agent clients should receive an AgentWorks MCP entry.
 
-The installer creates the first tenant and vault directory. You can create
-additional tenants with `POST /api/tenants`.
+On launch, AgentWorks OS creates the tenant, creates the vault directory, assigns the selected starter pack if applicable, and writes a marker file into the vault.
 
 ### Connect Agents
 
@@ -259,11 +274,11 @@ AgentWorks OS exposes MCP tools and REST endpoints. Use MCP for interactive agen
 
 #### Claude Desktop
 
-Add an `agentworks` MCP server entry to the Claude Desktop config and restart Claude Desktop. See [MCP Integration](./mcp-integration.md) for the current config shape.
+Use the onboarding wizard where possible. For manual setup, add an `agentworks` MCP server entry to the Claude Desktop config and restart Claude Desktop. See [MCP Integration](./mcp-integration.md) for the current config shape.
 
 #### Cursor
 
-Add the AgentWorks MCP server from Cursor's MCP settings, then restart Cursor.
+Add the AgentWorks MCP server from Cursor's MCP settings or through the onboarding wizard, then restart Cursor.
 
 #### Codex
 
@@ -311,10 +326,7 @@ Expected result: a JSON response with a policy decision.
 
 ---
 
-## 5. Admin UI Package Guide
-
-This section applies only when you run the `admin-ui` package separately.
-The default v0.1.x Docker Compose stack does not start it.
+## 5. Admin UI Guide
 
 ### Mission Control
 
@@ -849,7 +861,7 @@ Fix docs.
 Good issue:
 
 ```text
-Expand docs/users-guide.md to cover setup, daily operation, vault hygiene, and agent orchestration. Keep customer-facing vocabulary. Verify no internal substrate names appear. Acceptance: guide includes setup, UI tour, vault routine, rule pack workflow, approvals, orchestration, maintenance, and troubleshooting.
+Update the onboarding checklist so new approvers know how to review routed SMS actions. Include the approval criteria, where to find policy evidence, and the verification step. Acceptance: checklist covers setup, daily review, escalation, and audit evidence.
 ```
 
 ### Auto-Assignment
@@ -1230,7 +1242,7 @@ Review:
 
 | Symptom | First check |
 |---|---|
-| Admin UI will not load | Confirm you started the `admin-ui` package separately; the default compose stack does not run it |
+| Admin UI will not load | `curl http://localhost:7710/api/health` |
 | Daemon is down | `docker compose -f ~/.agentworks/docker-compose.yml ps` |
 | Agent cannot read vault | Confirm MCP config, restart agent client, test `memory.hot` |
 | Policy checks all allow | Confirm rule packs are assigned and enforcing |

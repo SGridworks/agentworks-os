@@ -25,7 +25,7 @@ Other packages may import:
 ## Relevant LEARNINGS
 
 - §4 — Schema drift without migrations. AWCP schema changes need a migration in agentos-d.
-- §6 — Repo-boundary violations. AWCP is a NEW package, not a fork of paperclip's types.
+- §6 — Repo-boundary violations. AWCP is a NEW package, not a fork of upstream runtime types.
 
 
 ---

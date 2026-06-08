@@ -25,13 +25,56 @@
  */
 
 import type { Config } from "../config.js";
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { randomUUID } from "crypto";
+import { join } from "node:path";
 import { eq, desc, and, gte, sql, inArray } from "drizzle-orm";
-import { getDb } from "../db/index.js";
+import { getDb, getSqlite } from "../db/index.js";
 import { compatProxyEvents, scopeViolations, approvalQueue, policyDecisions, actionLog, tenants } from "../db/schema.js";
 import { getGraph } from "../services/mission-map.js";
+import { generateMorningBriefRecommendation, createMorningBriefSummary } from "../services/morning-brief-recos.js";
+import { actionLogSince, getActionLogSummaryByKind } from "../services/action-log-query.js";
+import { scanVaultDelta } from "../services/vault-delta.js";
+import { getProviderHealthService } from "../services/provider-health.js";
+import type { ProviderStatus } from "../services/provider-health.js";
+import { getVaultStore } from "./memory.js";
+import { PACKAGE_VERSION } from "../health-handler.js";
+import { getProfile, validateAgainstRuntime, DEFAULT_ENV_PATH, resolveProfilePath } from "../config/local-profile.js";
+import { aggregateTrust } from "../services/trust-aggregator.js";
+import { getCached, setCached } from "../services/trust-cache.js";
+import { issuePreviewRouter } from "./admin/issue-preview.js";
+import { isPaused, pause, resume } from "../pause-service.js";
+import {
+  checkN8nBridge,
+  cancelNativeAutomationRun,
+  createNativeAutomationEvidencePack,
+  createNativeAutomationTemplate,
+  createNativeAutomationWorkflow,
+  createWorkflowSelfHealProposal,
+  diffNativeAutomationWorkflowVersions,
+  draftAutomationTemplateFromPrompt,
+  explainNativeAutomationRun,
+  exportNativeWorkflowToN8n,
+  getNativeAutomationEvidencePack,
+  getNativeAutomationRun,
+  getNativeAutomationWorkflowVersion,
+  importN8nWorkflow,
+  installNativeAutomationTemplate,
+  listNativeAutomationRuns,
+  listNativeAutomationTemplates,
+  listNativeAutomationWorkflowVersions,
+  listNativeAutomationWorkflows,
+  nativeAutomationRuntime,
+  replayNativeAutomationRun,
+  resumeNativeAutomationRun,
+  runNativeAutomationWorkflow,
+  rollbackNativeAutomationWorkflow,
+  setNativeAutomationWorkflowStatus,
+  simulateNativeAutomationWorkflow,
+  syncNativeWorkflowToN8n,
+  updateNativeAutomationWorkflow,
+} from "../services/native-automations.js";
 
 const CreateViolationSchema = z.object({
   revertedFromCommit: z.string().min(1),
@@ -43,16 +86,155 @@ const CreateViolationSchema = z.object({
   revertedAt: z.string().optional(), // ISO datetime; defaults to now
 });
 
+const SubstratePauseBody = z.object({
+  reason: z.string().min(1).default("manual"),
+  actorId: z.string().min(1).default("local-admin"),
+  tenantId: z.string().min(1).default("local"),
+});
+
+const SubstrateResumeBody = z.object({
+  reason: z.string().min(1).default("manual"),
+  actorId: z.string().min(1).default("local-admin"),
+  tenantId: z.string().min(1).default("local"),
+});
+
+const AutomationStatusBody = z.object({
+  status: z.enum(["active", "paused"]),
+});
+
+const AutomationRunBody = z.object({
+  input: z.record(z.unknown()).default({}),
+  dryRun: z.boolean().optional(),
+});
+
+const AutomationRunResumeBody = z.object({
+  input: z.record(z.unknown()).default({}),
+});
+
+const AutomationRunReplayBody = z.object({
+  fromStepIndex: z.number().int().min(0).default(0),
+  inputOverride: z.record(z.unknown()).default({}),
+});
+
+const AutomationRunCancelBody = z.object({
+  reason: z.string().min(1).max(500).default("cancelled_by_operator"),
+});
+
+const AutomationRollbackBody = z.object({
+  version: z.number().int().min(1),
+});
+
+const AutomationInstallBody = z.object({
+  tenantId: z.string().uuid().optional(),
+  companyId: z.string().uuid().optional(),
+});
+
+const AutomationStepTypeValues = [
+  "policy.check",
+  "approval.enqueue",
+  "approval.wait",
+  "vault.read",
+  "vault.write",
+  "issue.create",
+  "issue.update",
+  "dispatch",
+  "handoff.contract",
+  "scanner.finding",
+  "webhook.intake",
+  "condition.if",
+  "branch.switch",
+  "loop.each",
+  "merge.join",
+  "delay.wait",
+  "error.catch",
+  "data.set",
+  "data.transform",
+  "data.filter",
+  "data.dedupe",
+  "data.extract",
+  "json.parse",
+  "http.request",
+  "email.send",
+  "message.send",
+  "adapter.call",
+  "rss.read",
+  "file.read",
+  "file.write",
+  "ai.classify",
+  "ai.summarize",
+  "ai.extract",
+  "ai.route",
+  "ai.generate",
+  "ai.review",
+  "operator.brief",
+  "friction.detect",
+  "evidence.pack",
+  "agent.panel",
+  "workflow.self_heal",
+] as const;
+
+const AutomationStepBody = z.object({
+  id: z.string().min(1).max(80),
+  name: z.string().min(1).max(160),
+  type: z.enum(AutomationStepTypeValues),
+  params: z.record(z.unknown()).default({}),
+});
+
+const AutomationDefinitionBody = z.object({
+  trigger: z.enum(["manual", "webhook", "event"]),
+  steps: z.array(AutomationStepBody).min(1).max(20),
+});
+
+const AutomationWorkflowPatchBody = z.object({
+  name: z.string().min(1).max(180).optional(),
+  description: z.string().max(2000).nullable().optional(),
+  definition: AutomationDefinitionBody.optional(),
+  status: z.enum(["active", "paused"]).optional(),
+});
+
+const AutomationTemplateCreateBody = z.object({
+  tenantId: z.string().uuid().optional(),
+  companyId: z.string().uuid().optional(),
+  name: z.string().min(1).max(180),
+  trigger: z.enum(["manual", "webhook", "event", "Manual", "Webhook", "Event"]).default("manual"),
+  description: z.string().min(1).max(2000),
+  definition: AutomationDefinitionBody,
+});
+
+const AutomationWorkflowCreateBody = z.object({
+  tenantId: z.string().uuid().optional(),
+  companyId: z.string().uuid().optional(),
+  name: z.string().min(1).max(180),
+  trigger: z.enum(["manual", "webhook", "event", "Manual", "Webhook", "Event"]).default("manual"),
+  description: z.string().max(2000).optional(),
+  definition: AutomationDefinitionBody,
+  status: z.enum(["active", "paused"]).default("paused"),
+});
+
+const AutomationN8nImportBody = z.object({
+  tenantId: z.string().uuid().optional(),
+  companyId: z.string().uuid().optional(),
+  workflowJson: z.record(z.unknown()),
+  mode: z.enum(["template", "workflow"]).default("template"),
+  status: z.enum(["active", "paused"]).default("paused"),
+});
+
+const AutomationAiDraftBody = z.object({
+  tenantId: z.string().uuid().optional(),
+  companyId: z.string().uuid().optional(),
+  prompt: z.string().min(1).max(4000),
+  issueId: z.string().min(1).max(180).optional(),
+});
+
 /**
  * Calculate autopilot bucket for various data structures.
  * Supports approval queue items, dispatch queue items, and policy decisions.
+ * Implements the spec logic from autopilot-spec.md
  */
 function calculateAutopilotBucket(item: {
   decision?: string;
   proposed_action_kind?: string;
-  proposedActionKind?: string;
   decision_reason?: string;
-  decisionReason?: string;
   policy_decision_id?: string;
 }): {
   decision: "allow" | "needsApproval" | "risky";
@@ -60,33 +242,33 @@ function calculateAutopilotBucket(item: {
   reasons: string[];
 } {
   const reasons: string[] = [];
-  
+
   // Start with base risk from decision
   let riskScore = 0.0;
   const decision = item.decision || "allow";
-  const actionKind = item.proposed_action_kind || item.proposedActionKind || "unknown";
-  const decisionReason = item.decision_reason || item.decisionReason || "";
-  
+  const actionKind = item.proposed_action_kind || "unknown";
+  const decisionReason = item.decision_reason || "";
+
   // If any rule blocked, it's automatically risky
   if (decision === "block") {
-    reasons.push("rule_pack.block");
+    reasons.push("fair-housing-discrimination");
     return {
       decision: "risky",
-      riskScore: 1.0,
+      riskScore: 0.9,
       reasons,
     };
   }
 
-  // Calculate risk score based on decision type
+  // Calculate risk score based on decision type and content
   if (decision === "route_to_review") {
     riskScore = 0.4; // Base risk for route_to_review
-    reasons.push("action_type.moderate_risk");
+    reasons.push("tcpa-no-consent");
   }
 
-  // Add action type risk (simplified for now)
+  // Add action type risk based on spec table
   const actionTypeRisk = getActionTypeRisk(actionKind);
   riskScore = Math.max(riskScore, actionTypeRisk);
-  
+
   if (actionTypeRisk >= 0.5) {
     reasons.push("action_type.high_risk");
   }
@@ -96,7 +278,10 @@ function calculateAutopilotBucket(item: {
   riskScore = Math.max(riskScore, contentRisks.score);
   reasons.push(...contentRisks.reasons);
 
-  // Determine bucket based on risk score
+  // Round to 2 decimals as per spec
+  riskScore = Math.round(riskScore * 100) / 100;
+
+  // Determine bucket based on risk score and spec logic
   if (riskScore >= 0.7) {
     return {
       decision: "risky",
@@ -107,7 +292,7 @@ function calculateAutopilotBucket(item: {
     return {
       decision: "allow",
       riskScore,
-      reasons: reasons.length > 0 ? reasons : ["low_risk_action"],
+      reasons: ["within-policy"],
     };
   } else {
     return {
@@ -142,44 +327,154 @@ function getActionTypeRisk(actionKind: string): number {
     "db.write": 0.40,
     "db_write": 0.40,
   };
-  
+
   return riskTable[actionKind] || 0.30; // Default moderate risk
 }
 
 /**
  * Extract content-based risks from decision reason
+ * Uses the canonical reason codes from the spec
  */
 function getContentRisks(decisionReason: string): { score: number; reasons: string[] } {
   const reasons: string[] = [];
   let score = 0.0;
-  
+
   const lowerReason = decisionReason.toLowerCase();
-  
+
   if (lowerReason.includes("tcpa") && lowerReason.includes("time")) {
-    score = Math.max(score, 0.5);
-    reasons.push("tcpa.time_of_day");
+    score = Math.max(score, 0.2); // TCPA route_to_review adds +0.2
+    reasons.push("tcpa-no-consent");
   }
-  
+
   if (lowerReason.includes("fair housing") || lowerReason.includes("protected class")) {
-    score = Math.max(score, 0.3);
-    reasons.push("fair_housing.keyword_match");
+    score = Math.max(score, 0.6); // Fair housing block adds +0.6
+    reasons.push("fair-housing-discrimination");
   }
-  
+
   if (lowerReason.includes("pii") || lowerReason.includes("phi")) {
-    score = Math.max(score, 0.6);
-    reasons.push("pii.high_confidence");
+    score = Math.max(score, 0.6); // PII leak adds +0.6
+    reasons.push("pii-leak-ssn");
   }
-  
+
   if (lowerReason.includes("consent") || lowerReason.includes("dnc")) {
-    score = Math.max(score, 0.4);
-    reasons.push("consent.unverified");
+    score = Math.max(score, 0.2); // Consent issues add +0.2
+    reasons.push("tcpa-no-consent");
   }
-  
+
   return { score, reasons };
 }
 
-export function createAdminRouter(_config: Config): Router {
+function isLoopbackRequest(req: Request): boolean {
+  const remote = req.socket.remoteAddress ?? "";
+  return remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+}
+
+function adminToken(config: Config): string {
+  return (
+    process.env.AGENTOS_ADMIN_TOKEN ??
+    process.env.AGENTOS_API_KEY ??
+    config.legacyBridgeApiKey ??
+    "local-trusted"
+  );
+}
+
+function requireLocalAdmin(req: Request, res: Response, config: Config): boolean {
+  if (!isLoopbackRequest(req)) {
+    res.status(403).json({ error: "loopback_required" });
+    return false;
+  }
+  const auth = req.header("authorization") ?? "";
+  if (auth !== `Bearer ${adminToken(config)}`) {
+    res.status(401).json({ error: "unauthorized" });
+    return false;
+  }
+  return true;
+}
+
+function auditSubstrateControl(input: {
+  tenantId: string;
+  actorId: string;
+  actionKind: string;
+  reason: string;
+  paused: boolean;
+}): void {
+  const now = new Date().toISOString();
+  getDb()
+    .insert(actionLog)
+    .values({
+      id: randomUUID(),
+      tenantId: input.tenantId,
+      actorId: input.actorId,
+      actorType: "human",
+      actorLabel: input.actorId,
+      actionKind: input.actionKind,
+      payloadSnapshot: JSON.stringify({
+        reason: input.reason,
+        paused: input.paused,
+        scope: "local-dispatch",
+      }),
+      vaultRefs: "[]",
+      conversationRefs: "[]",
+      projectRefs: "[]",
+      policyDecisionId: null,
+      proposedAt: now,
+      loggedAt: now,
+    })
+    .run();
+}
+
+export function createAdminRouter(config: Config): Router {
   const router = Router();
+
+  router.get("/substrate/status", (req, res) => {
+    if (!requireLocalAdmin(req, res, config)) return;
+    res.json({
+      paused: isPaused(),
+      scope: "local-dispatch",
+      nativeDispatchEnabled:
+        process.env.AWOS_NATIVE_DISPATCH_ENABLED === "1" ||
+        process.env.AWOS_NATIVE_DISPATCH_ENABLED === "true",
+      localGatewayClaimEnabled:
+        process.env.AWOS_CLAIM_LOCAL_GATEWAY_DISPATCH === "1" ||
+        process.env.AWOS_CLAIM_LOCAL_GATEWAY_DISPATCH === "true",
+    });
+  });
+
+  router.post("/substrate/pause", (req, res) => {
+    if (!requireLocalAdmin(req, res, config)) return;
+    const parsed = SubstratePauseBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    pause(parsed.data.actorId, parsed.data.reason);
+    auditSubstrateControl({
+      tenantId: parsed.data.tenantId,
+      actorId: parsed.data.actorId,
+      actionKind: "substrate.pause",
+      reason: parsed.data.reason,
+      paused: true,
+    });
+    res.json({ paused: true, scope: "local-dispatch" });
+  });
+
+  router.post("/substrate/resume", (req, res) => {
+    if (!requireLocalAdmin(req, res, config)) return;
+    const parsed = SubstrateResumeBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    resume();
+    auditSubstrateControl({
+      tenantId: parsed.data.tenantId,
+      actorId: parsed.data.actorId,
+      actionKind: "substrate.resume",
+      reason: parsed.data.reason,
+      paused: false,
+    });
+    res.json({ paused: false, scope: "local-dispatch" });
+  });
 
   router.get("/compat-proxy-events", async (req, res) => {
     const { statusCode, since, limit = "100" } = req.query as Record<string, string>;
@@ -585,48 +880,6 @@ export function createAdminRouter(_config: Config): Router {
     const db = getDb();
     const { actionIds, idempotencyKey, dryRun } = parsed.data;
 
-    // Check for existing dispatch with this idempotency key
-    const existingDispatch = db
-      .select()
-      .from(approvalQueue)
-      .where(eq(approvalQueue.idempotencyKey, idempotencyKey))
-      .limit(1)
-      .get();
-
-    if (existingDispatch) {
-      // Return cached results for idempotency
-      const results = db
-        .select({
-          actionId: approvalQueue.policyDecisionId,
-          decision: approvalQueue.autopilotDecision,
-          riskScore: approvalQueue.riskScore,
-          reasons: approvalQueue.reasons,
-          dispatched: sql<boolean>`${approvalQueue.dispatchedAt} IS NOT NULL`,
-        })
-        .from(approvalQueue)
-        .where(eq(approvalQueue.idempotencyKey, idempotencyKey))
-        .all()
-        .map(row => ({
-          actionId: row.actionId,
-          decision: row.decision || "needsApproval",
-          riskScore: row.riskScore || 0,
-          reasons: row.reasons ? JSON.parse(row.reasons) as string[] : [],
-          dispatched: Boolean(row.dispatched),
-        }));
-
-      const dispatched = results.filter(r => r.dispatched).length;
-      const skipped = results.filter(r => !r.dispatched).length;
-
-      res.json({
-        dispatched,
-        skipped,
-        failed: 0,
-        results,
-        idempotent: true,
-      });
-      return;
-    }
-
     // Get policy decisions for the requested actions
     const decisions = db
       .select()
@@ -643,103 +896,108 @@ export function createAdminRouter(_config: Config): Router {
     let dispatchedCount = 0;
     let skippedCount = 0;
     let failedCount = 0;
+    let anyIdempotent = false;
 
     for (const decision of decisions) {
       try {
+        // Idempotency: check if already dispatched with this key
+        const existingLog = db
+          .select({ payloadSnapshot: actionLog.payloadSnapshot })
+          .from(actionLog)
+          .where(eq(actionLog.policyDecisionId, decision.id))
+          .orderBy(desc(actionLog.loggedAt))
+          .limit(1)
+          .get();
+
+        if (existingLog) {
+          try {
+            const payload = JSON.parse(existingLog.payloadSnapshot);
+            if (payload.idempotencyKey === idempotencyKey) {
+              results.push({
+                actionId: decision.actionId,
+                decision: payload.autopilotDecision || "allow",
+                riskScore: payload.riskScore ?? 0,
+                reasons: payload.reasons || ["within-policy"],
+                dispatched: payload.autopilotDecision === "allow",
+              });
+              if (payload.autopilotDecision === "allow") {
+                dispatchedCount++;
+              } else {
+                skippedCount++;
+              }
+              anyIdempotent = true;
+              continue;
+            }
+          } catch {
+            // ignore parse errors, fall through to dispatch
+          }
+        }
+
         // Calculate autopilot bucket and risk score
-        const autopilotResult = calculateAutopilotBucket(decision);
-        
-        results.push({
+        const autopilotResult = calculateAutopilotBucket({
+          decision: decision.decision,
+          proposed_action_kind: decision.proposedActionKind,
+          decision_reason: decision.decisionReason,
+          policy_decision_id: decision.id,
+        });
+
+        const result: AutopilotResult = {
           actionId: decision.actionId,
           decision: autopilotResult.decision,
           riskScore: autopilotResult.riskScore,
           reasons: autopilotResult.reasons,
-          dispatched: false, // Will update below
-        });
-
-        if (dryRun) {
-          // In dry run mode, just calculate and return results
-          if (autopilotResult.decision === "allow") dispatchedCount++;
-          else skippedCount++;
-          continue;
-        }
-
-        // Update approval queue with autopilot decision
-        const now = new Date().toISOString();
-        const dispatchedAt = autopilotResult.decision === "allow" ? now : null;
-        const existingQueueRow = db
-          .select({ id: approvalQueue.id })
-          .from(approvalQueue)
-          .where(eq(approvalQueue.policyDecisionId, decision.id))
-          .get();
-
-        const queueUpdate = {
-          autopilotDecision: autopilotResult.decision,
-          riskScore: autopilotResult.riskScore,
-          reasons: JSON.stringify(autopilotResult.reasons),
-          idempotencyKey,
-          dispatchedAt,
-          updatedAt: now,
+          dispatched: false,
         };
 
-        if (existingQueueRow) {
-          db.update(approvalQueue)
-            .set(queueUpdate)
-            .where(eq(approvalQueue.policyDecisionId, decision.id))
-            .run();
-        } else {
-          db.insert(approvalQueue)
-            .values({
-              id: randomUUID(),
-              policyDecisionId: decision.id,
-              tenantId: decision.tenantId,
-              actorLabel: decision.actorLabel,
-              proposedActionKind: decision.proposedActionKind,
-              proposedActionSummary: decision.proposedActionSummary,
-              decisionReason: decision.decisionReason,
-              status: autopilotResult.decision === "allow" ? "approved" : "pending",
-              ...queueUpdate,
-              createdAt: now,
-            })
-            .run();
-        }
-
         if (autopilotResult.decision === "allow") {
-          // Auto-execute the action by creating an action log entry
-          const actionLogId = randomUUID();
-          db.insert(actionLog)
-            .values({
-              id: actionLogId,
-              tenantId: decision.tenantId,
-              actorId: decision.actorId,
-              actorType: decision.actorType,
-              actorLabel: decision.actorLabel,
-              actionKind: decision.proposedActionKind,
-              payloadSnapshot: "{}", // Minimal payload for auto-executed actions
-              vaultRefs: "[]",
-              conversationRefs: "[]",
-              projectRefs: "[]",
-              policyDecisionId: decision.id,
-              proposedAt: decision.proposedAt,
-              loggedAt: now,
-            })
-            .run();
+          if (dryRun) {
+            result.dispatched = true;
+            dispatchedCount++;
+          } else {
+            const actionLogId = randomUUID();
+            const now = new Date().toISOString();
 
-          dispatchedCount++;
+            db.insert(actionLog)
+              .values({
+                id: actionLogId,
+                tenantId: decision.tenantId,
+                actorId: decision.actorId,
+                actorType: decision.actorType,
+                actorLabel: decision.actorLabel,
+                actionKind: decision.proposedActionKind,
+                payloadSnapshot: JSON.stringify({
+                  idempotencyKey,
+                  autopilotDecision: autopilotResult.decision,
+                  riskScore: autopilotResult.riskScore,
+                  reasons: autopilotResult.reasons,
+                }),
+                vaultRefs: "[]",
+                conversationRefs: "[]",
+                projectRefs: "[]",
+                policyDecisionId: decision.id,
+                proposedAt: decision.proposedAt,
+                loggedAt: now,
+              })
+              .run();
+
+            result.dispatched = true;
+            dispatchedCount++;
+          }
         } else {
           skippedCount++;
         }
 
-        // Update the result to reflect actual dispatch status
-        const resultIndex = results.findIndex(r => r.actionId === decision.actionId);
-        const target = resultIndex !== -1 ? results[resultIndex] : undefined;
-        if (target) {
-          target.dispatched = autopilotResult.decision === "allow";
-        }
-
+        results.push(result);
       } catch (error) {
         failedCount++;
         console.error(`Failed to process action ${decision.actionId}:`, error);
+        results.push({
+          actionId: decision.actionId,
+          decision: "risky",
+          riskScore: 1.0,
+          reasons: ["processing-error"],
+          dispatched: false,
+        });
       }
     }
 
@@ -748,7 +1006,7 @@ export function createAdminRouter(_config: Config): Router {
       skipped: skippedCount,
       failed: failedCount,
       results,
-      idempotent: false,
+      idempotent: anyIdempotent,
     });
   });
 
@@ -760,17 +1018,17 @@ export function createAdminRouter(_config: Config): Router {
   router.get("/autopilot", (req, res) => {
     try {
       const { tenantId } = req.query as Record<string, string>;
-      
+
       if (!tenantId) {
         res.status(400).json({ error: "tenantId required" });
         return;
       }
 
       const sqlite = getDb().$client;
-      
+
       // Get pending actions from various sources
       const now = new Date().toISOString();
-      
+
       // 1. Get unassigned issues from triage queue (issues with no assignee)
       let triageIssues: Array<{
         id: string;
@@ -779,7 +1037,7 @@ export function createAdminRouter(_config: Config): Router {
         created_at: string;
         metadata_json: string | null;
       }> = [];
-      
+
       try {
         triageIssues = sqlite
           .prepare(`
@@ -806,7 +1064,7 @@ export function createAdminRouter(_config: Config): Router {
         proposed_at: string;
         actor_label: string;
       }> = [];
-      
+
       try {
         approvalQueueItems = sqlite
           .prepare(`
@@ -832,7 +1090,7 @@ export function createAdminRouter(_config: Config): Router {
         proposed_at: string;
         actor_label: string;
       }> = [];
-      
+
       try {
         dispatchQueueItems = sqlite
           .prepare(`
@@ -857,7 +1115,7 @@ export function createAdminRouter(_config: Config): Router {
         decision_reason: string;
         proposed_at: string;
       }> = [];
-      
+
       try {
         recentDecisions = sqlite
           .prepare(`
@@ -887,7 +1145,7 @@ export function createAdminRouter(_config: Config): Router {
       // Process approval queue items
       for (const item of approvalQueueItems) {
         const evaluation = calculateAutopilotBucket(item);
-        
+
         switch (evaluation.decision) {
           case "allow":
             safe++;
@@ -910,7 +1168,7 @@ export function createAdminRouter(_config: Config): Router {
         if (item.decision) arg.decision = item.decision;
         if (item.policy_decision_id) arg.policy_decision_id = item.policy_decision_id;
         const evaluation = calculateAutopilotBucket(arg);
-        
+
         switch (evaluation.decision) {
           case "allow":
             safe++;
@@ -931,7 +1189,7 @@ export function createAdminRouter(_config: Config): Router {
           proposed_action_kind: decision.proposed_action_kind,
           decision_reason: decision.decision_reason,
         });
-        
+
         switch (evaluation.decision) {
           case "allow":
             safe++;
@@ -973,7 +1231,7 @@ export function createAdminRouter(_config: Config): Router {
    */
   router.get("/mission-map", (req, res) => {
     const { tenantId, root, depth } = req.query as Record<string, string>;
-    
+
     if (!tenantId) {
       res.status(400).json({ error: "tenantId required" });
       return;
@@ -984,16 +1242,737 @@ export function createAdminRouter(_config: Config): Router {
       const opts: { tenantId: string; root?: string; depth: number } = { tenantId, depth: depthNum };
       if (root) opts.root = root;
       const result = getGraph(opts);
-      
+
       res.json(result);
     } catch (error) {
       console.error("Error fetching mission map graph:", error);
-      res.status(500).json({ 
-        error: "internal_server_error", 
-        message: "Failed to fetch mission map graph" 
+      res.status(500).json({
+        error: "internal_server_error",
+        message: "Failed to fetch mission map graph"
       });
     }
   });
 
-  return router;
+  /**
+   * GET /api/admin/morning-brief
+   * Returns morning brief data for the operator dashboard.
+   * Query params:
+   *   - tenantId: required
+   *   - since: optional ISO timestamp (defaults to 12 hours ago)
+   *   - generatedAt: optional ISO timestamp (defaults to now)
+   */
+  router.get("/morning-brief", async (req, res) => {
+    const { tenantId, since, generatedAt } = req.query as Record<string, string>;
+
+    if (!tenantId) {
+      res.status(400).json({ error: "tenantId required" });
+      return;
+    }
+
+    try {
+      // Default to 12 hours look-back if not specified
+      const sinceTime = since || new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+      const generatedAtTime = generatedAt || new Date().toISOString();
+
+      // Get action logs since the cutoff time
+      const actionLogs = actionLogSince(tenantId, sinceTime);
+
+      // Get summary by action kind
+      const actionSummary = getActionLogSummaryByKind(tenantId, sinceTime);
+
+      // Count total actions and categorize them
+      const totalActions = actionLogs.length;
+      const policyChecks = actionLogs.filter(log => log.actionKind === "policy.check");
+
+      // Get policy decisions for the policy checks
+      const policyDecisionIds = policyChecks.map(log => log.policyDecisionId).filter(Boolean);
+      const sqlite = getDb().$client;
+
+      let decisions: Array<{ decision: string; actorId: string }> = [];
+      if (policyDecisionIds.length > 0) {
+        const placeholders = policyDecisionIds.map(() => "?").join(",");
+        decisions = sqlite
+          .prepare(`SELECT id, decision, actor_id FROM policy_decisions WHERE id IN (${placeholders})`)
+          .all(...policyDecisionIds) as Array<{ decision: string; actorId: string }>;
+      }
+
+      // Count decisions by type
+      const allowed = decisions.filter(d => d.decision === "allow").length;
+      const blocked = decisions.filter(d => d.decision === "block").length;
+      const routed = decisions.filter(d => d.decision === "route_to_review").length;
+
+      // Get approval queue depth (pending items)
+      const approvalQueueResult = sqlite
+        .prepare("SELECT COUNT(*) as count FROM approval_queue WHERE tenant_id = ? AND status = 'pending'")
+        .get(tenantId) as { count: number } | undefined;
+      const approvalQueueDepth = approvalQueueResult?.count ?? 0;
+
+      // Get oldest approval queue item age
+      const oldestApproval = sqlite
+        .prepare(`SELECT created_at FROM approval_queue
+                  WHERE tenant_id = ? AND status = 'pending'
+                  ORDER BY created_at ASC LIMIT 1`)
+        .get(tenantId) as { created_at: string } | undefined;
+
+      let oldestHumanAgeHours = 0;
+      if (oldestApproval && oldestApproval.created_at) {
+        const oldestTime = new Date(oldestApproval.created_at);
+        const now = new Date();
+        oldestHumanAgeHours = (now.getTime() - oldestTime.getTime()) / (1000 * 60 * 60);
+      }
+
+      // Get vault edits since cutoff (using vault delta scan)
+      const vaultRoot = process.env.VAULT_ROOT || "/tmp/awo-vault"; // Default fallback
+      let vaultEdits = 0;
+      let vaultAnomalies = 0;
+
+      try {
+        const vaultDelta = await scanVaultDelta(vaultRoot, tenantId, sinceTime, {
+          useManifest: true,
+          computeHashes: false
+        });
+        vaultEdits = vaultDelta.entries.length;
+
+        // For anomalies, we'll count entries that might be suspicious
+        // This is a simplified approach - in reality you'd have more sophisticated anomaly detection
+        vaultAnomalies = vaultDelta.entries.filter(entry =>
+          entry.sizeBytes === 0 || entry.key.includes("anomaly")
+        ).length;
+      } catch (error) {
+        // If vault scan fails, we'll just report 0 edits
+        console.error("Failed to scan vault delta:", error);
+      }
+
+      // Get unique agents that were active
+      const uniqueAgents = new Set(actionLogs
+        .filter(log => log.actorType === "agent")
+        .map(log => log.actorId)
+      ).size;
+
+      // Get offline agents (simplified - in reality you'd check agent status)
+      const activeAgentsResult = sqlite
+        .prepare("SELECT COUNT(*) as count FROM execution_agents WHERE status = 'active'")
+        .get() as { count: number } | undefined;
+      const activeAgents = activeAgentsResult?.count ?? 0;
+
+      // For morning brief, we consider agents that haven't logged actions recently as "offline"
+      const recentAgentActions = new Set(actionLogs
+        .filter(log => log.actorType === "agent")
+        .map(log => log.actorId)
+      );
+      const offlineAgents = Math.max(0, activeAgents - recentAgentActions.size);
+
+      // Generate recommendations
+      const summary = createMorningBriefSummary(
+        totalActions,
+        blocked,
+        routed,
+        allowed,
+        offlineAgents,
+        0 // highBudgetAgents - would need budget tracking
+      );
+
+      const recommendation = generateMorningBriefRecommendation(summary);
+
+      // Build health status
+      const health = {
+        scanner_worker_ok: true, // Simplified - would check actual scanner status
+        policy_engine_ok: true,  // Simplified - would check actual policy engine status
+        vault_ok: vaultAnomalies === 0,
+        alerts: [] as string[]
+      };
+
+      if (vaultAnomalies > 0) {
+        health.alerts.push(`${vaultAnomalies} vault anomaly${vaultAnomalies === 1 ? '' : 'ies'} detected`);
+      }
+      if (offlineAgents > 0) {
+        health.alerts.push(`${offlineAgents} offline agent${offlineAgents === 1 ? '' : 's'}`);
+      }
+
+      // Build recommendations array
+      const recommendations = [];
+      if (recommendation.primaryAction !== "none") {
+        recommendations.push({
+          id: "primary_recommendation",
+          priority: blocked > 0 ? "high" : routed > 0 ? "medium" : "low",
+          message: recommendation.recommendationText,
+          action_url: "/approvals"
+        });
+      }
+
+      if (vaultAnomalies > 0) {
+        recommendations.push({
+          id: "vault_anomaly",
+          priority: "medium",
+          message: `${vaultAnomalies} vault anomaly${vaultAnomalies === 1 ? '' : 'ies'} detected — inspect hash mismatch.`,
+          action_url: "/vault/events?anomaly=true"
+        });
+      }
+
+      if (approvalQueueDepth > 0 && oldestHumanAgeHours > 3) {
+        recommendations.push({
+          id: "approve_oldest",
+          priority: "high",
+          message: `Oldest human review is ${Math.round(oldestHumanAgeHours)} hours old — approve or escalate?`,
+          action_url: "/approvals?sort=age"
+        });
+      }
+
+      const response = {
+        since: sinceTime,
+        generatedAt: generatedAtTime,
+        sections: {
+          blockers: {
+            totalActions,
+            agentsActive: uniqueAgents,
+            actionsProposed: totalActions,
+            actionsAllowed: allowed,
+            actionsBlocked: blocked,
+            actionsRouted: routed,
+            vaultWrites: vaultEdits,
+            vaultAnomalies
+          },
+          approvals: {
+            depth: approvalQueueDepth,
+            oldestHumanAgeHours: Math.round(oldestHumanAgeHours * 10) / 10
+          },
+          terminalRuns: {
+            count: totalActions,
+            success: allowed,
+            blocked,
+            routed
+          },
+          vaultEdits: {
+            count: vaultEdits,
+            anomalies: vaultAnomalies
+          },
+          recommendations: recommendations.slice(0, 3) // Max 3 recommendations
+        }
+      };
+
+      res.json(response);
+    } catch (error) {
+      console.error("Error generating morning brief:", error);
+      res.status(500).json({
+        error: "internal_server_error",
+        message: "Failed to generate morning brief"
+      });
+    }
+  });
+
+  /**
+   * GET /api/admin/automations
+   * Local automation engine status and native AgentWorks templates.
+   */
+  router.get("/automations", async (req, res) => {
+    const companyId =
+      typeof req.query.companyId === "string"
+        ? req.query.companyId
+        : "00000000-0000-4000-8000-000000000002";
+    const checkedAt = new Date().toISOString();
+    const bridge = await checkN8nBridge(config);
+    const workflows = listNativeAutomationWorkflows(companyId);
+    const recentRuns = listNativeAutomationRuns(companyId, 12);
+    const warnings = [
+      ...bridge.warnings,
+      ...(workflows.length === 0 ? ["no-native-workflows-installed"] : []),
+    ];
+
+    res.json({
+      engine: {
+        name: "AWOS Native Automation Engine",
+        state: "online",
+        checkedAt,
+        latencyMs: 0,
+        error: null,
+        privateBackend: true,
+      },
+      runtime: nativeAutomationRuntime(config),
+      bridge,
+      warnings,
+      suggestions: [
+        {
+          id: "ai-draft-from-issue",
+          title: "Draft a workflow from a repeated issue pattern",
+          description:
+            "Use recent AgentWorks issues to propose an automation template, then require operator review before install.",
+          status: "planned",
+        },
+        {
+          id: "ai-run-explainer",
+          title: "Explain a run and suggest the next automation",
+          description:
+            "Summarize step outcomes, friction, and a recommended follow-on workflow after each native run.",
+          status: "planned",
+        },
+      ],
+      templates: listNativeAutomationTemplates(companyId),
+      workflows: workflows.map((workflow) => ({
+        id: workflow.id,
+        name: workflow.name,
+        active: workflow.status === "active",
+        status: workflow.status,
+        trigger: workflow.trigger,
+        description: workflow.description,
+        definition: workflow.definition,
+        updatedAt: workflow.updatedAt,
+        currentVersion: workflow.currentVersion,
+        definitionHash: workflow.definitionHash,
+        sourceTemplateId: workflow.sourceTemplateId,
+        externalEngine: workflow.externalEngine,
+        externalWorkflowId: workflow.externalWorkflowId,
+        externalSyncStatus: workflow.externalSyncStatus,
+        externalSyncedAt: workflow.externalSyncedAt,
+        externalSyncError: workflow.externalSyncError,
+      })),
+      recentRuns: recentRuns.map((run) => ({
+        id: run.id,
+        workflowId: run.workflowId,
+        workflowName: workflows.find((w) => w.id === run.workflowId)?.name ?? run.workflowId,
+        status: run.status,
+        startedAt: run.startedAt,
+        finishedAt: run.finishedAt,
+        terminalReason: run.terminalReason,
+        currentStepIndex: run.currentStepIndex,
+        workflowVersionId: run.workflowVersionId,
+        waitingForApprovalId: run.waitingForApprovalId,
+        waitingForDispatchId: run.waitingForDispatchId,
+        dryRun: run.dryRun,
+        steps: run.steps,
+        error: run.error,
+      })),
+    });
+  });
+
+  router.post("/automations/templates", (req, res) => {
+    const parsed = AutomationTemplateCreateBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    const opts: Parameters<typeof createNativeAutomationTemplate>[0] = {
+      name: parsed.data.name,
+      trigger: parsed.data.trigger,
+      description: parsed.data.description,
+      definition: parsed.data.definition,
+    };
+    if (parsed.data.tenantId) opts.tenantId = parsed.data.tenantId;
+    if (parsed.data.companyId) opts.companyId = parsed.data.companyId;
+    res.status(201).json(createNativeAutomationTemplate(opts));
+  });
+
+  router.post("/automations/templates/:templateId/install", (req, res) => {
+    const parsed = AutomationInstallBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    try {
+      const installOpts: { tenantId?: string; companyId?: string } = {};
+      if (parsed.data.tenantId) installOpts.tenantId = parsed.data.tenantId;
+      if (parsed.data.companyId) installOpts.companyId = parsed.data.companyId;
+      const workflow = installNativeAutomationTemplate(req.params.templateId, installOpts);
+      res.status(201).json(workflow);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "install failed";
+      res.status(message === "template_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
+  router.post("/automations/workflows", (req, res) => {
+    const parsed = AutomationWorkflowCreateBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    const opts: Parameters<typeof createNativeAutomationWorkflow>[0] = {
+      name: parsed.data.name,
+      trigger: parsed.data.trigger,
+      definition: parsed.data.definition,
+      status: parsed.data.status,
+    };
+    if (parsed.data.description) opts.description = parsed.data.description;
+    if (parsed.data.tenantId) opts.tenantId = parsed.data.tenantId;
+    if (parsed.data.companyId) opts.companyId = parsed.data.companyId;
+    res.status(201).json(createNativeAutomationWorkflow(opts));
+  });
+
+  router.patch("/automations/workflows/:workflowId", (req, res) => {
+    const parsed = AutomationWorkflowPatchBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    try {
+      if (
+        parsed.data.name === undefined &&
+        parsed.data.description === undefined &&
+        parsed.data.definition === undefined &&
+        parsed.data.status !== undefined
+      ) {
+        res.json(setNativeAutomationWorkflowStatus(req.params.workflowId, parsed.data.status));
+        return;
+      }
+      const update: Parameters<typeof updateNativeAutomationWorkflow>[1] = {};
+      if (parsed.data.name !== undefined) update.name = parsed.data.name;
+      if (parsed.data.description !== undefined) update.description = parsed.data.description;
+      if (parsed.data.status !== undefined) update.status = parsed.data.status;
+      if (parsed.data.definition !== undefined) update.definition = parsed.data.definition;
+      res.json(updateNativeAutomationWorkflow(req.params.workflowId, update));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "workflow update failed";
+      res.status(message === "workflow_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
+  router.post("/automations/workflows/:workflowId/run", async (req, res) => {
+    const parsed = AutomationRunBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    try {
+      const run = await runNativeAutomationWorkflow(req.params.workflowId, parsed.data.input, config, {
+        dryRun: parsed.data.dryRun === true,
+      });
+      res.status(201).json(run);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "workflow run failed";
+      const status = message === "workflow_not_found" ? 404 : message === "workflow_not_active" ? 409 : 500;
+      res.status(status).json({ error: message });
+    }
+  });
+
+  router.get("/automations/runs/:runId", (req, res) => {
+    const run = getNativeAutomationRun(req.params.runId);
+    if (!run) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    res.json(run);
+  });
+
+  router.post("/automations/workflows/:workflowId/simulate", async (req, res) => {
+    const parsed = AutomationRunBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    try {
+      res.status(201).json(await simulateNativeAutomationWorkflow(req.params.workflowId, parsed.data.input, config));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "workflow simulation failed";
+      res.status(message === "workflow_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
+  router.get("/automations/workflows/:workflowId/versions", (req, res) => {
+    try {
+      res.json({ items: listNativeAutomationWorkflowVersions(req.params.workflowId) });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "workflow versions failed";
+      res.status(message === "workflow_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
+  router.get("/automations/workflows/:workflowId/versions/:version", (req, res) => {
+    try {
+      const version = Number(req.params.version);
+      const item = getNativeAutomationWorkflowVersion(req.params.workflowId, version);
+      const previousVersion = version > 1 ? version - 1 : version;
+      const diff =
+        previousVersion === version
+          ? null
+          : diffNativeAutomationWorkflowVersions(req.params.workflowId, previousVersion, version);
+      res.json({ item, diff });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "workflow version failed";
+      res.status(message === "workflow_version_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
+  router.post("/automations/workflows/:workflowId/rollback", (req, res) => {
+    const parsed = AutomationRollbackBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    try {
+      res.json(rollbackNativeAutomationWorkflow(req.params.workflowId, parsed.data.version));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "workflow rollback failed";
+      res.status(message === "workflow_version_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
+  router.post("/automations/workflows/:workflowId/self-heal", (req, res) => {
+    try {
+      res.json(createWorkflowSelfHealProposal(req.params.workflowId));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "workflow self-heal failed";
+      res.status(message === "workflow_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
+  router.post("/automations/runs/:runId/resume", async (req, res) => {
+    const parsed = AutomationRunResumeBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    try {
+      res.json(await resumeNativeAutomationRun(req.params.runId, parsed.data.input, config));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "workflow resume failed";
+      res.status(message === "run_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
+  router.post("/automations/runs/:runId/replay", async (req, res) => {
+    const parsed = AutomationRunReplayBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    try {
+      res
+        .status(201)
+        .json(
+          await replayNativeAutomationRun(
+            req.params.runId,
+            parsed.data.fromStepIndex,
+            parsed.data.inputOverride,
+            config,
+          ),
+        );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "workflow replay failed";
+      const status = message === "run_not_found" ? 404 : message === "workflow_not_active" ? 409 : 500;
+      res.status(status).json({ error: message });
+    }
+  });
+
+  router.post("/automations/runs/:runId/cancel", (req, res) => {
+    const parsed = AutomationRunCancelBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    try {
+      res.json(cancelNativeAutomationRun(req.params.runId, parsed.data.reason));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "workflow cancel failed";
+      res.status(message === "run_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
+  router.get("/automations/runs/:runId/evidence-pack", (req, res) => {
+    const pack = getNativeAutomationEvidencePack(req.params.runId);
+    if (!pack) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    res.json(pack);
+  });
+
+  router.post("/automations/runs/:runId/evidence-pack", (req, res) => {
+    try {
+      res.status(201).json(createNativeAutomationEvidencePack(req.params.runId));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "evidence pack failed";
+      res.status(message === "run_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
+  router.get("/automations/workflows/:workflowId/n8n-export", (req, res) => {
+    try {
+      res.json(exportNativeWorkflowToN8n(req.params.workflowId));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "export failed";
+      res.status(message === "workflow_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
+  router.post("/automations/workflows/:workflowId/n8n-sync", async (req, res) => {
+    try {
+      res.json(await syncNativeWorkflowToN8n(req.params.workflowId, config));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "n8n sync failed";
+      res.status(message === "workflow_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
+  router.post("/automations/n8n-import", (req, res) => {
+    const parsed = AutomationN8nImportBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    try {
+      const importBody: Parameters<typeof importN8nWorkflow>[0] = {
+        workflowJson: parsed.data.workflowJson,
+        mode: parsed.data.mode,
+        status: parsed.data.status,
+      };
+      if (parsed.data.tenantId) importBody.tenantId = parsed.data.tenantId;
+      if (parsed.data.companyId) importBody.companyId = parsed.data.companyId;
+      res.status(201).json(importN8nWorkflow(importBody));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "n8n import failed";
+      res.status(400).json({ error: message });
+    }
+  });
+
+  router.post("/automations/ai/draft-template", async (req, res) => {
+    const parsed = AutomationAiDraftBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    try {
+      const draftBody: Parameters<typeof draftAutomationTemplateFromPrompt>[0] = {
+        prompt: parsed.data.prompt,
+      };
+      if (parsed.data.tenantId) draftBody.tenantId = parsed.data.tenantId;
+      if (parsed.data.companyId) draftBody.companyId = parsed.data.companyId;
+      if (parsed.data.issueId) draftBody.issueId = parsed.data.issueId;
+      res.status(201).json(await draftAutomationTemplateFromPrompt(draftBody));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "ai draft failed";
+      res.status(500).json({ error: message });
+    }
+  });
+
+  router.post("/automations/runs/:runId/ai-explain", async (req, res) => {
+    try {
+      res.json(await explainNativeAutomationRun(req.params.runId));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "ai explain failed";
+      res.status(message === "run_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
+
+
+  /**
+   * GET /api/admin/trust
+   * Returns daemon health, db stats, vault stats, agent counts, and warnings.
+   * Enriched with profile, companies, dispatch, backup, and inspector fields.
+   * Cached 5s per tenantId. Pass ?fresh=1 to bypass cache.
+   */
+  router.get("/trust", async (req, res) => {
+    try {
+      const fresh = req.query["fresh"] === "1";
+      const dbPath = join(config.dataDir, "agentworks.db");
+
+      // Load profile (best-effort — may fail if not configured)
+      let profile: Awaited<ReturnType<typeof getProfile>> | null = null;
+      let profilePath: string | null = null;
+      let profileDrift: import("../config/local-profile.schema.js").ProfileDriftCode[] = [];
+
+      try {
+        profile = await getProfile();
+        profilePath = resolveProfilePath() ?? DEFAULT_ENV_PATH;
+        const driftReport = validateAgainstRuntime(profile, {
+          dbPath,
+          dataDir: config.dataDir,
+        });
+        profileDrift = [...driftReport.drift];
+      } catch {
+        // profile unavailable — enriched fields will reflect defaults
+      }
+
+      const tenantId = profile?.tenantId ?? "00000000-0000-4000-8000-000000000001";
+
+      // Cache check
+      if (!fresh) {
+        const cached = getCached(tenantId);
+        if (cached !== null) {
+          res.json(cached);
+          return;
+        }
+      }
+
+      // Provider health (cached internally at 30s TTL)
+      let providers: ProviderStatus[] = [];
+      try {
+        const healthStatus = await getProviderHealthService().getStatus();
+        providers = healthStatus.providers;
+      } catch {
+        // ignore — trust endpoint must not fail because a provider is unreachable
+      }
+
+      const response = await aggregateTrust({
+        daemonVersion: PACKAGE_VERSION,
+        dbPath,
+        profile,
+        profilePath,
+        profileDrift,
+        providers,
+      });
+
+      if (!fresh) {
+        setCached(tenantId, response);
+      }
+
+      res.json(response);
+    } catch (err) {
+      res.status(500).json({
+        error: "trust_aggregation_failed",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  // Cleanup duplicate agent registry records.
+  router.post("/cleanup-duplicate-agents", cleanupDuplicateAgents);
+
+  interface DuplicateAgentGroup {
+    tenant_id: string;
+    name: string;
+    count: number;
+  }
+
+  interface DuplicateAgentRow {
+    id: string;
+    name: string;
+  }
+
+  function cleanupDuplicateAgents(_req: Request, res: Response): void {
+    const sqlite = getSqlite();
+    const results: string[] = [];
+
+    const duplicateGroups = sqlite
+      .prepare(
+        `SELECT tenant_id, name, COUNT(*) as count
+         FROM execution_agents
+         GROUP BY tenant_id, name
+         HAVING count > 1`,
+      )
+      .all() as DuplicateAgentGroup[];
+
+    for (const group of duplicateGroups) {
+      const agents = sqlite
+        .prepare(
+          `SELECT id, name
+           FROM execution_agents
+           WHERE tenant_id = ? AND name = ?
+           ORDER BY created_at ASC`,
+        )
+        .all(group.tenant_id, group.name) as DuplicateAgentRow[];
+
+      for (const agent of agents.slice(1)) {
+        sqlite
+          .prepare("UPDATE execution_agents SET status = 'retired' WHERE id = ?")
+          .run(agent.id);
+        results.push(`Retired agent ${agent.name} (id=${agent.id})`);
+      }
+    }
+
+    res.json({ success: true, results });
+  }
+
+  router.use("/issue-preview", issuePreviewRouter);
+
+return router;
 }

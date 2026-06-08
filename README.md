@@ -2,6 +2,8 @@
 
 The AI compliance firewall for regulated small businesses.
 
+Current release candidate: `v0.3.0-alpha.0`.
+
 ## What it does
 
 Agents (Claude Desktop, Cursor, Codex, ChatGPT via browser extension in v2) connect to AgentWorks OS over a local API. Every action the agent takes passes through a policy engine that checks it against rule packs you configure. Violations are either blocked with a plain‑English explanation or routed to a human approval queue.
@@ -16,44 +18,15 @@ If your lawyer has ever asked “who approved that outbound?” or “how do we 
 
 ## Quick install
 
-Requires Docker Desktop (macOS) or Docker Engine (Linux), git, ~10 GB free disk, and ~4 GB RAM. About 10‑20 minutes on a clean machine, mostly the first build.
-
-**One-liner (recommended):**
+One command on a Mac mini or Linux box you control:
 
 ```bash
-curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.9/install.sh | bash
+curl -fsSL https://get.agentworks.os/install.sh | bash
 ```
 
-Add `-s -- --unattended` to skip the confirmation prompt:
+Requires Docker Desktop (or Docker Engine on Linux). About 15 minutes on a clean machine.
 
-```bash
-curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.1.9/install.sh | bash -s -- --unattended
-```
-
-**From source clone (equivalent):**
-
-```bash
-git clone --depth=1 --branch v0.1.9 https://github.com/SGridworks/agentworks-os.git
-cd agentworks-os
-./apps/installer/src/install.sh --unattended \
-  && ./apps/installer/scripts/smoke-test.sh
-```
-
-If both scripts exit 0 — done. The installer prints `Smoke test PASSED` at the end; the standalone smoke run is a second gate that POSTs a tenant and a `policy.check` end‑to‑end.
-
-**Optional admin dashboard.** Default install is API-only. To bring up the browser dashboard at `http://localhost:3000`, uncomment the `admin-ui` block in `~/.agentworks/source/docker-compose.yml` and run `agentworks restart`. The image (`ghcr.io/sgridworks/agentworks/admin-ui:0.1.9`) is public and multi-arch.
-
-**Installing through an AI coding agent?** Point Claude Code (or Codex, or Cursor) at this repo and tell it to follow [`docs/AI-AGENT-INSTALL-GUIDE.md`](./docs/AI-AGENT-INSTALL-GUIDE.md). The guide is written for an LLM: numbered steps, explicit verify commands, enumerated failure modes with fixes, and a final report template. Pre‑flight in `install.sh` catches the things an agent can’t reason about (port conflicts, disk pressure, no internet, Docker daemon down) before wasting 10 minutes on a build.
-
-Other agent‑readable runbooks:
-
-- [Install Guide](./docs/AI-AGENT-INSTALL-GUIDE.md) — the canonical install playbook above
-- [Rule‑Pack Authoring](./docs/AI-AGENT-RULE-PACK-GUIDE.md) — draft, validate, ship a rule pack safely
-- [Operator Runbook](./docs/AI-AGENT-OPERATOR-RUNBOOK.md) — daily ops, triage, incident response
-- [MCP Debug](./docs/AI-AGENT-MCP-DEBUG.md) — five‑layer diagnosis when MCP isn’t connecting
-- [Vault Hygiene](./docs/AI-AGENT-VAULT-HYGIENE.md) — lint, dedupe, prune the vault
-
-For a human‑oriented walk‑through: [docs/install-runbook.md](./docs/install-runbook.md).
+See the [install runbook](./docs/install-runbook.md) for full step‑by‑step, including prerequisites and first‑run verification.
 
 ## What’s in the box
 
@@ -76,7 +49,7 @@ For a human‑oriented walk‑through: [docs/install-runbook.md](./docs/install-
 - Hosted/cloud deployment (local‑only in v1)
 - MCP‑first rule‑pack preview (CLI dry‑run is v1 fallback)
 
-See [CHANGELOG.md](./CHANGELOG.md) for full release notes and known issues.
+See the release notes and changelog for the current release scope and migration notes.
 
 ## Architecture
 
@@ -89,13 +62,21 @@ Python `scanner‑worker` as a sidecar. n8n as a sidecar. All data stays on your
 
 ## License
 
-Apache 2.0. See [LICENSE](./LICENSE).
+Apache 2.0 for the open-source substrate. See [LICENSE](./LICENSE).
+
+Premium rule packs may be distributed under separate commercial terms.
+
+## Contributing and Security
+
+- [Contributing guide](./CONTRIBUTING.md)
+- [Security policy](./SECURITY.md)
+- [Changelog](./CHANGELOG.md)
 
 ## Getting started
 
 1. [Install](./docs/install-runbook.md)
-2. Verify the daemon with `curl http://localhost:7710/api/health`
-3. Connect your agents via MCP
+2. Run the onboarding wizard (starts automatically on first admin UI load)
+3. Connect your agents via MCP (wizard walks you through Claude Desktop and Cursor)
 4. Load a rule pack or write your own (see [rule‑pack authoring](./docs/rule-pack-authoring.md))
 5. Test a policy decision: try to send an outbound SMS to a number in your DNC list and confirm it routes to review.
 

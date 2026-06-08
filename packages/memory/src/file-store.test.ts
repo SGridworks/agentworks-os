@@ -23,7 +23,7 @@ describe("FileVaultStore", () => {
   });
 
   it("read returns existed=false with empty body for missing key", async () => {
-    const r = await store.read(TENANT_A, "projects/sgridworks");
+    const r = await store.read(TENANT_A, "projects/acme");
     expect(r.existed).toBe(false);
     expect(r.body).toBe("");
     expect(r.sha256).toBe(
@@ -47,8 +47,8 @@ describe("FileVaultStore", () => {
   });
 
   it("write creates parent directories for nested keys", async () => {
-    await store.write(TENANT_A, "projects/sg/notes", "deep", { mode: "append" });
-    const r = await store.read(TENANT_A, "projects/sg/notes");
+    await store.write(TENANT_A, "projects/acme/notes", "deep", { mode: "append" });
+    const r = await store.read(TENANT_A, "projects/acme/notes");
     expect(r.existed).toBe(true);
     expect(r.body).toContain("deep");
   });

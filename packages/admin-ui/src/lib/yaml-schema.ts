@@ -66,11 +66,8 @@ function ajvErrorToMarker(
   const fieldPath = pathSnippets.join('');
   let message = error.message ?? 'Invalid value';
   if (error.keyword === 'additionalProperties') {
-    const prop = (error.params as { additionalProperty?: string })?.additionalProperty;
-    if (prop) message = `unknown property '${prop}': ${message}`;
-  } else if (error.keyword === 'required') {
-    const prop = (error.params as { missingProperty?: string })?.missingProperty;
-    if (prop) message = `missing required property '${prop}'`;
+    const prop = error.params?.additionalProperty as string | undefined;
+    if (prop) message = `${message}: ${prop}`;
   }
   const isError = ['required', 'additionalProperties', 'type'].includes(error.keyword);
 

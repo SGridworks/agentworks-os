@@ -28,7 +28,7 @@ const description = {
             type: "string",
             required: true,
             default: "",
-            description: "Forward-slash key, e.g. projects/sgridworks",
+            description: "Forward-slash key, e.g. projects/acme",
         },
         {
             displayName: "Body",

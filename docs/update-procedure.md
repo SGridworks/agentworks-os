@@ -86,7 +86,7 @@ If the database migration failed:
 docker compose logs agentos-d | grep migration
 ```
 
-Contact sgridworks support with the migration error. Do not attempt to manually modify the database to work around a failed migration.
+Open an issue with the migration error. Do not manually modify the database to work around a failed migration until you understand the failed step.
 
 ## Pre-update checklist
 

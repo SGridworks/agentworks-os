@@ -1,7 +1,7 @@
 {
   "name": "@agentworks/memory",
-  "version": "0.1.9",
-  "description": "AgentWorks vault contract \u2014 tenant-isolated, file-backed memory wrapper used by agentos-d MCP memory.read / memory.write",
+  "version": "0.3.0-alpha.0",
+  "description": "AgentWorks vault contract — tenant-isolated, file-backed memory wrapper used by agentos-d MCP memory.read / memory.write",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -26,10 +26,12 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "js-yaml": "^4.1.1",
     "uuid": "^11.0.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
     "typescript": "^5.7.2",
     "vitest": "^2.1.0"
@@ -40,7 +42,8 @@
   "keywords": [
     "agentworks",
     "memory",
-    "vault"
+    "vault",
+    "metadata"
   ],
   "license": "UNLICENSED",
   "private": true

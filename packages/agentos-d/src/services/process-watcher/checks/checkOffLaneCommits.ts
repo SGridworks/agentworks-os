@@ -2,6 +2,7 @@
 // Consumes commit-scope.log and produces findings for OFF-LANE revert events.
 
 import { readFile } from "fs/promises";
+import { execFileSync } from "node:child_process";
 import type { CheckResult, Finding } from "../types.js";
 
 export interface OffLaneInput {
@@ -54,10 +55,10 @@ async function defaultExtractTicket(
   cwd: string
 ): Promise<string | null> {
   try {
-    const { execSync } = require("child_process");
-    const subject = execSync(
-      `git log -1 --format=%s ${commitHash}`,
-      { cwd, encoding: "utf-8", timeout: 5000 }
+    const subject = execFileSync(
+      "git",
+      ["log", "-1", "--format=%s", commitHash],
+      { cwd, encoding: "utf-8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] }
     ).trim();
     const match = subject.match(/AWO-\d+/);
     return match ? match[0]! : null;

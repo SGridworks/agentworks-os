@@ -87,7 +87,7 @@ describe("POST /api/agents (create-time backfill)", () => {
         name: "Backfilled",
         role: "BackendEngineer",
         config: {
-          adapterType: "claude_local",
+          adapterType: "local_gateway",
           model: "kimi-k2-turbo-preview",
           instructionsPath: "agents/backend/AGENTS.md",
           capabilities: "writes routes",
@@ -96,7 +96,7 @@ describe("POST /api/agents (create-time backfill)", () => {
       });
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({
-      adapterType: "claude_local",
+      adapterType: "local_gateway",
       model: "kimi-k2-turbo-preview",
       instructionsPath: "agents/backend/AGENTS.md",
       capabilities: "writes routes",
@@ -107,7 +107,7 @@ describe("POST /api/agents (create-time backfill)", () => {
     const row = sqlite
       .prepare("SELECT * FROM execution_agents WHERE id = ?")
       .get(res.body.id) as Record<string, unknown>;
-    expect(row.adapter_type).toBe("claude_local");
+    expect(row.adapter_type).toBe("local_gateway");
     expect(row.model).toBe("kimi-k2-turbo-preview");
     expect(row.instructions_path).toBe("agents/backend/AGENTS.md");
     expect(row.heartbeat_interval_sec).toBe(30);
@@ -201,6 +201,42 @@ describe("POST /api/agents/:agentId/wakeup", () => {
       .prepare("SELECT id FROM dispatch_queue WHERE id = ?")
       .get(res.body.dispatchId);
     expect(dispatch).toBeDefined();
+  });
+
+  it("copies top-level issueId into wakeup dispatch input and payload", async () => {
+    seedCompany(TENANT_A, COMPANY_A, "Co A");
+    const id = await createAgent({ tenantId: TENANT_A, companyId: COMPANY_A, name: "IssueWake" });
+    const issueId = "33333333-3333-4333-8333-333333333333";
+    const res = await request(app)
+      .post(`/api/agents/${id}/wakeup`)
+      .send({ source: "test", issueId });
+
+    expect(res.status).toBe(202);
+    const dispatch = sqlite
+      .prepare("SELECT input FROM dispatch_queue WHERE id = ?")
+      .get(res.body.dispatchId) as { input: string };
+    expect(JSON.parse(dispatch.input)).toMatchObject({
+      issueId,
+      payload: { issueId },
+    });
+  });
+
+  it("promotes nested payload.issueId into the top-level wakeup dispatch input", async () => {
+    seedCompany(TENANT_A, COMPANY_A, "Co A");
+    const id = await createAgent({ tenantId: TENANT_A, companyId: COMPANY_A, name: "NestedIssueWake" });
+    const issueId = "44444444-4444-4444-8444-444444444444";
+    const res = await request(app)
+      .post(`/api/agents/${id}/wakeup`)
+      .send({ source: "test", payload: { issueId, note: "keep me" } });
+
+    expect(res.status).toBe(202);
+    const dispatch = sqlite
+      .prepare("SELECT input FROM dispatch_queue WHERE id = ?")
+      .get(res.body.dispatchId) as { input: string };
+    expect(JSON.parse(dispatch.input)).toMatchObject({
+      issueId,
+      payload: { issueId, note: "keep me" },
+    });
   });
 
   it("rejects wakeup for paused agent with 409 agent_paused", async () => {

@@ -1,6 +1,6 @@
 # Support Bundle
 
-When you contact sgridworks support, they may ask for a bundle of diagnostic information. Since the `agentworks support-bundle` command is not yet implemented, collect this information manually.
+When maintainers ask for diagnostic information, collect a support bundle manually. The `agentworks support-bundle` command is not yet implemented.
 
 ## What to collect
 
@@ -64,14 +64,14 @@ Before sending, manually redact the following from text files:
 - Raw rule pack YAML files — send the metadata summary instead
 - The `agentworks.yml` credentials file
 
-## Sending to sgridworks support
+## Sharing with maintainers
 
 1. Put all the output files in one directory
 2. Create a tar.gz archive:
    ```
    tar -czf support-bundle.tar.gz *.txt *.json
    ```
-3. Attach it to a support ticket at sgridworks.com/support, or use the secure upload link in your confirmation email
+3. Share it through the private upload channel requested by the maintainer
 
 Do not email the bundle directly. Use the secure upload mechanism.
 

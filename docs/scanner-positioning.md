@@ -57,13 +57,9 @@ The AgentGuard scanner embedded in AgentWorks OS reviews your agent configuratio
 
 ---
 
-## Internal Justification (for agent team)
+## Positioning Rationale
 
-The PLAN.md and Codex review established the framing early and it was held through review:
-
-- "Posture review" is accurate: the scanner runs on a schedule, not continuously
-- "Continuous compliance" overpromises: it implies real-time monitoring the product does not do
-- Positioning it as a snapshot audit is both accurate and defensible
-- It avoids the implication that having no findings means the system is "compliant" — a liability risk
-
-This positioning was confirmed at CEO review (Plan section, Pillar 7): scanner is positioned as "posture review, not continuous compliance."
+- "Posture review" is accurate: the scanner runs on a schedule, not continuously.
+- "Continuous compliance" overpromises: it implies real-time monitoring the product does not do.
+- Positioning it as a snapshot audit is both accurate and defensible.
+- It avoids the implication that having no findings means the system is compliant.

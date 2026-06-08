@@ -19,7 +19,7 @@
  */
 
 import { execSync } from "child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, rmSync } from "fs";
 import { createHash } from "crypto";
 import { homedir, hostname } from "os";
 import { join, resolve } from "path";
@@ -36,11 +36,27 @@ import {
 } from "./backup-manifest.js";
 import { assertBackupCapturedSourceData } from "./db-utils.js";
 
-function sha256File(path: string): string {
-  // The earlier streaming form (createReadStream(path).pipe(hash))
-  // returned the hash digest before the pipe had emitted any data,
-  // producing the empty-input digest for every input. Read sync.
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
+function sha256Directory(path: string): string {
+  const hash = createHash("sha256");
+
+  function walk(dir: string, prefix = ""): void {
+    for (const entry of readdirSync(dir).sort()) {
+      const abs = join(dir, entry);
+      const rel = prefix ? `${prefix}/${entry}` : entry;
+      const stat = statSync(abs);
+      if (stat.isDirectory()) {
+        walk(abs, rel);
+      } else if (stat.isFile()) {
+        hash.update(rel);
+        hash.update("\0");
+        hash.update(readFileSync(abs));
+        hash.update("\0");
+      }
+    }
+  }
+
+  walk(path);
+  return hash.digest("hex");
 }
 
 function parseArgs(argv: string[]): { outPath?: string; key?: string } {
@@ -133,7 +149,6 @@ export async function runBackup(argv: string[]): Promise<void> {
     }
 
     // 4. Write MANIFEST.json
-    const checksum = sha256File(dbPath);
     const manifest: BackupManifest = {
       version: BACKUP_VERSION,
       createdAt: new Date().toISOString(),
@@ -142,7 +157,7 @@ export async function runBackup(argv: string[]): Promise<void> {
       vaults: vaultTenantIds,
       rulePackAssignments: true,
       tenantConfigs: allTenants.map((t) => t.id),
-      checksumSha256: checksum,
+      checksumSha256: "", // filled after tar
     };
     writeFileSync(
       join(tmpdir, "MANIFEST.json"),
@@ -150,14 +165,24 @@ export async function runBackup(argv: string[]): Promise<void> {
       "utf8"
     );
 
-    // 5. Create tarball (before encryption)
+    // 5. Hash payload contents before archiving. Hashing the tarball itself is
+    // self-referential because the manifest lives inside that tarball.
+    const checksum = sha256Directory(payloadDir);
+    manifest.checksumSha256 = checksum;
+    writeFileSync(
+      join(tmpdir, "MANIFEST.json"),
+      JSON.stringify(manifest, null, 2),
+      "utf8"
+    );
+
+    // 6. Create tarball (before encryption)
     const defaultOut = `agentworks-backup-${new Date()
       .toISOString()
       .replace(/[:.]/g, "-")}.tar.gz`;
     const tarPath = outPath ?? defaultOut;
     execSync(`tar -czf "${tarPath}" -C "${tmpdir}" .`, { encoding: "utf8" });
 
-    // 6. Encrypt if key provided
+    // 7. Encrypt if key provided
     if (key) {
       const encPath = `${tarPath}.enc`;
       execSync(

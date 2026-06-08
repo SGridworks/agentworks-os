@@ -34,10 +34,10 @@ projects/
 
 ### Link Between Pages
 
-Use markdown links. Agents follow them. If `context/compliance.md` mentions rule packs, link to the relevant guide:
+Use markdown links. Agents follow them. If `context/compliance.md` mentions your DNC policy, link to it:
 
 ```markdown
-See [Rule Pack Authoring](./rule-pack-authoring.md) for the current rule schema.
+See the DNC policy page for the current suppression list.
 ```
 
 ### Trim Stale Content

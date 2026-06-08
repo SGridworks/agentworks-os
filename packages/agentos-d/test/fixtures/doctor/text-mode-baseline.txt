@@ -1,0 +1,16 @@
+PASS ai.agentworks.daemon running pid=REDACTED
+PASS daemon has live DB open: /Users/example/Library/Application Support/agentworks-os/data/agentworks.db
+PASS port 7710 is listening
+PASS daemon health endpoint responded: {"evidenceCronRunning":true,"status":"ok","version":"0.1.0","awcp":"awcp/v0.1","startedAt":"REDACTED","now":"REDACTED"}
+PASS daemon tenant/company data endpoint responded
+PASS ai.agentworks.bridge running pid=REDACTED
+PASS bridge log contains canonical AWOS_SCRIPT_DIR
+FAIL bridge task log does not show canonical FALLBACK_MODEL=nemotron-3-nano:30b
+PASS no rogue bridge writer detected
+PASS com.agentworks.wake-on-assign running pid=REDACTED
+PASS admin UI port 3000 is listening
+PASS mission-control route responded
+PASS dispatch_queue counts queued=REDACTED dispatched=REDACTED
+PASS no stale dispatched rows older than 30 minutes
+PASS no duplicate queued issue/agent wakeups
+awos-doctor failed with 1 failure(s)

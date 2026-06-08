@@ -21,21 +21,27 @@ import {
   type VaultPage,
   type VaultReadResult,
   type VaultStore,
+  type VaultUsageEntry,
   type VaultWriteOptions,
   type VaultWriteResult,
 } from "./types.js";
+import {
+  parseVaultMarkdown,
+  renderVaultMarkdown,
+  type VaultFrontmatter,
+} from "./vault-metadata.js";
 
 const EMPTY_SHA256 =
   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
-interface Frontmatter {
+interface Frontmatter extends VaultFrontmatter {
   summary?: string;
   trigger?: string;
   detail_key?: string;
   authoringAgent?: string;
   lastUpdatedBy?: string;
   lastUpdatedAt?: string;
-  lastUsedBy?: Array<{ agentId: string; usedAt: string }>;
+  lastUsedBy?: VaultUsageEntry[];
 }
 
 function sha256Hex(s: string): string {
@@ -44,40 +50,12 @@ function sha256Hex(s: string): string {
 
 /**
  * Parse YAML frontmatter from a markdown body.
- * Returns { frontmatter, body } where frontmatter fields are extracted
- * and body is the content after the closing `---`.
+ * Returns { frontmatter, body } where frontmatter fields are extracted and
+ * unknown keys are preserved for future writes.
  */
 function parseFrontmatter(raw: string): { frontmatter: Frontmatter; body: string } {
-  const fm: Frontmatter = {};
-  if (!raw.startsWith("---")) {
-    return { frontmatter: fm, body: raw };
-  }
-  const endIdx = raw.indexOf("\n---", 3);
-  if (endIdx === -1) {
-    return { frontmatter: fm, body: raw };
-  }
-  const yamlBlock = raw.slice(4, endIdx);
-  const body = raw.slice(endIdx + 4); // skip "\n---"
-  for (const line of yamlBlock.split("\n")) {
-    const colonIdx = line.indexOf(":");
-    if (colonIdx === -1) continue;
-    const key = line.slice(0, colonIdx).trim();
-    const value = line.slice(colonIdx + 1).trim();
-    if (key === "summary") fm.summary = value;
-    else if (key === "trigger") fm.trigger = value;
-    else if (key === "detail_key") fm.detail_key = value;
-    else if (key === "authoringAgent") fm.authoringAgent = value;
-    else if (key === "lastUpdatedBy") fm.lastUpdatedBy = value;
-    else if (key === "lastUpdatedAt") fm.lastUpdatedAt = value;
-    else if (key === "lastUsedBy") {
-      try {
-        fm.lastUsedBy = JSON.parse(value);
-      } catch {
-        // If JSON parsing fails, skip this field
-      }
-    }
-  }
-  return { frontmatter: fm, body };
+  const parsed = parseVaultMarkdown(raw);
+  return { frontmatter: parsed.frontmatter as Frontmatter, body: parsed.body };
 }
 
 /**
@@ -87,41 +65,7 @@ function serializeFrontmatter(
   frontmatter: Frontmatter,
   body: string,
 ): string {
-  const lines: string[] = ["---"];
-  if (frontmatter.summary !== undefined) {
-    lines.push(`summary: ${frontmatter.summary}`);
-  }
-  if (frontmatter.trigger !== undefined) {
-    lines.push(`trigger: ${frontmatter.trigger}`);
-  }
-  if (frontmatter.detail_key !== undefined) {
-    lines.push(`detail_key: ${frontmatter.detail_key}`);
-  }
-  if (frontmatter.authoringAgent !== undefined) {
-    lines.push(`authoringAgent: ${frontmatter.authoringAgent}`);
-  }
-  if (frontmatter.lastUpdatedBy !== undefined) {
-    lines.push(`lastUpdatedBy: ${frontmatter.lastUpdatedBy}`);
-  }
-  if (frontmatter.lastUpdatedAt !== undefined) {
-    lines.push(`lastUpdatedAt: ${frontmatter.lastUpdatedAt}`);
-  }
-  if (frontmatter.lastUsedBy !== undefined) {
-    lines.push(`lastUsedBy: ${JSON.stringify(frontmatter.lastUsedBy)}`);
-  }
-  if (
-    frontmatter.summary === undefined &&
-    frontmatter.trigger === undefined &&
-    frontmatter.detail_key === undefined &&
-    frontmatter.authoringAgent === undefined &&
-    frontmatter.lastUpdatedBy === undefined &&
-    frontmatter.lastUpdatedAt === undefined &&
-    frontmatter.lastUsedBy === undefined
-  ) {
-    return body;
-  }
-  lines.push("---");
-  return lines.join("\n") + "\n" + body;
+  return renderVaultMarkdown({ frontmatter, body });
 }
 
 /**
@@ -355,6 +299,7 @@ export class FileVaultStore implements VaultStore {
           let isDir = entry.isDirectory();
           let isFile = entry.isFile();
           if (entry.isSymbolicLink()) {
+            // Resolve symlink type via stat (which follows links).
             try {
               const st = await fs.stat(full);
               isDir = st.isDirectory();
@@ -438,36 +383,60 @@ export class FileVaultStore implements VaultStore {
     if (mode === "append") {
       const ts = new Date().toISOString();
       const block = `\n\n## ${ts}\n${body}\n`;
+
+      // For append mode, we need to read the existing file, update frontmatter, and rewrite
+      let existingFm: Frontmatter = {};
+      let existingBody = "";
       try {
-        await fs.appendFile(filePath, block, "utf8");
+        const raw = await fs.readFile(filePath, "utf8");
+        const { frontmatter, body: existing } = parseFrontmatter(raw);
+        existingFm = { ...frontmatter };
+        existingBody = existing;
       } catch (e) {
         const err = e as NodeJS.ErrnoException;
-        if (err.code === "ENOSPC") {
-          throw new DiskFullError(
-            filePath,
-            Buffer.byteLength(block, "utf8"),
-            err,
-          );
+        if (err.code !== "ENOENT") throw e;
+        // File doesn't exist yet — create new file with the append content
+      }
+
+      // Update provenance metadata if provided
+      if (opts.lastUpdatedBy !== undefined) existingFm.lastUpdatedBy = opts.lastUpdatedBy;
+      if (opts.lastUpdatedAt !== undefined) existingFm.lastUpdatedAt = opts.lastUpdatedAt;
+
+      if (Object.keys(existingFm).length === 0) {
+        try {
+          await fs.appendFile(filePath, block, "utf8");
+        } catch (e) {
+          const err = e as NodeJS.ErrnoException;
+          if (err.code === "ENOSPC") {
+            throw new DiskFullError(filePath, Buffer.byteLength(block, "utf8"), err);
+          }
+          throw e;
         }
-        throw e;
+      } else {
+        const newBody = existingBody + block;
+        const finalBody = serializeFrontmatter(existingFm, newBody);
+
+        try {
+          await fs.writeFile(filePath, finalBody, "utf8");
+        } catch (e) {
+          const err = e as NodeJS.ErrnoException;
+          if (err.code === "ENOSPC") {
+            throw new DiskFullError(
+              filePath,
+              Buffer.byteLength(finalBody, "utf8"),
+              err,
+            );
+          }
+          throw e;
+        }
       }
     } else {
       // Merge frontmatter: preserve existing, update with opts
       let existingFm: Frontmatter = {};
-      let existingBody = body;
       try {
         const raw = await fs.readFile(filePath, "utf8");
-        const { frontmatter, body: existing } = parseFrontmatter(raw);
-        existingFm = {
-          ...(frontmatter.summary !== undefined && { summary: frontmatter.summary }),
-          ...(frontmatter.trigger !== undefined && { trigger: frontmatter.trigger }),
-          ...(frontmatter.detail_key !== undefined && { detail_key: frontmatter.detail_key }),
-          ...(frontmatter.authoringAgent !== undefined && { authoringAgent: frontmatter.authoringAgent }),
-          ...(frontmatter.lastUpdatedBy !== undefined && { lastUpdatedBy: frontmatter.lastUpdatedBy }),
-          ...(frontmatter.lastUpdatedAt !== undefined && { lastUpdatedAt: frontmatter.lastUpdatedAt }),
-          ...(frontmatter.lastUsedBy !== undefined && { lastUsedBy: frontmatter.lastUsedBy }),
-        };
-        existingBody = existing;
+        const { frontmatter } = parseFrontmatter(raw);
+        existingFm = { ...frontmatter };
       } catch (e) {
         const err = e as NodeJS.ErrnoException;
         if (err.code !== "ENOENT") throw e;
@@ -485,19 +454,17 @@ export class FileVaultStore implements VaultStore {
       }
 
       // Build frontmatter — new opts override, undefined opts falls back to existing
-      const fm: Frontmatter = {
-        ...(existingFm.summary !== undefined && { summary: existingFm.summary }),
-        ...(existingFm.trigger !== undefined && { trigger: existingFm.trigger }),
-        ...(existingFm.detail_key !== undefined && { detail_key: existingFm.detail_key }),
-        ...(existingFm.authoringAgent !== undefined && { authoringAgent: existingFm.authoringAgent }),
-        ...(existingFm.lastUpdatedBy !== undefined && { lastUpdatedBy: existingFm.lastUpdatedBy }),
-        ...(existingFm.lastUpdatedAt !== undefined && { lastUpdatedAt: existingFm.lastUpdatedAt }),
-        ...(existingFm.lastUsedBy !== undefined && { lastUsedBy: existingFm.lastUsedBy }),
-        ...(opts.summary !== undefined && { summary: opts.summary }),
-        ...(opts.trigger !== undefined && { trigger: opts.trigger }),
-        ...(detail_key !== undefined && { detail_key }),
-        ...(opts.lastUsedBy !== undefined && { lastUsedBy: opts.lastUsedBy }),
-      };
+      const fm: Frontmatter = { ...existingFm };
+
+      // Apply new options (they override existing)
+      if (opts.summary !== undefined) fm.summary = opts.summary;
+      if (opts.trigger !== undefined) fm.trigger = opts.trigger;
+      if (detail_key !== undefined) fm.detail_key = detail_key;
+      if (opts.lastUsedBy !== undefined) fm.lastUsedBy = opts.lastUsedBy;
+
+      // Always stamp lastUpdatedBy and lastUpdatedAt if provided in opts
+      if (opts.lastUpdatedBy !== undefined) fm.lastUpdatedBy = opts.lastUpdatedBy;
+      if (opts.lastUpdatedAt !== undefined) fm.lastUpdatedAt = opts.lastUpdatedAt;
       const finalBody = serializeFrontmatter(fm, body);
       const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
       try {

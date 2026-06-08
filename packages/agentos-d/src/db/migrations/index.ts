@@ -32,12 +32,17 @@ import { migrate as migrateEpisodes } from "./0024_episodes.js";
 import { migrate as migrateInsights } from "./0025_insights.js";
 import { migrate as migrateEpisodeSession } from "./0026_episode_session.js";
 import { migrate as migrateAgentInstructionsBackfill } from "./0027_agent_instructions_backfill.js";
+import { migrate as migrateAgentInstructionsLegacyImport } from "./0028_agent_instructions_legacy_import.js";
 import { migrate as migrateAgentInstructionsNameAlias } from "./0029_agent_instructions_name_alias.js";
 import { migrate as migrateAgentInstructionsStub } from "./0030_agent_instructions_stub.js";
 import { migrate as migrateCompanyIssuePrefix } from "./0031_company_issue_prefix.js";
 import { migrate as migrateTaskSessionStatusAlign } from "./0032_task_session_status_align.js";
 import { migrate as migrateAutopilotFields } from "./0033_autopilot_fields.js";
 import { migrate as migrateMissionMap } from "./0034_mission_map.js";
+import { migrate as migrateNativeAutomations } from "./0039_native_automations.js";
+import { migrate as migrateNativeAutomationN8nAi } from "./0040_native_automation_n8n_ai.js";
+import { migrate as migrateWorkflowEngine } from "./0041_workflow_engine.js";
+
 
 export function migrate(sqlite: Database): void {
   migrateInit(sqlite);
@@ -68,10 +73,14 @@ export function migrate(sqlite: Database): void {
   migrateInsights(sqlite);
   migrateEpisodeSession(sqlite);
   migrateAgentInstructionsBackfill(sqlite);
+  migrateAgentInstructionsLegacyImport(sqlite);
   migrateAgentInstructionsNameAlias(sqlite);
   migrateAgentInstructionsStub(sqlite);
   migrateCompanyIssuePrefix(sqlite);
   migrateTaskSessionStatusAlign(sqlite);
   migrateAutopilotFields(sqlite);
   migrateMissionMap(sqlite);
+  migrateNativeAutomations(sqlite);
+  migrateNativeAutomationN8nAi(sqlite);
+  migrateWorkflowEngine(sqlite);
 }

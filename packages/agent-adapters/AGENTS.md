@@ -1,6 +1,6 @@
 # AgentWorks `packages/agent-adapters`
 
-Adapter SDK for connecting external agent runtimes (Hermes, paperclip-compat shim) to the AgentWorks substrate. Provides a uniform interface for action serialization, heartbeat integration, and policy callback registration.
+Adapter SDK for connecting external agent runtimes and legacy bridge shims to the AgentWorks substrate. Provides a uniform interface for action serialization, heartbeat integration, and policy callback registration.
 
 ## Your lane
 
@@ -10,9 +10,9 @@ Adapter SDK for connecting external agent runtimes (Hermes, paperclip-compat shi
 
 Other packages may import:
 
-- `src/hermes.ts` — Hermes runtime adapter
-- `src/paperclip.ts` — Paperclip compatibility shim
-- `src/types.ts` — `AgentAdapter`, `ActionPayload`, `PolicyCallback` interfaces
+- `src/localGateway.ts` — local runtime adapter
+- `src/claudeLocal.ts`, `src/codex.ts` — adapter implementations
+- `src/base.ts` — shared adapter base types and helpers
 
 ## Do not edit
 
@@ -23,7 +23,7 @@ Other packages may import:
 
 ## Relevant LEARNINGS
 
-- §6 — Repo-boundary violations. Adapters are NEW code in agentworks-os, not edits to Hermes or paperclip.
+- §6 — Repo-boundary violations. Adapters are NEW code in agentworks-os, not edits to upstream runtimes.
 - §17 — Auto-commit + off-scope work = noise. Adapter changes must not include policy engine logic.
 
 

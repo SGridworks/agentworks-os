@@ -123,7 +123,7 @@ describe("Mission Map Service", () => {
       title: "Blocked Issue",
       status: "blocked"
     });
-    expect(blockedIssue.color).toBe("#ef4444"); // red for blocked issues
+    expect(blockedIssue.color).toBe("#991b1b"); // dark red for blocked issues
 
     const failedRun = createNode({
       tenantId: testTenantId,
@@ -137,7 +137,7 @@ describe("Mission Map Service", () => {
       tenantId: testTenantId,
       kind: "evidence",
       title: "Block Evidence",
-      meta: { severity: "block" }
+      meta: { severity: "critical" }
     });
     expect(blockEvidence.color).toBe("#991b1b"); // dark red for block severity
   });
@@ -239,7 +239,7 @@ describe("Mission Map Service", () => {
   it("handles empty graph gracefully", () => {
     const emptyTenantId = "empty-tenant-456";
     const graph = getGraph({ tenantId: emptyTenantId });
-    
+
     expect(graph.nodes).toEqual([]);
     expect(graph.edges).toEqual([]);
   });
@@ -249,7 +249,7 @@ describe("Mission Map Service", () => {
       tenantId: testTenantId,
       root: "nonexistent-root"
     });
-    
+
     expect(graph.nodes).toEqual([]);
     expect(graph.edges).toEqual([]);
   });

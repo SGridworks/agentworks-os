@@ -8,7 +8,7 @@ import { CircuitState } from "../circuit-breaker/types.js";
  */
 export function createCircuitBreakerRouter(config: Config): Router {
   const router = Router();
-  
+
   // Initialize circuit breaker instance
   // In production, this should be a singleton managed by the app
   const circuitBreaker = new CircuitBreaker({
@@ -21,24 +21,24 @@ export function createCircuitBreakerRouter(config: Config): Router {
 
   /**
    * GET /api/providers/circuit-state
-   * 
+   *
    * Returns circuit breaker states for all providers for a tenant
    * Query params:
    * - tenantId: required, the tenant ID
    */
   router.get('/circuit-state', (req, res) => {
     const { tenantId } = req.query;
-    
+
     if (!tenantId || typeof tenantId !== 'string') {
-      return res.status(400).json({ 
-        error: 'invalid_request', 
-        message: 'tenantId query parameter is required' 
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'tenantId query parameter is required'
       });
     }
-    
+
     try {
       const states = circuitBreaker.getStatesForTenant(tenantId);
-      
+
       // Transform to API response format
       const response = {
         tenantId,
@@ -52,20 +52,20 @@ export function createCircuitBreakerRouter(config: Config): Router {
           nextProbeAt: state.nextProbeAt?.toISOString()
         }))
       };
-      
+
       res.json(response);
     } catch (error) {
       config.logger.error({ error, tenantId }, 'Error getting circuit states');
-      res.status(500).json({ 
-        error: 'internal_error', 
-        message: 'Failed to retrieve circuit states' 
+      res.status(500).json({
+        error: 'internal_error',
+        message: 'Failed to retrieve circuit states'
       });
     }
   });
 
   /**
    * GET /api/providers/:provider/circuit-state
-   * 
+   *
    * Returns circuit breaker state for a specific provider and tenant
    * Query params:
    * - tenantId: required, the tenant ID
@@ -73,17 +73,17 @@ export function createCircuitBreakerRouter(config: Config): Router {
   router.get('/:provider/circuit-state', (req, res) => {
     const { provider } = req.params;
     const { tenantId } = req.query;
-    
+
     if (!tenantId || typeof tenantId !== 'string') {
-      return res.status(400).json({ 
-        error: 'invalid_request', 
-        message: 'tenantId query parameter is required' 
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'tenantId query parameter is required'
       });
     }
-    
+
     try {
       const state = circuitBreaker.getState(provider, tenantId);
-      
+
       const response = {
         provider,
         tenantId,
@@ -94,20 +94,20 @@ export function createCircuitBreakerRouter(config: Config): Router {
         totalCount: state.totalCount,
         nextProbeAt: state.nextProbeAt?.toISOString()
       };
-      
+
       res.json(response);
     } catch (error) {
       config.logger.error({ error, provider, tenantId }, 'Error getting circuit state');
-      res.status(500).json({ 
-        error: 'internal_error', 
-        message: 'Failed to retrieve circuit state' 
+      res.status(500).json({
+        error: 'internal_error',
+        message: 'Failed to retrieve circuit state'
       });
     }
   });
 
   /**
    * GET /api/providers/:provider/circuit-events
-   * 
+   *
    * Returns recent circuit breaker events for a provider and tenant
    * Query params:
    * - tenantId: required, the tenant ID
@@ -116,19 +116,19 @@ export function createCircuitBreakerRouter(config: Config): Router {
   router.get('/:provider/circuit-events', (req, res) => {
     const { provider } = req.params;
     const { tenantId, limit = '50' } = req.query;
-    
+
     if (!tenantId || typeof tenantId !== 'string') {
-      return res.status(400).json({ 
-        error: 'invalid_request', 
-        message: 'tenantId query parameter is required' 
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'tenantId query parameter is required'
       });
     }
-    
+
     const limitNum = Math.min(parseInt(limit as string, 10) || 50, 100);
-    
+
     try {
       const events = circuitBreaker.getEventsForProvider(provider, tenantId, limitNum);
-      
+
       const response = {
         provider,
         tenantId,
@@ -140,20 +140,20 @@ export function createCircuitBreakerRouter(config: Config): Router {
           durationInPreviousStateMs: event.durationInPreviousStateMs
         }))
       };
-      
+
       res.json(response);
     } catch (error) {
       config.logger.error({ error, provider, tenantId }, 'Error getting circuit events');
-      res.status(500).json({ 
-        error: 'internal_error', 
-        message: 'Failed to retrieve circuit events' 
+      res.status(500).json({
+        error: 'internal_error',
+        message: 'Failed to retrieve circuit events'
       });
     }
   });
 
   /**
    * POST /api/providers/:provider/reset
-   * 
+   *
    * Manually reset a circuit breaker for a provider
    * Body:
    * - tenantId: required, the tenant ID
@@ -162,26 +162,26 @@ export function createCircuitBreakerRouter(config: Config): Router {
   router.post('/:provider/reset', (req, res) => {
     const { provider } = req.params;
     const { tenantId, reason } = req.body;
-    
+
     if (!tenantId || typeof tenantId !== 'string') {
-      return res.status(400).json({ 
-        error: 'invalid_request', 
-        message: 'tenantId is required in request body' 
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'tenantId is required in request body'
       });
     }
-    
+
     if (!reason || typeof reason !== 'string') {
-      return res.status(400).json({ 
-        error: 'invalid_request', 
-        message: 'reason is required in request body' 
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'reason is required in request body'
       });
     }
-    
+
     try {
       circuitBreaker.reset(provider, tenantId, reason);
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: `Circuit breaker for ${provider} reset to CLOSED`,
         provider,
         tenantId,
@@ -189,18 +189,18 @@ export function createCircuitBreakerRouter(config: Config): Router {
       });
     } catch (error) {
       config.logger.error({ error, provider, tenantId }, 'Error resetting circuit breaker');
-      res.status(500).json({ 
-        error: 'internal_error', 
-        message: 'Failed to reset circuit breaker' 
+      res.status(500).json({
+        error: 'internal_error',
+        message: 'Failed to reset circuit breaker'
       });
     }
   });
 
   /**
    * POST /api/providers/:provider/record-result
-   * 
+   *
    * Record a call result (success or failure) for circuit breaker logic
-   * This would be called by an external adapter
+   * This would be called by provider adapters or the cost-meter proxy.
    * Body:
    * - tenantId: required, the tenant ID
    * - success: required, boolean indicating if call succeeded
@@ -209,31 +209,31 @@ export function createCircuitBreakerRouter(config: Config): Router {
   router.post('/:provider/record-result', (req, res) => {
     const { provider } = req.params;
     const { tenantId, success, errorCode } = req.body;
-    
+
     if (!tenantId || typeof tenantId !== 'string') {
-      return res.status(400).json({ 
-        error: 'invalid_request', 
-        message: 'tenantId is required in request body' 
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'tenantId is required in request body'
       });
     }
-    
+
     if (typeof success !== 'boolean') {
-      return res.status(400).json({ 
-        error: 'invalid_request', 
-        message: 'success is required and must be a boolean' 
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'success is required and must be a boolean'
       });
     }
-    
+
     try {
       if (success) {
         circuitBreaker.recordSuccess(provider, tenantId);
       } else {
         circuitBreaker.recordFailure(provider, tenantId, errorCode);
       }
-      
+
       const state = circuitBreaker.getState(provider, tenantId);
-      
-      res.json({ 
+
+      res.json({
         success: true,
         provider,
         tenantId,
@@ -242,16 +242,16 @@ export function createCircuitBreakerRouter(config: Config): Router {
       });
     } catch (error) {
       config.logger.error({ error, provider, tenantId }, 'Error recording call result');
-      res.status(500).json({ 
-        error: 'internal_error', 
-        message: 'Failed to record call result' 
+      res.status(500).json({
+        error: 'internal_error',
+        message: 'Failed to record call result'
       });
     }
   });
 
   /**
    * GET /api/providers/:provider/should-allow
-   * 
+   *
    * Check if a call should be allowed based on circuit breaker state
    * Query params:
    * - tenantId: required, the tenant ID
@@ -259,19 +259,19 @@ export function createCircuitBreakerRouter(config: Config): Router {
   router.get('/:provider/should-allow', (req, res) => {
     const { provider } = req.params;
     const { tenantId } = req.query;
-    
+
     if (!tenantId || typeof tenantId !== 'string') {
-      return res.status(400).json({ 
-        error: 'invalid_request', 
-        message: 'tenantId query parameter is required' 
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'tenantId query parameter is required'
       });
     }
-    
+
     try {
       const shouldAllow = circuitBreaker.shouldAllow(provider, tenantId);
       const state = circuitBreaker.getState(provider, tenantId);
-      
-      res.json({ 
+
+      res.json({
         provider,
         tenantId,
         shouldAllow,
@@ -280,9 +280,9 @@ export function createCircuitBreakerRouter(config: Config): Router {
       });
     } catch (error) {
       config.logger.error({ error, provider, tenantId }, 'Error checking circuit state');
-      res.status(500).json({ 
-        error: 'internal_error', 
-        message: 'Failed to check circuit state' 
+      res.status(500).json({
+        error: 'internal_error',
+        message: 'Failed to check circuit state'
       });
     }
   });

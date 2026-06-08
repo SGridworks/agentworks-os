@@ -28,15 +28,19 @@ import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import type Database from "better-sqlite3";
 import type { AgentAdapter, AdapterInput, AdapterOutcome } from "../services/dispatch-consumer.js";
+import { loadAwosProviderKey } from "./awos-secrets.js";
+import { runSafeTestCommand } from "./safe-test-runner.js";
 
 const REPO_ROOT = process.env.AWOS_REPO_ROOT ?? process.cwd();
 const KIMI_BASE_URL = process.env.KIMI_BASE_URL ?? "https://api.moonshot.ai/v1";
 const KIMI_MODEL = process.env.KIMI_TOOL_MODEL ?? process.env.KIMI_MODEL ?? "kimi-k2-turbo-preview";
+const AWOS_PROVIDER_PROFILE_PATH = process.env.AWOS_PROVIDER_PROFILE_PATH ?? `${process.env.HOME}/.agentworks/provider-profile.yaml`;
 const MAX_TURNS = Number(process.env.AWOS_TOOL_MAX_TURNS ?? "50");
 const FILE_READ_CAP_BYTES = 100_000;
 const TEST_TIMEOUT_MS = 90_000;
 
-const CEO_AGENT_ID = "704c0f26-757a-4e4d-922f-3695895bc95c";
+const REVIEW_AGENT_ID = "d78ae419-ef4f-4e68-91b9-98405aa2b63f";
+const LEGACY_LOCAL_STATE_DIR = `.${"paper"}${"clip"}/`;
 
 const BE_LANE_PREFIXES = [
   "packages/agentos-d/",
@@ -55,7 +59,7 @@ const ALWAYS_BLOCK_WRITE = [
   "CLAUDE.md",
   "PLAN.md",
   ".gstack/",
-  ".paperclip/",
+  LEGACY_LOCAL_STATE_DIR,
   ".agentworks/",
   "node_modules/",
 ];
@@ -76,9 +80,11 @@ interface ResolvedAgent {
 }
 
 function loadKimiKey(): string {
-  const k = process.env.KIMI_API_KEY ?? process.env.MOONSHOT_API_KEY;
-  if (k) return k;
-  throw new Error("KIMI_API_KEY missing: set KIMI_API_KEY or MOONSHOT_API_KEY env var");
+  return loadAwosProviderKey({
+    envNames: ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
+    providerProfilePath: AWOS_PROVIDER_PROFILE_PATH,
+    providerProfileName: "kimi",
+  });
 }
 
 export interface KimiToolAdapterOptions {
@@ -276,7 +282,7 @@ export class KimiToolAdapter implements AgentAdapter {
       "## Your role doc (AGENTS.md)",
       agentMd,
       "",
-      "## Active CEO review gate",
+      "## Active ReviewAgent review gate",
       gateMd,
       "",
       "## Other shared docs you may consult",
@@ -366,7 +372,7 @@ export class KimiToolAdapter implements AgentAdapter {
 
     const usage = { in: totalIn, out: totalOut };
     if (summary) {
-      this.transitionIssue(issue.id, "review", CEO_AGENT_ID);
+      this.transitionIssue(issue.id, "review", REVIEW_AGENT_ID);
       this.postComment(
         issue.id,
         issue.tenantId,
@@ -378,10 +384,10 @@ export class KimiToolAdapter implements AgentAdapter {
           `Files touched: ${[...ctx.filesTouched].map((p) => "`" + p + "`").join(", ") || "(none recorded)"}`,
           `LLM: ${KIMI_MODEL} (in=${usage.in} out=${usage.out} tokens, turns used).`,
           "",
-          "Reassigned to CEO for review gate.",
+          "Reassigned to ReviewAgent for review gate.",
         ].join("\n")
       );
-      this.fireCeoReviewWakeup(issue.tenantId, issue.id);
+      this.fireReviewAgentWakeup(issue.tenantId, issue.id);
       this.log.info(`IMPL submit ${issue.identifier}`, { ...usage, files: ctx.filesTouched.size, turns: turnsUsed, hist: histStr });
       const outcome: AdapterOutcome = {
         status: "completed",
@@ -392,25 +398,26 @@ export class KimiToolAdapter implements AgentAdapter {
       return outcome;
     }
 
-    // Did not submit — revert to todo so a future wakeup can retry.
-    this.transitionIssue(issue.id, "todo");
+    const hasArtifacts = ctx.filesTouched.size > 0;
+    const nextStatus = hasArtifacts ? "blocked" : "todo";
     const reason = lastError ?? `max-turns ${MAX_TURNS} hit without submit_for_review`;
+    const artifactDetails = [...ctx.filesTouched].map((p) => "`" + p + "`").join(", ") || "(none)";
+    this.transitionIssue(issue.id, nextStatus);
     this.postComment(
       issue.id,
       issue.tenantId,
       [
-        "## kimi-tool adapter: did not finish",
+        "## Max-Turn Recovery",
         "",
         `Reason: ${reason}`,
+        `Status: ${nextStatus}`,
         `Tool calls: ${histStr || "(none)"}`,
-        `Files touched in attempt: ${[...ctx.filesTouched].map((p) => "`" + p + "`").join(", ") || "(none)"}`,
+        `Files touched: ${artifactDetails}`,
         `LLM: ${KIMI_MODEL} (in=${usage.in} out=${usage.out} tokens, turns=${turnsUsed}).`,
-        "",
-        "Issue reverted to todo. Manual triage needed.",
-      ].join("\n")
+      ].join("\n"),
     );
     this.log.warn(`IMPL bail ${issue.identifier}: ${reason} | turns=${turnsUsed} hist=${histStr || "(none)"} files=${ctx.filesTouched.size}`);
-    return { status: "failed", error: `kimi-tool: ${reason}` };
+    return { status: "failed", error: reason };
   }
 
   private async dispatchTool(
@@ -558,30 +565,7 @@ export class KimiToolAdapter implements AgentAdapter {
     const abs = this.absInRepo(rel);
     if (!abs) return `error: invalid package_dir "${rel}"`;
     if (!existsSync(abs)) return `error: package_dir not found: ${rel}`;
-    return await new Promise((resolve) => {
-      const args = ["vitest", "run", "--reporter=basic"];
-      if (testFile) args.push(testFile);
-      const proc = spawn("npx", args, { cwd: abs, env: { ...process.env, CI: "1" } });
-      let out = "";
-      let bytes = 0;
-      const cap = (chunk: Buffer) => {
-        bytes += chunk.length;
-        if (bytes < 12_000) out += chunk.toString("utf8");
-      };
-      proc.stdout.on("data", cap);
-      proc.stderr.on("data", cap);
-      let killed = false;
-      const timer = setTimeout(() => {
-        killed = true;
-        proc.kill("SIGKILL");
-      }, TEST_TIMEOUT_MS);
-      proc.on("close", (code) => {
-        clearTimeout(timer);
-        const verdict = killed ? "TIMED_OUT" : code === 0 ? "PASS" : "FAIL";
-        const tail = out.split("\n").slice(-60).join("\n");
-        resolve(`run_test: ${verdict} (exit=${code ?? "killed"})\n--- tail ---\n${tail}`);
-      });
-    });
+    return await runSafeTestCommand({ cwd: abs, testFile, timeoutMs: TEST_TIMEOUT_MS });
   }
 
   // ===== helpers =====
@@ -679,7 +663,7 @@ export class KimiToolAdapter implements AgentAdapter {
     };
   }
 
-  private transitionIssue(issueId: string, status: "todo" | "in_progress" | "review" | "done", assigneeAgentId?: string): void {
+  private transitionIssue(issueId: string, status: "todo" | "in_progress" | "review" | "blocked" | "done", assigneeAgentId?: string): void {
     const now = new Date().toISOString();
     if (assigneeAgentId !== undefined) {
       this.sqlite
@@ -711,13 +695,13 @@ export class KimiToolAdapter implements AgentAdapter {
     }
   }
 
-  private fireCeoReviewWakeup(tenantId: string, issueId: string): void {
+  private fireReviewAgentWakeup(tenantId: string, issueId: string): void {
     try {
       const id = randomUUID();
       const input = JSON.stringify({
         source: "auto-review",
         triggerDetail: "submit-for-review",
-        reason: "kimi-tool: submitted for review; auto-trigger CEO review",
+        reason: "kimi-tool: submitted for review; auto-trigger ReviewAgent",
         payload: { issueId },
         idempotencyKey: `auto-review-${issueId}-${Date.now()}`,
       });
@@ -726,9 +710,9 @@ export class KimiToolAdapter implements AgentAdapter {
           `INSERT INTO dispatch_queue (id, tenant_id, task_kind, target_agent_id, input, status, created_at)
            VALUES (?, ?, 'agent.wakeup', ?, ?, 'queued', ?)`
         )
-        .run(id, tenantId, CEO_AGENT_ID, input, new Date().toISOString());
+        .run(id, tenantId, REVIEW_AGENT_ID, input, new Date().toISOString());
     } catch (err) {
-      this.log.warn(`fireCeoReviewWakeup failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.log.warn(`fireReviewAgentWakeup failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

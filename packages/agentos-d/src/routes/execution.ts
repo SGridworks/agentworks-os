@@ -7,6 +7,8 @@ import { EmbedClient } from "../services/embed-client.js";
 import { maybeRecordEpisodeFromRun } from "../services/episode-from-run.js";
 import { getInsightExtractor, type InsightExtractor } from "../services/insight-extractor.js";
 import { resolveDefaultInstructionsPath } from "../services/instructions-resolver.js";
+import { resolveRunLineage } from "../services/run-lineage.js";
+
 
 let _embedClientForRuntimeState: EmbedClient | null = null;
 function getRuntimeEmbedClient(): EmbedClient {
@@ -139,6 +141,10 @@ const CreateIssueSchema = z.object({
   metadata: JsonObjectSchema.optional(),
 });
 
+const CreateTopLevelIssueSchema = CreateIssueSchema.extend({
+  companyId: IdSchema,
+});
+
 const UpdateIssueSchema = z.object({
   tenantId: IdSchema.optional(),
   title: z.string().min(1).max(240).optional(),
@@ -168,20 +174,45 @@ const RunSchema = z.object({
   summary: z.string().max(4000).optional(),
 });
 
+/**
+ * RunEventSchema with confidence field convention.
+ *
+ * Convention: data_json.confidence is an optional numeric field (0.0-1.0) that
+ * represents the adapter's confidence in the event's accuracy. Adapters may
+ * populate this field to help consumers understand event reliability.
+ */
 const RunEventSchema = z.object({
   tenantId: IdSchema,
   eventType: z.string().min(1).max(120),
   message: z.string().max(4000).optional(),
   data: JsonObjectSchema.optional(),
+}).transform((obj) => {
+  // Surface confidence as a typed field for flight-recorder responses
+  const data = obj.data || {};
+  const confidence = typeof data.confidence === 'number' ? data.confidence : undefined;
+
+  return {
+    ...obj,
+    confidence,
+  };
 });
 
 const WakeupSchema = z.object({
+  targetAgentId: z.string().optional(),
   source: z.string().max(120).optional(),
   triggerDetail: z.string().max(120).optional(),
   reason: z.string().max(4000).optional(),
   payload: JsonObjectSchema.optional(),
   idempotencyKey: z.string().max(240).optional(),
+  issueId: IdSchema.optional(),
 });
+
+type WakeupInput = z.infer<typeof WakeupSchema>;
+
+function wakeupIssueId(input: WakeupInput): string | undefined {
+  const nested = input.payload?.issueId;
+  return input.issueId ?? (typeof nested === "string" ? nested : undefined);
+}
 
 const ListAgentsQuerySchema = z.object({
   tenantId: IdSchema,
@@ -340,6 +371,16 @@ export function createExecutionRouter(_config: Config): Router {
     res.status(201).json(row);
   });
 
+  router.get("/companies/:companyId", (req, res, next: NextFunction) => {
+    const companyId = req.params.companyId;
+    if (!IdSchema.safeParse(companyId).success) return next();
+    const row = getSqlite()
+      .prepare("SELECT * FROM execution_companies WHERE id = ?")
+      .get(companyId);
+    if (!row) return res.status(404).json({ error: "not_found" });
+    res.json(mapCompany(row));
+  });
+
   router.post("/companies/:companyId/projects", (req, res, next: NextFunction) => {
     const companyId = req.params.companyId;
     if (!IdSchema.safeParse(companyId).success) return next();
@@ -400,56 +441,73 @@ export function createExecutionRouter(_config: Config): Router {
     if (!IdSchema.safeParse(companyId).success) return next();
     const parsed = CreateIssueSchema.safeParse(req.body);
     if (!parsed.success) return badRequest(res, parsed.error.flatten());
-    const now = new Date().toISOString();
-    const sqlite = getSqlite();
-    const company = sqlite
-      .prepare("SELECT slug_prefix FROM execution_companies WHERE id = ?")
-      .get(companyId) as { slug_prefix: string | null } | undefined;
-    let identifier: string | null = null;
-    if (company?.slug_prefix) {
-      sqlite
-        .prepare(
-          "INSERT OR IGNORE INTO execution_company_issue_seq (company_id, next_seq) VALUES (?, 1)"
-        )
-        .run(companyId);
-      const seqRow = sqlite
-        .prepare("SELECT next_seq FROM execution_company_issue_seq WHERE company_id = ?")
-        .get(companyId) as { next_seq: number };
-      identifier = `${company.slug_prefix}-${seqRow.next_seq}`;
-      sqlite
-        .prepare(
-          "UPDATE execution_company_issue_seq SET next_seq = next_seq + 1 WHERE company_id = ?"
-        )
-        .run(companyId);
-    }
-    const row = {
-      id: randomUUID(),
-      tenantId: parsed.data.tenantId,
-      companyId,
-      projectId: parsed.data.projectId,
-      identifier,
-      title: parsed.data.title,
-      description: parsed.data.description ?? null,
-      status: "todo",
-      priority: parsed.data.priority ?? "medium",
-      assigneeAgentId: parsed.data.assigneeAgentId ?? null,
-      parentIssueId: parsed.data.parentIssueId ?? null,
-      blockedOn: parsed.data.blockedOn ?? [],
-      metadata: parsed.data.metadata ?? {},
-      createdAt: now,
-      updatedAt: now,
-      completedAt: null,
-    };
-    getSqlite().prepare(`
-      INSERT INTO execution_issues
-      (id, tenant_id, company_id, project_id, identifier, title, description, status,
-       priority, assignee_agent_id, parent_issue_id, blocked_on_json, metadata_json,
-       created_at, updated_at, completed_at)
-      VALUES (@id, @tenantId, @companyId, @projectId, @identifier, @title, @description,
-       @status, @priority, @assigneeAgentId, @parentIssueId, @blockedOnJson,
-       @metadataJson, @createdAt, @updatedAt, @completedAt)
-    `).run(bindJson(row));
+    const row = createIssueRow(companyId, parsed.data);
     res.status(201).json(row);
+  });
+
+  router.post("/issues", (req, res) => {
+    const parsed = CreateTopLevelIssueSchema.safeParse(req.body);
+    if (!parsed.success) return badRequest(res, parsed.error.flatten());
+    const { companyId, ...issueInput } = parsed.data;
+    const row = createIssueRow(companyId, issueInput);
+    res.status(201).json(row);
+  });
+
+  router.get("/issues/:issueId", (req, res, next: NextFunction) => {
+    const issueId = resolveIssueIdParam(req.params.issueId);
+    if (!issueId) return next();
+    const row = getSqlite()
+      .prepare(`SELECT ${ISSUE_LIST_PROJECTION} FROM execution_issues i WHERE i.id = ?`)
+      .get(issueId);
+    if (!row) return res.status(404).json({ error: "not_found" });
+    res.json(mapIssue(row));
+  });
+
+  router.get("/issues/:issueId/heartbeat-context", (req, res, next: NextFunction) => {
+    const issueId = resolveIssueIdParam(req.params.issueId);
+    if (!issueId) return next();
+    const sqlite = getSqlite();
+    const row = sqlite
+      .prepare(`SELECT ${ISSUE_LIST_PROJECTION} FROM execution_issues i WHERE i.id = ?`)
+      .get(issueId);
+    if (!row) return res.status(404).json({ error: "not_found" });
+
+    const issue = mapIssue(row);
+    const commentLimit = safeLimit(Number(req.query.commentLimit ?? 20));
+    const comments = sqlite
+      .prepare(`
+        SELECT * FROM execution_issue_comments
+        WHERE issue_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `)
+      .all(issueId, commentLimit)
+      .map(mapComment)
+      .reverse();
+
+    const parentIssue = issue.parentIssueId
+      ? sqlite
+          .prepare(`SELECT ${ISSUE_LIST_PROJECTION} FROM execution_issues i WHERE i.id = ?`)
+          .get(issue.parentIssueId)
+      : null;
+
+    const blockedOnIssues =
+      issue.blockedOn.length > 0
+        ? sqlite
+            .prepare(`
+              SELECT ${ISSUE_LIST_PROJECTION} FROM execution_issues i
+              WHERE i.id IN (${issue.blockedOn.map(() => "?").join(",")})
+            `)
+            .all(...issue.blockedOn)
+            .map(mapIssue)
+        : [];
+
+    res.json({
+      issue,
+      comments,
+      parentIssue: parentIssue ? mapIssue(parentIssue) : null,
+      blockedOnIssues,
+    });
   });
 
   router.patch("/issues/:issueId", (req, res, next: NextFunction) => {
@@ -939,7 +997,12 @@ export function createExecutionRouter(_config: Config): Router {
       });
     }
 
-    const dispatch = insertWakeupDispatch(agent.tenant_id, agentId, parsed.data);
+    const dispatch = insertWakeupDispatch(
+      agent.tenant_id,
+      agentId,
+      parsed.data,
+      wakeupIssueId(parsed.data),
+    );
     const audit = recordWakeupAudit(agent.tenant_id, agentId, parsed.data, dispatch.id);
     if (!audit.coalesced) {
       appendExecutionAudit({
@@ -956,7 +1019,13 @@ export function createExecutionRouter(_config: Config): Router {
         },
       });
     }
-    res.status(202).json({ wakeupId: audit.id, dispatchId: dispatch.id, status: audit.coalesced ? "coalesced" : "queued" });
+    res.status(202).json({
+      wakeupId: audit.id,
+      dispatchId: dispatch.id,
+      targetAgentId: parsed.data.targetAgentId || null,
+      issueId: wakeupIssueId(parsed.data),
+      status: audit.coalesced ? "coalesced" : "queued",
+    });
   });
 
   router.post("/agents/:agentId/resume", (req, res, next: NextFunction) => {
@@ -1071,6 +1140,26 @@ export function createExecutionRouter(_config: Config): Router {
     res.status(201).json(row);
   });
 
+  /**
+   * GET /api/runs/:runId/lineage
+   *
+   * Returns the run, its episode(s), and the insights produced by those
+   * episodes. Linked via execution_runs.episode_session_id ↔ episodes.session_id.
+   */
+  router.get("/runs/:runId/lineage", (req, res, next: NextFunction) => {
+    const runId = req.params.runId;
+    if (!IdSchema.safeParse(runId).success) return next();
+
+    const sqlite = getSqlite();
+    const lineage = resolveRunLineage(sqlite, runId);
+
+    if (!lineage.run) {
+      return res.status(404).json({ error: "run_not_found" });
+    }
+
+    res.json(lineage);
+  });
+
   router.post("/companies/:companyId/cost-events", (req, res, next: NextFunction) => {
     const companyId = req.params.companyId;
     if (!IdSchema.safeParse(companyId).success) return next();
@@ -1096,14 +1185,455 @@ export function createExecutionRouter(_config: Config): Router {
     res.status(202).json({ id: row.id, accepted: true });
   });
 
+  // ── Usage telemetry aggregation ──────────────────────────────────────────
+
+  const UsageRangeSchema = z.enum(["1h", "24h", "7d"]);
+  type UsageRange = z.infer<typeof UsageRangeSchema>;
+
+  function rangeToMs(range: UsageRange): number {
+    switch (range) {
+      case "1h": return 60 * 60 * 1000;
+      case "24h": return 24 * 60 * 60 * 1000;
+      case "7d": return 7 * 24 * 60 * 60 * 1000;
+    }
+  }
+
+  function aggregateUsage(runs: Array<{ usageJson: Record<string, unknown> | null }>): {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    cachedTokens: number;
+    estimatedCostUsd: number;
+    providerLatencyMs: number;
+    runCount: number;
+    runsWithUsage: number;
+  } {
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let cachedTokens = 0;
+    let estimatedCostUsd = 0;
+    let providerLatencyMs = 0;
+    let runsWithUsage = 0;
+
+    for (const run of runs) {
+      const u = run.usageJson;
+      if (!u) continue;
+      inputTokens += Number(u["inputTokens"] ?? 0);
+      outputTokens += Number(u["outputTokens"] ?? 0);
+      cachedTokens += Number(u["cachedInputTokens"] ?? u["rawCachedInputTokens"] ?? 0);
+      estimatedCostUsd += Number(u["estimatedCostUsd"] ?? 0);
+      const latency = Number(u["providerLatencyMs"] ?? 0);
+      if (latency > 0) providerLatencyMs += latency;
+      runsWithUsage++;
+    }
+
+    return {
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      cachedTokens,
+      estimatedCostUsd: Math.round(estimatedCostUsd * 100) / 100,
+      providerLatencyMs: runsWithUsage > 0 ? Math.round(providerLatencyMs / runsWithUsage) : 0,
+      runCount: runs.length,
+      runsWithUsage,
+    };
+  }
+
+  /**
+   * GET /api/agents/me/usage?range=1h|24h|7d&agentId=...&companyId=...
+   *
+   * Proxies to the legacy bridge run feed and aggregates usageJson from completed runs
+   * within the requested time window.
+   */
+  router.get("/agents/me/usage", async (req, res) => {
+    const parsed = z
+      .object({
+        range: UsageRangeSchema.default("24h"),
+        agentId: IdSchema,
+        companyId: IdSchema,
+      })
+      .safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+
+    const { range, agentId, companyId } = parsed.data;
+    const since = new Date(Date.now() - rangeToMs(range)).toISOString();
+    const upstreamUrl = `${_config.legacyBridgeUrl}/api/companies/${companyId}/heartbeat-runs?agentId=${agentId}&status=succeeded&since=${encodeURIComponent(since)}&limit=200`;
+
+    let upstream: globalThis.Response;
+    try {
+      upstream = await globalThis.fetch(upstreamUrl, {
+        headers: {
+          authorization: `Bearer ${_config.legacyBridgeApiKey}`,
+          "content-type": "application/json",
+        },
+      });
+    } catch (err) {
+      res.status(502).json({ error: "legacy_bridge_unreachable", message: (err as Error).message });
+      return;
+    }
+
+    if (!upstream.ok) {
+      res.status(upstream.status).json({ error: "legacy_bridge_error", status: upstream.status });
+      return;
+    }
+
+    let runs: Array<{ usageJson: Record<string, unknown> | null }>;
+    try {
+      runs = (await upstream.json()) as typeof runs;
+    } catch {
+      res.status(502).json({ error: "invalid_response", message: "could not parse legacy bridge response" });
+      return;
+    }
+
+    const totals = aggregateUsage(runs);
+    res.json({ range, totals });
+  });
+
+  /**
+   * GET /api/companies/:companyId/usage?range=1h|24h|7d&groupBy=agent
+   *
+   * Proxies to the legacy bridge run feed and aggregates usage per agent within the
+   * requested time window. Falls back to agentos-d execution_agent_runtime_state
+   * cumulative totals when the bridge returns no runs.
+   */
+  router.get("/companies/:companyId/usage", async (req, res, next: NextFunction) => {
+    const companyId = req.params.companyId;
+    if (!IdSchema.safeParse(companyId).success) return next();
+
+    const parsed = z
+      .object({
+        range: UsageRangeSchema.default("24h"),
+        groupBy: z.enum(["agent"]).default("agent"),
+      })
+      .safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+
+    const { range } = parsed.data;
+    const since = new Date(Date.now() - rangeToMs(range)).toISOString();
+    const upstreamUrl = `${_config.legacyBridgeUrl}/api/companies/${companyId}/heartbeat-runs?status=succeeded&since=${encodeURIComponent(since)}&limit=200`;
+
+    let upstream: globalThis.Response;
+    try {
+      upstream = await globalThis.fetch(upstreamUrl, {
+        headers: {
+          authorization: `Bearer ${_config.legacyBridgeApiKey}`,
+          "content-type": "application/json",
+        },
+      });
+    } catch (err) {
+      res.status(502).json({ error: "legacy_bridge_unreachable", message: (err as Error).message });
+      return;
+    }
+
+    if (!upstream.ok) {
+      res.status(upstream.status).json({ error: "legacy_bridge_error", status: upstream.status });
+      return;
+    }
+
+    let runs: Array<{ agentId: string; usageJson: Record<string, unknown> | null }>;
+    try {
+      runs = (await upstream.json()) as typeof runs;
+    } catch {
+      res.status(502).json({ error: "invalid_response", message: "could not parse legacy bridge response" });
+      return;
+    }
+
+    // Group by agent
+    const byAgent = new Map<string, typeof runs>();
+    for (const run of runs) {
+      if (!run.agentId) continue;
+      const existing = byAgent.get(run.agentId) ?? [];
+      existing.push(run);
+      byAgent.set(run.agentId, existing);
+    }
+
+    const agents: Array<{
+      agentId: string;
+      totals: ReturnType<typeof aggregateUsage>;
+    }> = [];
+
+    for (const [agentId, agentRuns] of Array.from(byAgent.entries())) {
+      agents.push({ agentId, totals: aggregateUsage(agentRuns) });
+    }
+
+    // Sort by totalTokens desc
+    agents.sort((a, b) => b.totals.totalTokens - a.totals.totalTokens);
+
+    const grandTotal = aggregateUsage(runs);
+    res.json({ range, grandTotal, agents });
+  });
+
+
+
+  /**
+   * GET /api/agents/:id/flight-recorder
+   *
+   * Returns chronologically merged execution_run_events, execution_agent_wakeups,
+   * runtime-state transitions (action_log run.*), terminal episodes, and linked insights.
+   * Events are ordered by timestamp with specific precedence for tie-breaking.
+   */
+  router.get("/agents/:agentId/flight-recorder", (req, res, next: NextFunction) => {
+    const agentId = req.params.agentId;
+    if (!IdSchema.safeParse(agentId).success) return next();
+
+    const sqlite = getSqlite();
+
+    // Verify agent exists
+    const agent = sqlite
+      .prepare("SELECT id, tenant_id FROM execution_agents WHERE id = ?")
+      .get(agentId) as { id: string; tenant_id: string } | undefined;
+
+    if (!agent) {
+      return res.status(404).json({ error: "agent_not_found" });
+    }
+
+    const tenantId = agent.tenant_id;
+
+    // Get all run events for this agent's runs
+    const runEvents = sqlite
+      .prepare(`
+        SELECT
+          ere.id,
+          ere.event_type,
+          ere.message,
+          ere.data_json,
+          ere.created_at,
+          er.id as run_id
+        FROM execution_run_events ere
+        JOIN execution_runs er ON ere.run_id = er.id
+        WHERE er.agent_id = ? AND ere.tenant_id = ?
+        ORDER BY ere.created_at ASC
+      `)
+      .all(agentId, tenantId) as Array<{
+        id: string;
+        event_type: string;
+        message: string | null;
+        data_json: string | null;
+        created_at: string;
+        run_id: string;
+      }>;
+
+    // Get all agent wakeups
+    const wakeups = sqlite
+      .prepare(`
+        SELECT
+          id,
+          source,
+          trigger_detail,
+          reason,
+          payload_json,
+          created_at
+        FROM execution_agent_wakeups
+        WHERE agent_id = ? AND tenant_id = ?
+        ORDER BY created_at ASC
+      `)
+      .all(agentId, tenantId) as Array<{
+        id: string;
+        source: string | null;
+        trigger_detail: string | null;
+        reason: string | null;
+        payload_json: string | null;
+        created_at: string;
+      }>;
+
+    // Get runtime state transitions from action_log (run.*)
+    const actionLogTransitions = sqlite
+      .prepare(`
+        SELECT
+          id,
+          action_kind,
+          payload_snapshot,
+          logged_at
+        FROM action_log
+        WHERE tenant_id = ? AND actor_id = ? AND action_kind LIKE 'run.%'
+        ORDER BY logged_at ASC
+      `)
+      .all(tenantId, agentId) as Array<{
+        id: string;
+        action_kind: string;
+        payload_snapshot: string | null;
+        logged_at: string;
+      }>;
+
+    // Get episodes for this agent
+    const episodes = sqlite
+      .prepare(`
+        SELECT
+          id,
+          session_id,
+          started_at,
+          ended_at,
+          duration_sec,
+          outcome,
+          summary,
+          importance,
+          created_at
+        FROM episodes
+        WHERE tenant_id = ? AND agent_id = ?
+        ORDER BY created_at ASC
+      `)
+      .all(tenantId, agentId) as Array<{
+        id: string;
+        session_id: string;
+        started_at: string;
+        ended_at: string | null;
+        duration_sec: number | null;
+        outcome: string;
+        summary: string | null;
+        importance: string | null;
+        created_at: string;
+      }>;
+
+    // Get insights for this agent's episodes
+    const insights = sqlite
+      .prepare(`
+        SELECT
+          i.id,
+          i.episode_id,
+          i.frame_type,
+          i.subject,
+          i.content,
+          i.importance,
+          i.source,
+          i.validated,
+          i.created_at
+        FROM insights i
+        JOIN episodes e ON i.episode_id = e.id
+        WHERE i.tenant_id = ? AND e.agent_id = ?
+        ORDER BY i.created_at ASC
+      `)
+      .all(tenantId, agentId) as Array<{
+        id: string;
+        episode_id: string;
+        frame_type: string;
+        subject: string | null;
+        content: string;
+        importance: string | null;
+        source: string | null;
+        validated: number | boolean | null;
+        created_at: string;
+      }>;
+
+    // Merge all events into a single chronologically ordered list
+    const items: Array<{
+      type: string;
+      timestamp: string;
+      [key: string]: unknown;
+    }> = [];
+
+    // Add run events
+    for (const event of runEvents) {
+      const data = parseRecord(event.data_json);
+      const confidence = typeof data.confidence === 'number' ? data.confidence : undefined;
+
+      items.push({
+        type: "run_event",
+        timestamp: event.created_at,
+        id: event.id,
+        runId: event.run_id,
+        eventType: event.event_type,
+        message: event.message,
+        data: data,
+        confidence: confidence,
+      });
+    }
+
+    // Add wakeups
+    for (const wakeup of wakeups) {
+      items.push({
+        type: "wakeup",
+        timestamp: wakeup.created_at,
+        id: wakeup.id,
+        source: wakeup.source,
+        triggerDetail: wakeup.trigger_detail,
+        reason: wakeup.reason,
+        payload: parseJson(wakeup.payload_json),
+      });
+    }
+
+    // Add action log transitions
+    for (const transition of actionLogTransitions) {
+      items.push({
+        type: "action_log",
+        timestamp: transition.logged_at,
+        id: transition.id,
+        actionKind: transition.action_kind,
+        payload: parseJson(transition.payload_snapshot),
+      });
+    }
+
+    // Add episodes
+    for (const episode of episodes) {
+      items.push({
+        type: "episode",
+        timestamp: episode.created_at,
+        id: episode.id,
+        sessionId: episode.session_id,
+        startedAt: episode.started_at,
+        endedAt: episode.ended_at,
+        durationSec: episode.duration_sec,
+        outcome: episode.outcome,
+        summary: episode.summary,
+        importance: episode.importance,
+      });
+    }
+
+    // Add insights
+    for (const insight of insights) {
+      items.push({
+        type: "insight",
+        timestamp: insight.created_at,
+        id: insight.id,
+        episodeId: insight.episode_id,
+        frameType: insight.frame_type,
+        subject: insight.subject,
+        content: insight.content,
+        importance: insight.importance,
+        source: insight.source,
+        validated: insight.validated,
+      });
+    }
+
+    // Sort chronologically by timestamp
+    items.sort((a, b) => {
+      const timeCompare = a.timestamp.localeCompare(b.timestamp);
+      if (timeCompare !== 0) return timeCompare;
+
+      // For identical timestamps, use precedence order from spec:
+      // 1. Action Proposed (run_event)
+      // 2. Policy Evaluated (not in current scope)
+      // 3. Human Review (not in current scope)
+      // 4. Action Executed (action_log)
+      // 5. System Events (wakeup, episode, insight)
+      // Lower numbers = higher precedence (come first)
+      const precedence: Record<string, number> = {
+        run_event: 1,
+        action_log: 4,
+        wakeup: 6,
+        episode: 6,
+        insight: 6,
+      };
+
+      return (precedence[a.type] || 999) - (precedence[b.type] || 999);
+    });
+
+    res.json({ items });
+  });
+
   return router;
 }
 
 // Export action-log query helpers for use by other routes and services
-export { 
-  actionLogSince, 
-  countActionLogSince, 
-  getDistinctActionKindsSince, 
+export {
+  actionLogSince,
+  countActionLogSince,
+  getDistinctActionKindsSince,
   getActionLogSummaryByKind,
   type ActionLogQueryOptions,
   type ActionLogRow
@@ -1179,9 +1709,24 @@ function insertComment(input: {
 function insertWakeupDispatch(
   tenantId: string,
   agentId: string,
-  input: z.infer<typeof WakeupSchema>,
+  input: WakeupInput,
+  issueId?: string,
 ): { id: string } {
-  const row = { id: randomUUID(), tenantId, agentId, input: JSON.stringify(input), createdAt: new Date().toISOString() };
+  const payload: Record<string, unknown> = { ...input };
+  if (issueId) {
+    payload.issueId = issueId;
+    payload.payload = {
+      ...(typeof input.payload === "object" && input.payload !== null ? input.payload : {}),
+      issueId,
+    };
+  }
+  const row = {
+    id: randomUUID(),
+    tenantId,
+    agentId,
+    input: JSON.stringify(payload),
+    createdAt: new Date().toISOString(),
+  };
   getSqlite().prepare(`
     INSERT INTO dispatch_queue
     (id, tenant_id, task_kind, target_agent_id, input, status, created_at)
@@ -1478,6 +2023,61 @@ function resolveIssueIdParam(issueId: string): string | null {
     .prepare("SELECT id FROM execution_issues WHERE identifier = 'AWOS-STANDING' LIMIT 1")
     .get() as { id: string } | undefined;
   return row?.id ?? null;
+}
+
+function createIssueRow(companyId: string, input: z.infer<typeof CreateIssueSchema>): IssueView {
+  const now = new Date().toISOString();
+  const sqlite = getSqlite();
+  const company = sqlite
+    .prepare("SELECT slug_prefix FROM execution_companies WHERE id = ?")
+    .get(companyId) as { slug_prefix: string | null } | undefined;
+  let identifier: string | null = null;
+  if (company?.slug_prefix) {
+    sqlite
+      .prepare(
+        "INSERT OR IGNORE INTO execution_company_issue_seq (company_id, next_seq) VALUES (?, 1)"
+      )
+      .run(companyId);
+    const seqRow = sqlite
+      .prepare("SELECT next_seq FROM execution_company_issue_seq WHERE company_id = ?")
+      .get(companyId) as { next_seq: number };
+    identifier = `${company.slug_prefix}-${seqRow.next_seq}`;
+    sqlite
+      .prepare(
+        "UPDATE execution_company_issue_seq SET next_seq = next_seq + 1 WHERE company_id = ?"
+      )
+      .run(companyId);
+  }
+  const row = {
+    id: randomUUID(),
+    tenantId: input.tenantId,
+    companyId,
+    projectId: input.projectId,
+    identifier,
+    title: input.title,
+    description: input.description ?? null,
+    status: "todo",
+    priority: input.priority ?? "medium",
+    assigneeAgentId: input.assigneeAgentId ?? null,
+    parentIssueId: input.parentIssueId ?? null,
+    blockedOn: input.blockedOn ?? [],
+    metadata: input.metadata ?? {},
+    createdAt: now,
+    updatedAt: now,
+    completedAt: null,
+    executionRunId: null,
+    latestCommentAt: null,
+  };
+  sqlite.prepare(`
+    INSERT INTO execution_issues
+    (id, tenant_id, company_id, project_id, identifier, title, description, status,
+     priority, assignee_agent_id, parent_issue_id, blocked_on_json, metadata_json,
+     created_at, updated_at, completed_at)
+    VALUES (@id, @tenantId, @companyId, @projectId, @identifier, @title, @description,
+     @status, @priority, @assigneeAgentId, @parentIssueId, @blockedOnJson,
+     @metadataJson, @createdAt, @updatedAt, @completedAt)
+  `).run(bindJson(row));
+  return row;
 }
 
 function mapCompany(row: any): Record<string, unknown> {

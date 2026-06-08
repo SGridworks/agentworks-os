@@ -28,6 +28,12 @@ export type VaultKey = z.infer<typeof VaultKeySchema>;
 export const VaultWriteModeSchema = z.enum(["replace", "append"]);
 export type VaultWriteMode = z.infer<typeof VaultWriteModeSchema>;
 
+export const VaultUsageEntrySchema = z.object({
+  agentId: z.string().uuid(),
+  usedAt: z.string(),
+});
+export type VaultUsageEntry = z.infer<typeof VaultUsageEntrySchema>;
+
 /**
  * A page — body plus minimal metadata. The body is markdown; storage
  * backends should treat it as opaque UTF-8 bytes.
@@ -53,7 +59,7 @@ export interface VaultPageBase {
   /** ISO-8601 with millis. */
   lastUpdatedAt?: string;
   /** Agents that read the page since last update. */
-  lastUsedBy?: Array<{ agentId: string; usedAt: string }>;
+  lastUsedBy?: VaultUsageEntry[];
 }
 
 export const VaultPageSchema = z.object({
@@ -68,10 +74,7 @@ export const VaultPageSchema = z.object({
   authoringAgent: z.string().uuid().optional(),
   lastUpdatedBy: z.string().uuid().optional(),
   lastUpdatedAt: z.string().optional(),
-  lastUsedBy: z.array(z.object({
-    agentId: z.string().uuid(),
-    usedAt: z.string()
-  })).optional(),
+  lastUsedBy: z.array(VaultUsageEntrySchema).optional(),
 });
 
 export type VaultPage = z.infer<typeof VaultPageSchema>;
@@ -102,7 +105,11 @@ export interface VaultWriteOptions {
   /** Computed importance 1-5 for pruning decisions. */
   importance?: number;
   /** Agents that read the page since last update. Used for updating lastUsedBy without changing content. */
-  lastUsedBy?: Array<{ agentId: string; usedAt: string }>;
+  lastUsedBy?: VaultUsageEntry[];
+  /** UUID of the actor performing the write. Used for provenance tracking. */
+  lastUpdatedBy?: string;
+  /** ISO-8601 timestamp of when the write occurred. If not provided, current time is used. */
+  lastUpdatedAt?: string;
 }
 
 /**

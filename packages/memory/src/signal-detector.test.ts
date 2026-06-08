@@ -21,18 +21,18 @@ describe("SignalDetector", () => {
 
   it("recordWrite: first write sets strength to 1.0", async () => {
     const sd = new SignalDetector(root, tenant);
-    await sd.recordWrite("projects/sgridworks");
+    await sd.recordWrite("projects/acme");
     const signals = await sd.getSignals();
     expect(signals).toHaveLength(1);
-    expect(signals[0]!.page).toBe("projects/sgridworks");
+    expect(signals[0]!.page).toBe("projects/acme");
     expect(signals[0]!.strength).toBe(1.0);
     expect(signals[0]!.eventCount).toBe(1);
   });
 
   it("recordWrite: subsequent writes add 0.5", async () => {
     const sd = new SignalDetector(root, tenant);
-    await sd.recordWrite("projects/sgridworks");
-    await sd.recordWrite("projects/sgridworks");
+    await sd.recordWrite("projects/acme");
+    await sd.recordWrite("projects/acme");
     const signals = await sd.getSignals();
     expect(signals[0]!.strength).toBe(1.5);
     expect(signals[0]!.eventCount).toBe(2);
