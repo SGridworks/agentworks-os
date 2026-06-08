@@ -78,11 +78,14 @@ function evaluateRule(
   }
 
   if (missingFields.length > 0) {
-    // Per spec: pack-level missing_data_disposition is the default for all rules.
-    // A rule's disposition_when_missing only applies when explicitly set (not the Zod default).
-    // We use rule.disposition_when_missing directly; the caller (evaluatePack) is
-    // responsible for passing pack.missing_data_disposition to this function.
-    const disposition = packMissingDisposition ?? rule.disposition_when_missing;
+    // Precedence: a rule's explicit disposition_when_missing overrides the
+    // pack-level missing_data_disposition, which is the default for rules that
+    // don't set one. disposition_when_missing is optional in the schema (no Zod
+    // default) precisely so an unset rule reads as undefined here and falls
+    // through to the pack default. The final fallback guards a pack with
+    // neither set; route_to_review is the most conservative non-allow outcome.
+    const disposition =
+      rule.disposition_when_missing ?? packMissingDisposition ?? "route_to_review";
     return {
       decision: disposition as EvaluationResult["decision"],
       reason: `Missing required data: ${missingFields.join(", ")}`,
