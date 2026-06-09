@@ -5,9 +5,10 @@
  * roster so the UI can show assignment options.
  */
 
+import { daemonFetch } from "@/lib/daemon-fetch";
+
 export const dynamic = "force-dynamic";
 
-const AGENTOS_BASE = process.env.AGENTOS_API_URL ?? "http://127.0.0.1:7710";
 const TENANT_ID = process.env.AGENTOS_TENANT_ID ?? null;
 const COMPANY_ID = process.env.AGENTOS_COMPANY_ID ?? null;
 const COMPANY_NAME = process.env.AGENTOS_COMPANY_NAME ?? "AgentWorks";
@@ -70,7 +71,7 @@ export interface TriageQueueResponse {
 }
 
 async function fetchAgentos<T>(path: string): Promise<T> {
-  const res = await fetch(`${AGENTOS_BASE}${path}`, {
+  const res = await daemonFetch(path, {
     headers: { "Content-Type": "application/json" },
     ...( { next: { revalidate: 0 } } as unknown as RequestInit ),
   });

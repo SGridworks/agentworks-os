@@ -15,7 +15,7 @@
  * POST /api/memory/write  { tenantId, key, body, mode? }   → write receipt
  */
 
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { z } from "zod";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -48,6 +48,8 @@ import type { RulePack } from "@agentworks/shared";
 import { getDb } from "../db/index.js";
 import { getProvenance } from "../services/provenance.js";
 import type { Config } from "../config.js";
+import { assertTenantAllowed, TenantAccessError } from "../auth/tenant-access.js";
+import { requireScope } from "../auth/scope-guard.js";
 
 function vaultRootDir(): string {
   return process.env.VAULT_ROOT ?? join(homedir(), "vault");
@@ -101,6 +103,14 @@ function inferKind(fmType: string | undefined, dir: string): string {
   return "note";
 }
 
+function denyTenant(res: Response, err: unknown): boolean {
+  if (err instanceof TenantAccessError) {
+    res.status(403).json({ error: "forbidden", message: err.message });
+    return true;
+  }
+  return false;
+}
+
 export function createMemoryRouter(_config: Config): Router {
   const router = Router();
 
@@ -139,13 +149,19 @@ export function createMemoryRouter(_config: Config): Router {
 
   });
 
-  router.post("/read", async (req, res) => {
+  router.post("/read", requireScope("memory:read"), async (req, res) => {
     const parsed = ReadRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
     }
     const { tenantId, key, actorId } = parsed.data;
+    try {
+      assertTenantAllowed(req.principal!, tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
     try {
       const r = await getVaultStore().read(tenantId, key);
 
@@ -175,13 +191,19 @@ export function createMemoryRouter(_config: Config): Router {
     tenantId: z.string().uuid(),
   });
 
-  router.get("/graph", async (req, res) => {
+  router.get("/graph", requireScope("memory:read"), async (req, res) => {
     const parsed = GraphRequestSchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
     }
     const { tenantId } = parsed.data;
+    try {
+      assertTenantAllowed(req.principal!, tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
     try {
       const index = await buildVaultMetadataIndex(vaultRootDir(), tenantId);
 
@@ -258,11 +280,17 @@ export function createMemoryRouter(_config: Config): Router {
     }
   });
 
-  router.get("/metadata", async (req, res) => {
+  router.get("/metadata", requireScope("memory:read"), async (req, res) => {
     const parsed = GraphRequestSchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
     try {
       const index = await buildVaultMetadataIndex(vaultRootDir(), parsed.data.tenantId);
@@ -275,7 +303,7 @@ export function createMemoryRouter(_config: Config): Router {
 
   // Operator (claude-code) memory — read-only bridge to ~/vault/memory/.
   // No tenant isolation: this is the operator's own cross-project memory.
-  router.get("/operator", async (_req, res) => {
+  router.get("/operator", requireScope("operator-memory:read"), async (_req, res) => {
     try {
       const entries = await getOperatorStore().list();
       res.status(200).json({ ok: true, data: { count: entries.length, entries } });
@@ -289,7 +317,7 @@ export function createMemoryRouter(_config: Config): Router {
     key: z.string().min(1),
   });
 
-  router.post("/operator/read", async (req, res) => {
+  router.post("/operator/read", requireScope("operator-memory:read"), async (req, res) => {
     const parsed = OperatorReadRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ ok: false, error: "invalid_request", details: parsed.error.flatten() });
@@ -332,11 +360,17 @@ export function createMemoryRouter(_config: Config): Router {
     validated: z.boolean().optional(),
   });
 
-  router.post("/insight", async (req, res) => {
+  router.post("/insight", requireScope("memory:write"), async (req, res) => {
     const parsed = InsightRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ ok: false, error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
     try {
       const sqlite = (getDb() as unknown as { $client: import("better-sqlite3").Database }).$client;
@@ -358,11 +392,17 @@ export function createMemoryRouter(_config: Config): Router {
     limit: z.coerce.number().int().positive().max(1000).optional(),
   });
 
-  router.get("/insight", (req, res) => {
+  router.get("/insight", requireScope("memory:read"), (req, res) => {
     const parsed = ListInsightsQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ ok: false, error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
     try {
       const sqlite = (getDb() as unknown as { $client: import("better-sqlite3").Database }).$client;
@@ -382,12 +422,18 @@ export function createMemoryRouter(_config: Config): Router {
     subject: z.string().max(240).nullable().optional(),
   });
 
-  router.patch("/insight/:id", (req, res) => {
+  router.patch("/insight/:id", requireScope("memory:write"), (req, res) => {
     const id = String(req.params.id);
     const parsed = UpdateInsightSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ ok: false, error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
     try {
       const sqlite = (getDb() as unknown as { $client: import("better-sqlite3").Database }).$client;
@@ -403,12 +449,18 @@ export function createMemoryRouter(_config: Config): Router {
 
   const ArchiveInsightSchema = z.object({ tenantId: z.string().uuid() });
 
-  router.delete("/insight/:id", (req, res) => {
+  router.delete("/insight/:id", requireScope("memory:write"), (req, res) => {
     const id = String(req.params.id);
     const parsed = ArchiveInsightSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ ok: false, error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
     try {
       const sqlite = (getDb() as unknown as { $client: import("better-sqlite3").Database }).$client;
@@ -421,11 +473,17 @@ export function createMemoryRouter(_config: Config): Router {
     }
   });
 
-  router.post("/search", async (req, res) => {
+  router.post("/search", requireScope("memory:read"), async (req, res) => {
     const parsed = SearchRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ ok: false, error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
     try {
       const sqlite = (getDb() as unknown as { $client: import("better-sqlite3").Database }).$client;
@@ -476,11 +534,17 @@ export function createMemoryRouter(_config: Config): Router {
       }),
   });
 
-  router.get("/lint", async (req, res) => {
+  router.get("/lint", requireScope("memory:read"), async (req, res) => {
     const parsed = LintQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ ok: false, error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
     try {
       const report = await lintVault(vaultRootDir(), parsed.data.tenantId, {
@@ -531,13 +595,19 @@ export function createMemoryRouter(_config: Config): Router {
     since: z.string().min(1).max(64).optional(),
   });
 
-  router.get("/lint/diff", async (req, res) => {
+  router.get("/lint/diff", requireScope("memory:read"), async (req, res) => {
     const parsed = LintDiffQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ ok: false, error: "invalid_request", details: parsed.error.flatten() });
       return;
     }
     const { tenantId, since } = parsed.data;
+    try {
+      assertTenantAllowed(req.principal!, tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
     try {
       const historyDir = join(vaultRootDir(), tenantId, "wiki", "lint-history");
       // The current run is always a full run — /lint/diff only
@@ -576,13 +646,19 @@ export function createMemoryRouter(_config: Config): Router {
     since: z.string().min(1).max(64).optional(),
   });
 
-  router.get("/lint/diff/subset", async (req, res) => {
+  router.get("/lint/diff/subset", requireScope("memory:read"), async (req, res) => {
     const parsed = LintDiffWithChecksQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ ok: false, error: "invalid_request", details: parsed.error.flatten() });
       return;
     }
     const { tenantId, since, checks } = parsed.data;
+    try {
+      assertTenantAllowed(req.principal!, tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
     try {
       const historyDir = join(vaultRootDir(), tenantId, "wiki", "lint-history");
       const current = await lintVault(vaultRootDir(), tenantId, {
@@ -628,11 +704,17 @@ export function createMemoryRouter(_config: Config): Router {
     tenantId: z.string().uuid(),
   });
 
-  router.get("/hot-cache", async (req, res) => {
+  router.get("/hot-cache", requireScope("memory:read"), async (req, res) => {
     const parsed = HotCacheQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ ok: false, error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
     try {
       const r = await getVaultStore().read(parsed.data.tenantId, "hot");
@@ -657,11 +739,17 @@ export function createMemoryRouter(_config: Config): Router {
     tenantId: z.string().uuid(),
   });
 
-  router.post("/hot-cache/rebuild", async (req, res) => {
+  router.post("/hot-cache/rebuild", requireScope("memory:write"), async (req, res) => {
     const parsed = HotCacheRebuildSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ ok: false, error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
     try {
       const db = getDb();
@@ -695,13 +783,19 @@ export function createMemoryRouter(_config: Config): Router {
     }
   });
 
-  router.post("/write", async (req, res) => {
+  router.post("/write", requireScope("memory:write"), async (req, res) => {
     const parsed = WriteRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
     }
     const { tenantId, key, body, mode, actorId } = parsed.data;
+    try {
+      assertTenantAllowed(req.principal!, tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
 
     // Build write options with provenance tracking
     const writeOptions: VaultWriteOptions = { mode };
@@ -734,13 +828,19 @@ export function createMemoryRouter(_config: Config): Router {
     key: z.string().min(1).max(512),
   });
 
-  router.get("/provenance", async (req, res) => {
+  router.get("/provenance", requireScope("memory:read"), async (req, res) => {
     const parsed = ProvenanceQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
     }
     const { tenantId, key } = parsed.data;
+    try {
+      assertTenantAllowed(req.principal!, tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
     try {
       const provenance = await getProvenance(tenantId, key);
       // For now, we always return provenance data even if document doesn't exist

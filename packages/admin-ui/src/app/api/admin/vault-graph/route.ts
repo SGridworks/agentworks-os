@@ -5,9 +5,10 @@
  * this route only reshapes /api/memory/metadata into the former graph payload.
  */
 
+import { daemonFetch } from '@/lib/daemon-fetch';
+
 export const dynamic = 'force-dynamic';
 
-const AGENTOS_API_URL = process.env.AGENTOS_API_URL ?? 'http://127.0.0.1:7710';
 const TENANT_ID = process.env.AGENTOS_TENANT_ID;
 
 interface MetadataPage {
@@ -45,9 +46,10 @@ export async function GET(): Promise<Response> {
   }
 
   try {
-    const url = new URL('/api/memory/metadata', AGENTOS_API_URL);
-    url.searchParams.set('tenantId', TENANT_ID);
-    const response = await fetch(url, { cache: 'no-store' });
+    const response = await daemonFetch(
+      `/api/memory/metadata?tenantId=${encodeURIComponent(TENANT_ID)}`,
+      { cache: 'no-store' },
+    );
     if (!response.ok) {
       return Response.json(
         { error: 'metadata_fetch_failed', status: response.status },

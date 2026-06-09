@@ -635,3 +635,23 @@ export const insights = sqliteTable("insights", {
 
 export type InsightRow = typeof insights.$inferSelect;
 export type NewInsightRow = typeof insights.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// agent_api_keys
+// Per-agent scoped credentials. Token plaintext shown once at creation;
+// only the sha256 hex hash is stored. Revocation sets revoked_at.
+// ---------------------------------------------------------------------------
+export const agentApiKeys = sqliteTable("agent_api_keys", {
+  id: text("id").primaryKey(),
+  agentId: text("agent_id").notNull(),
+  keyHash: text("key_hash").notNull(),
+  keyPrefix: text("key_prefix").notNull(),
+  scopes: text("scopes").notNull(),
+  tenantAllowlist: text("tenant_allowlist").notNull(),
+  createdAt: text("created_at").notNull(),
+  lastUsedAt: text("last_used_at"),
+  revokedAt: text("revoked_at"),
+});
+
+export type AgentApiKeyRow = typeof agentApiKeys.$inferSelect;
+export type NewAgentApiKeyRow = typeof agentApiKeys.$inferInsert;

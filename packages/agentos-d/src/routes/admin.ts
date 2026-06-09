@@ -45,6 +45,7 @@ import { aggregateTrust } from "../services/trust-aggregator.js";
 import { getCached, setCached } from "../services/trust-cache.js";
 import { issuePreviewRouter } from "./admin/issue-preview.js";
 import { isPaused, pause, resume } from "../pause-service.js";
+import { resolveAdminToken, isLoopback, isValidToken } from "../middleware/require-auth.js";
 import {
   checkN8nBridge,
   cancelNativeAutomationRun,
@@ -364,27 +365,14 @@ function getContentRisks(decisionReason: string): { score: number; reasons: stri
   return { score, reasons };
 }
 
-function isLoopbackRequest(req: Request): boolean {
-  const remote = req.socket.remoteAddress ?? "";
-  return remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
-}
-
-function adminToken(config: Config): string {
-  return (
-    process.env.AGENTOS_ADMIN_TOKEN ??
-    process.env.AGENTOS_API_KEY ??
-    config.legacyBridgeApiKey ??
-    "local-trusted"
-  );
-}
-
-function requireLocalAdmin(req: Request, res: Response, config: Config): boolean {
-  if (!isLoopbackRequest(req)) {
+export function requireLocalAdmin(req: Request, res: Response, config: Config): boolean {
+  if (!isLoopback(req)) {
     res.status(403).json({ error: "loopback_required" });
     return false;
   }
   const auth = req.header("authorization") ?? "";
-  if (auth !== `Bearer ${adminToken(config)}`) {
+  const prefix = "Bearer ";
+  if (!auth.startsWith(prefix) || !isValidToken(auth.slice(prefix.length), resolveAdminToken(config))) {
     res.status(401).json({ error: "unauthorized" });
     return false;
   }

@@ -115,6 +115,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
+      AGENTOS_API_URL: "http://agentos-d:7710"
+      AGENTOS_API_KEY: ${AGENTOS_API_KEY:-local-trusted}
     depends_on:
       agentos-d:
         condition: service_healthy

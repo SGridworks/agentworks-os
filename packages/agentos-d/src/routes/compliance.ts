@@ -14,7 +14,7 @@
  * Response: application/pdf with Content-Disposition: attachment.
  */
 
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { z } from "zod";
 import { and, eq, gte, lt } from "drizzle-orm";
 import { getDb } from "../db/index.js";
@@ -26,6 +26,16 @@ import {
 import { renderEvidenceReportHtml } from "../templates/evidence-report.js";
 import type { Config } from "../config.js";
 import type { PdfEngine } from "@agentworks/pdf";
+import { assertTenantAllowed, TenantAccessError } from "../auth/tenant-access.js";
+import { requireScope } from "../auth/scope-guard.js";
+
+function denyTenant(res: Response, err: unknown): boolean {
+  if (err instanceof TenantAccessError) {
+    res.status(403).json({ error: "forbidden", message: err.message });
+    return true;
+  }
+  return false;
+}
 
 const QuerySchema = z.object({
   tenant_id: z.string().uuid(),
@@ -48,7 +58,7 @@ function requirePdfEngine(config: Config): PdfEngine {
 export function createComplianceRouter(config: Config): Router {
   const router = Router();
 
-  router.get("/evidence-report", (req, res) => {
+  router.get("/evidence-report", requireScope("policy:check"), (req, res) => {
     const parsed = QuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res
@@ -57,6 +67,12 @@ export function createComplianceRouter(config: Config): Router {
       return;
     }
     const { tenant_id: tenantId, from: periodStart, to: periodEnd } = parsed.data;
+    try {
+      assertTenantAllowed(req.principal!, tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
 
     // Normalise date-only strings to full ISO datetimes for SQL range queries.
     // If the string already contains a time component, leave it as-is.
@@ -128,13 +144,19 @@ export function createComplianceRouter(config: Config): Router {
   // -------------------------------------------------------------------------
   const VerifyQuerySchema = z.object({ tenantId: z.string().uuid() });
 
-  router.get("/verify-chain", (req, res) => {
+  router.get("/verify-chain", requireScope("policy:check"), (req, res) => {
     const parsed = VerifyQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res
         .status(400)
         .json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
     const result = verifyHashChain(parsed.data.tenantId);
     res.json(result);

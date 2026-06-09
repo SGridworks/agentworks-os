@@ -42,6 +42,7 @@ import { migrate as migrateMissionMap } from "./0034_mission_map.js";
 import { migrate as migrateNativeAutomations } from "./0039_native_automations.js";
 import { migrate as migrateNativeAutomationN8nAi } from "./0040_native_automation_n8n_ai.js";
 import { migrate as migrateWorkflowEngine } from "./0041_workflow_engine.js";
+import { migrate as migrateAgentApiKeys } from "./0042_agent_api_keys.js";
 
 
 export function migrate(sqlite: Database): void {
@@ -83,4 +84,5 @@ export function migrate(sqlite: Database): void {
   migrateNativeAutomations(sqlite);
   migrateNativeAutomationN8nAi(sqlite);
   migrateWorkflowEngine(sqlite);
+  migrateAgentApiKeys(sqlite);
 }

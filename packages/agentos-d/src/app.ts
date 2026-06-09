@@ -26,6 +26,8 @@ import { createAgentRouter } from "./routes/agent.js";
 import { createEvidenceReportsRouter } from "./routes/evidence-reports.js";
 import { healthHandler } from "./health-handler.js";
 import { createProxyAwareMiddleware, DEFAULT_TRANSPARENT_PROXY_CONFIG } from "./middleware/proxy-aware.js";
+import { createRequireAuthMiddleware } from "./middleware/require-auth.js";
+import { createAgentKeysRouter } from "./routes/admin/agent-keys.js";
 
 const STARTED_AT = new Date().toISOString();
 const PACKAGE_VERSION = "0.1.0";
@@ -42,8 +44,12 @@ export function createApp(config: Config): Express {
   // so that req.upstreamClient is available for policy evaluation and audit logging.
   app.use(createProxyAwareMiddleware({ config: DEFAULT_TRANSPARENT_PROXY_CONFIG }));
 
-  // Health
+  // Health — must remain open for Docker healthchecks (no auth).
   app.get("/api/health", (req, res) => healthHandler(req, res, config));
+
+  // Auth gate — resolves the caller principal for all /api/* routes below.
+  // Loopback remains trusted unless AGENTOS_REQUIRE_TOKEN=true.
+  app.use("/api", createRequireAuthMiddleware(config));
 
   // Policy engine
   app.use("/api/policy", createPolicyRouter(config));
@@ -88,6 +94,7 @@ export function createApp(config: Config): Express {
 
   // Admin — pause/resume + daemon status
   const adminRouter = createAdminRouter(config);
+  app.use("/api/admin", createAgentKeysRouter(config));
   app.use("/api/admin", adminRouter);
   // Alias: UI's getActivityLog() hits /api/activity-log (not /api/admin/activity-log).
   // Rewrite the path so the same handler under /api/admin/activity-log answers.

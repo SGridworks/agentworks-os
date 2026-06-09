@@ -11,9 +11,9 @@
  * ?fresh=1 is forwarded to the daemon to bypass its 5s TTL cache.
  */
 
-export const dynamic = "force-dynamic";
+import { daemonFetch } from "@/lib/daemon-fetch";
 
-const AGENTOS_BASE = process.env.AGENTOS_API_URL ?? "http://127.0.0.1:7710";
+export const dynamic = "force-dynamic";
 
 interface TrustProvider {
   id: string;
@@ -182,12 +182,14 @@ export async function GET(request: Request): Promise<Response> {
   const tenantId = url.searchParams.get("tenantId") ?? "";
   const fresh = url.searchParams.get("fresh") === "1";
 
-  const daemonUrl = new URL(`${AGENTOS_BASE}/api/admin/trust`);
-  if (tenantId) daemonUrl.searchParams.set("tenantId", tenantId);
-  if (fresh) daemonUrl.searchParams.set("fresh", "1");
+  const daemonPath = new URLSearchParams();
+  if (tenantId) daemonPath.set("tenantId", tenantId);
+  if (fresh) daemonPath.set("fresh", "1");
+  const qs = daemonPath.toString();
+  const target = `/api/admin/trust${qs ? `?${qs}` : ""}`;
 
   try {
-    const res = await fetch(daemonUrl.toString(), {
+    const res = await daemonFetch(target, {
       headers: { "Content-Type": "application/json" },
       ...( { next: { revalidate: 0 } } as unknown as RequestInit ),
     });

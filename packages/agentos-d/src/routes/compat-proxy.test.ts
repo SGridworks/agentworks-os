@@ -26,7 +26,7 @@ function testConfig(port: number, enabled = true): Config {
     companyId: "00000000-0000-4000-8000-000000000001",
     standingIssueId: "standing",
     legacyBridgeUrl: `http://127.0.0.1:${port}`,
-    legacyBridgeApiKey: "local-trusted",
+    legacyBridgeApiKey: "daemon-token",
     legacyBridgeEnabled: enabled,
     logger: {
       fatal: () => undefined,

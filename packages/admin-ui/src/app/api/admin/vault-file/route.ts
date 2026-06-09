@@ -1,66 +1,89 @@
 /**
  * GET /api/admin/vault-file?path=<rel>
  *
- * Reads a single .md file from the operator tenant's vault subtree and
- * returns its markdown body. The relative path is resolved against the
- * tenant root and rejected if it escapes (path traversal).
+ * Reads a single markdown page through agentos-d so the admin UI carries the
+ * owner token instead of reading the vault directly from the Next container.
  */
 
-import { readFileSync, statSync } from 'node:fs';
-import { join, normalize, sep, isAbsolute } from 'node:path';
+import { isAbsolute, normalize, sep } from "node:path";
+import { daemonFetch } from "@/lib/daemon-fetch";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
-const VAULT_ROOT = process.env.VAULT_ROOT;
 const TENANT_ID = process.env.AGENTOS_TENANT_ID;
-const MAX_BYTES = 256 * 1024;
+
+interface MemoryReadResponse {
+  ok: boolean;
+  data?: {
+    key: string;
+    body: string;
+    updatedAt: string;
+    existed: boolean;
+  };
+  error?: string;
+}
+
+function normalizeRelativePath(rel: string): string | null {
+  if (isAbsolute(rel)) return null;
+  const normalized = normalize(rel);
+  if (normalized === ".." || normalized.startsWith(`..${sep}`)) return null;
+  if (!normalized.endsWith(".md")) return null;
+  return normalized.split(sep).join("/");
+}
 
 export async function GET(req: Request): Promise<Response> {
-  if (!VAULT_ROOT || !TENANT_ID) {
+  if (!TENANT_ID) {
     return Response.json(
-      { error: 'config_missing', message: 'VAULT_ROOT and AGENTOS_TENANT_ID env vars are required' },
+      { error: "config_missing", message: "AGENTOS_TENANT_ID env var is required" },
       { status: 500 },
     );
   }
+
   const url = new URL(req.url);
-  const rel = url.searchParams.get('path');
+  const rel = url.searchParams.get("path");
   if (!rel) {
-    return Response.json({ error: 'missing_path' }, { status: 400 });
+    return Response.json({ error: "missing_path" }, { status: 400 });
   }
-  if (isAbsolute(rel)) {
-    return Response.json({ error: 'absolute_path_rejected' }, { status: 400 });
+
+  const normalized = normalizeRelativePath(rel);
+  if (!normalized) {
+    return Response.json({ error: "invalid_path" }, { status: 400 });
   }
-  const tenantRoot = join(VAULT_ROOT, TENANT_ID);
-  const abs = normalize(join(tenantRoot, rel));
-  if (!abs.startsWith(tenantRoot + sep) && abs !== tenantRoot) {
-    return Response.json({ error: 'path_traversal' }, { status: 400 });
-  }
-  if (!abs.endsWith('.md')) {
-    return Response.json({ error: 'not_markdown' }, { status: 400 });
-  }
+
+  const key = normalized.replace(/\.md$/i, "");
   try {
-    const st = statSync(abs);
-    if (!st.isFile()) {
-      return Response.json({ error: 'not_a_file' }, { status: 404 });
+    const response = await daemonFetch("/api/memory/read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tenantId: TENANT_ID, key }),
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return Response.json(
+        { error: "read_failed", status: response.status },
+        { status: response.status === 403 ? 403 : 502 },
+      );
     }
-    if (st.size > MAX_BYTES) {
-      return Response.json({ error: 'too_large', size: st.size, max: MAX_BYTES }, { status: 413 });
+
+    const payload = (await response.json()) as MemoryReadResponse;
+    if (!payload.ok || !payload.data) {
+      return Response.json({ error: payload.error ?? "read_failed" }, { status: 502 });
     }
-    const body = readFileSync(abs, 'utf-8');
+    if (!payload.data.existed) {
+      return Response.json({ error: "not_found" }, { status: 404 });
+    }
+
     return Response.json({
-      path: rel,
-      title: rel.split('/').pop()!.replace(/\.md$/i, ''),
-      dir: rel.split('/').slice(0, -1).join('/') || '/',
-      content: body,
-      size: st.size,
-      mtime: st.mtimeMs,
+      path: normalized,
+      title: normalized.split("/").pop()!.replace(/\.md$/i, ""),
+      dir: normalized.split("/").slice(0, -1).join("/") || "/",
+      content: payload.data.body,
+      size: Buffer.byteLength(payload.data.body, "utf8"),
+      mtime: Date.parse(payload.data.updatedAt),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
-      return Response.json({ error: 'not_found' }, { status: 404 });
-    }
-    console.error('[vault-file] failed:', message);
-    return Response.json({ error: 'read_failed', message }, { status: 500 });
+    console.error("[vault-file] failed:", message);
+    return Response.json({ error: "read_failed", message }, { status: 500 });
   }
 }

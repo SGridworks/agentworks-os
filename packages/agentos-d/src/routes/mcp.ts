@@ -40,6 +40,9 @@ import { getDb } from "../db/index.js";
 import { actionLog, type NewActionLogRow } from "../db/schema.js";
 import { logDecision } from "../services/policy/decisionLog.js";
 import type { Config } from "../config.js";
+import { assertTenantAllowed, TenantAccessError } from "../auth/tenant-access.js";
+import { hasScope } from "../auth/scope-guard.js";
+import type { Principal, Scope } from "../auth/principal.js";
 
 const PROTOCOL_VERSION = "2024-11-05";
 const SERVER_NAME = "agentos-d";
@@ -194,7 +197,7 @@ const TOOLS = [
       type: "object",
       properties: {
         tenantId: { type: "string", format: "uuid" },
-        key: { type: "string", description: "Vault page key, e.g. 'projects/acme' or 'feedback/no-outbound-email-during-build'" },
+        key: { type: "string", description: "Vault page key, e.g. 'projects/acme' or 'feedback/example-preference'" },
         namespace: { type: "string", enum: ["tenant", "operator"], default: "tenant" },
       },
       required: ["tenantId", "key"],
@@ -326,6 +329,22 @@ const TOOLS = [
 type ToolResult =
   | { content: Array<{ type: "text"; text: string }>; isError?: false }
   | { content: Array<{ type: "text"; text: string }>; isError: true };
+
+class ScopeAccessError extends Error {
+  constructor(readonly scope: Scope) {
+    super(`Missing required scope: ${scope}`);
+  }
+}
+
+function requireToolScope(principal: Principal | undefined, scope: Scope): Principal {
+  if (!principal) {
+    throw new Error("missing_principal");
+  }
+  if (!hasScope(principal, scope)) {
+    throw new ScopeAccessError(scope);
+  }
+  return principal;
+}
 
 // Lazy-init shared store; defaults to ~/vault/wiki, overridable by VAULT_ROOT.
 let _vaultStore: VaultStore | null = null;
@@ -807,6 +826,7 @@ async function dispatchToolCall(
   name: string,
   rawArgs: unknown,
   config: Config,
+  principal: Principal | undefined,
 ): Promise<ToolResult> {
   switch (name) {
     case "memory.read": {
@@ -818,6 +838,13 @@ async function dispatchToolCall(
             { type: "text", text: JSON.stringify({ error: "invalid_args", issues: parsed.error.flatten() }) },
           ],
         };
+      }
+      if (parsed.data.namespace === "operator") {
+        const scopedPrincipal = requireToolScope(principal, "operator-memory:read");
+        assertTenantAllowed(scopedPrincipal, parsed.data.tenantId);
+      } else {
+        const scopedPrincipal = requireToolScope(principal, "memory:read");
+        assertTenantAllowed(scopedPrincipal, parsed.data.tenantId);
       }
       return callMemoryRead(parsed.data, config);
     }
@@ -831,6 +858,8 @@ async function dispatchToolCall(
           ],
         };
       }
+      const scopedPrincipal = requireToolScope(principal, "memory:write");
+      assertTenantAllowed(scopedPrincipal, parsed.data.tenantId);
       return callMemoryWrite(parsed.data, config);
     }
     case "memory.hot": {
@@ -843,6 +872,8 @@ async function dispatchToolCall(
           ],
         };
       }
+      const scopedPrincipal = requireToolScope(principal, "memory:read");
+      assertTenantAllowed(scopedPrincipal, parsed.data.tenantId);
       return callMemoryHot(parsed.data, config);
     }
     case "memory.list": {
@@ -854,6 +885,13 @@ async function dispatchToolCall(
             { type: "text", text: JSON.stringify({ error: "invalid_args", issues: parsed.error.flatten() }) },
           ],
         };
+      }
+      if (parsed.data.namespace === "operator") {
+        const scopedPrincipal = requireToolScope(principal, "operator-memory:read");
+        assertTenantAllowed(scopedPrincipal, parsed.data.tenantId);
+      } else {
+        const scopedPrincipal = requireToolScope(principal, "memory:read");
+        assertTenantAllowed(scopedPrincipal, parsed.data.tenantId);
       }
       return callMemoryList(parsed.data, config);
     }
@@ -867,6 +905,8 @@ async function dispatchToolCall(
           ],
         };
       }
+      const scopedPrincipal = requireToolScope(principal, "memory:read");
+      assertTenantAllowed(scopedPrincipal, parsed.data.tenantId);
       return callMemorySearch(parsed.data, config);
     }
     case "memory.record_insight": {
@@ -879,6 +919,8 @@ async function dispatchToolCall(
           ],
         };
       }
+      const scopedPrincipal = requireToolScope(principal, "memory:write");
+      assertTenantAllowed(scopedPrincipal, parsed.data.tenantId);
       return callMemoryRecordInsight(parsed.data, config);
     }
     case "policy.check": {
@@ -891,6 +933,8 @@ async function dispatchToolCall(
           ],
         };
       }
+      const scopedPrincipal = requireToolScope(principal, "policy:check");
+      assertTenantAllowed(scopedPrincipal, parsed.data.tenantId);
       return callPolicyCheck(parsed.data, config);
     }
     case "activity.log": {
@@ -903,6 +947,8 @@ async function dispatchToolCall(
           ],
         };
       }
+      const scopedPrincipal = requireToolScope(principal, "dispatch:write");
+      assertTenantAllowed(scopedPrincipal, parsed.data.tenantId);
       return callActivityLog(parsed.data, config);
     }
     default:
@@ -959,6 +1005,7 @@ export function createMcpRouter(config: Config): Router {
             callParams.data.name,
             callParams.data.arguments ?? {},
             config,
+            req.principal,
           );
           res.status(200).json(ok(id, result));
           return;
@@ -968,6 +1015,18 @@ export function createMcpRouter(config: Config): Router {
           return;
       }
     } catch (e) {
+      if (e instanceof ScopeAccessError) {
+        res.status(403).json({ error: "forbidden", required_scope: e.scope });
+        return;
+      }
+      if (e instanceof TenantAccessError) {
+        res.status(403).json({ error: "forbidden", message: e.message });
+        return;
+      }
+      if (e instanceof Error && e.message === "missing_principal") {
+        res.status(401).json({ error: "unauthorized" });
+        return;
+      }
       const msg = e instanceof Error ? e.message : String(e);
       res.status(200).json(err(id, -32603, "Internal error", msg));
     }

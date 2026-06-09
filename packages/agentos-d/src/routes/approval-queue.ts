@@ -6,7 +6,7 @@
  * PATCH  /api/approval-queue/:id/review - submit a review decision
  */
 
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { z } from "zod";
 import { createHash, randomUUID } from "node:crypto";
 import { getDb } from "../db/index.js";
@@ -14,6 +14,16 @@ import { approvalQueue, policyDecisions, type NewApprovalQueueRow, type NewPolic
 import { eq, desc, and, sql } from "drizzle-orm";
 import type { Config } from "../config.js";
 import { broadcast } from "../websocket-server.js";
+import { assertTenantAllowed, TenantAccessError } from "../auth/tenant-access.js";
+import { requireScope } from "../auth/scope-guard.js";
+
+function denyTenant(res: Response, err: unknown): boolean {
+  if (err instanceof TenantAccessError) {
+    res.status(403).json({ error: "forbidden", message: err.message });
+    return true;
+  }
+  return false;
+}
 
 export function createApprovalQueueRouter(config: Config): Router {
   const router = Router();
@@ -38,11 +48,17 @@ export function createApprovalQueueRouter(config: Config): Router {
     decisionReason: z.string().min(1).max(2000).default("Queued by automation"),
   });
 
-  router.post("/", (req, res) => {
+  router.post("/", requireScope("approvals:decide"), (req, res) => {
     const parsed = EnqueueRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
 
     const now = new Date().toISOString();
@@ -103,13 +119,23 @@ export function createApprovalQueueRouter(config: Config): Router {
   // GET /api/approval-queue
   // -------------------------------------------------------------------------
 
-  router.get("/", (req, res) => {
+  router.get("/", requireScope("approvals:decide"), (req, res) => {
     const db = getDb();
     const { tenantId, status, limit = "50", offset = "0" } = req.query;
 
     const conditions = [];
-    if (tenantId)
-      conditions.push(eq(approvalQueue.tenantId, tenantId as string));
+    if (typeof tenantId === "string") {
+      try {
+        assertTenantAllowed(req.principal!, tenantId);
+      } catch (err) {
+        if (denyTenant(res, err)) return;
+        throw err;
+      }
+      conditions.push(eq(approvalQueue.tenantId, tenantId));
+    } else if (req.principal?.tenants !== "*") {
+      res.status(403).json({ error: "tenant_required" });
+      return;
+    }
     if (status)
       conditions.push(
         eq(
@@ -141,18 +167,25 @@ export function createApprovalQueueRouter(config: Config): Router {
   // GET /api/approval-queue/:id
   // -------------------------------------------------------------------------
 
-  router.get("/:id", (req, res) => {
+  router.get("/:id", requireScope("approvals:decide"), (req, res) => {
     const db = getDb();
+    const id = String(req.params.id ?? "");
 
     const entry = db
       .select()
       .from(approvalQueue)
-      .where(eq(approvalQueue.id, req.params.id))
+      .where(eq(approvalQueue.id, id))
       .get();
 
     if (!entry) {
       res.status(404).json({ error: "not_found" });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, entry.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
 
     // Attach linked policy decision
@@ -169,7 +202,8 @@ export function createApprovalQueueRouter(config: Config): Router {
   // PATCH /api/approval-queue/:id/review
   // -------------------------------------------------------------------------
 
-  router.patch("/:id/review", (req, res) => {
+  router.patch("/:id/review", requireScope("approvals:decide"), (req, res) => {
+    const id = String(req.params.id ?? "");
     const parsed = ReviewRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
@@ -183,12 +217,18 @@ export function createApprovalQueueRouter(config: Config): Router {
     const existing = db
       .select()
       .from(approvalQueue)
-      .where(eq(approvalQueue.id, req.params.id))
+      .where(eq(approvalQueue.id, id))
       .get();
 
     if (!existing) {
       res.status(404).json({ error: "not_found" });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, existing.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
 
     if (existing.status !== "pending") {
@@ -207,7 +247,7 @@ export function createApprovalQueueRouter(config: Config): Router {
         reviewedAt: now,
         updatedAt: now,
       })
-      .where(eq(approvalQueue.id, req.params.id))
+      .where(eq(approvalQueue.id, id))
       .run();
 
     // Update linked policy decision's review fields
@@ -226,13 +266,13 @@ export function createApprovalQueueRouter(config: Config): Router {
     const updated = db
       .select()
       .from(approvalQueue)
-      .where(eq(approvalQueue.id, req.params.id))
+      .where(eq(approvalQueue.id, id))
       .get();
 
     // Broadcast to connected WebSocket clients so admin-ui inbox lights up <2s
     broadcast({
       type: "approval_reviewed",
-      approvalQueueId: req.params.id,
+      approvalQueueId: id,
       status: reviewDecision === "approve" ? "approved" : reviewDecision === "reject" ? "rejected" : "returned",
       reviewedBy,
       reviewedAt: now,
