@@ -2422,15 +2422,18 @@ export async function resumeNativeAutomationRun(
       | undefined;
     if (!approval || approval.status === "pending") return getNativeAutomationRun(runId)!;
     if (approval.status !== "approved") {
+      // Distinguish a return-for-revision from an outright denial so the audit
+      // trail records why the run stopped (both halt the run today).
+      const reason = approval.status === "returned" ? "approval_returned" : "approval_denied";
       updateRunStep(sqlite, runId, run.currentStepIndex, {
         status: "failed",
         output: { approvalQueueId: approvalId, status: approval.status },
         context: contextFromRecordedSteps(run.input, run.steps),
-        error: "approval_denied",
+        error: reason,
         retryCount: 0,
         finishedAt: now,
       });
-      updateRunSnapshot(sqlite, runId, "failed", "approval_denied", "approval_denied", now, null, null);
+      updateRunSnapshot(sqlite, runId, "failed", reason, reason, now, null, null);
       return getNativeAutomationRun(runId)!;
     }
     updateRunStep(sqlite, runId, run.currentStepIndex, {

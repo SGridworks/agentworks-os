@@ -639,6 +639,37 @@ describe("native automations", () => {
     expect(resumed.steps.map((s) => s.status)).toEqual(["succeeded", "succeeded"]);
   });
 
+  // A returned-for-revision approval halts the run but is recorded distinctly
+  // from an outright denial in the audit trail.
+  it("records approval_returned (not approval_denied) when an approval is returned", async () => {
+    const workflow = createNativeAutomationWorkflow({
+      tenantId: TENANT_ID,
+      companyId: COMPANY_ID,
+      name: "Return-for-revision workflow",
+      trigger: "manual",
+      status: "active",
+      definition: {
+        trigger: "manual",
+        steps: [
+          { id: "gate", name: "Gate", type: "approval.wait", params: { proposedActionSummary: "Gate" } },
+          { id: "after", name: "After", type: "data.set", params: { value: { ok: true } } },
+        ],
+      },
+    });
+
+    const waiting = await runNativeAutomationWorkflow(workflow.id, {}, config);
+    expect(waiting.status).toBe("waiting_approval");
+
+    // Reviewer returns the item for revision.
+    getSqlite()
+      .prepare("UPDATE approval_queue SET status = 'returned' WHERE id = ?")
+      .run(waiting.waitingForApprovalId);
+
+    const resumed = await resumeNativeAutomationRun(waiting.id, { decision: "rejected" }, config);
+    expect(resumed.status).toBe("failed");
+    expect(resumed.terminalReason).toBe("approval_returned");
+  });
+
   // Positive regression: a forced dispatch completion advances the run.
   it("advances a waiting_dispatch run when dispatchStatus=completed is provided", async () => {
     const workflow = createNativeAutomationWorkflow({
