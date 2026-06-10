@@ -49,6 +49,10 @@ Open the Approvals page (`/approvals`) and approve the seeded item. The loop dri
 
 Confirm the result on **Active Work** (run status `succeeded`) and **Evidence** (a sealed pack referencing the approval and dispatch IDs).
 
+### Returning an item for revision
+
+Instead of approving or rejecting, a reviewer can choose **return for revision** (`return_to_author`). The run does not fail — it parks in a non-terminal `waiting_revision` state carrying the reviewer's note. From **Active Work**, a `waiting_revision` run shows the note and a **Resubmit** control with an optional JSON input patch. Resubmitting (or `POST /api/admin/automations/runs/:id/resubmit`) re-enters the approval gate with the revised proposal, creating a fresh pending approval; approving it then continues the loop normally to dispatch and evidence. Each return → resubmit cycle is recorded in the approval history.
+
 ---
 
 ## Workflow event bus

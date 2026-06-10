@@ -14,6 +14,7 @@ AgentWorks OS uses SemVer. Until `1.0.0`, minor versions may include breaking ch
 - Simulated dispatch adapter (`AWOS_ADAPTER=simulated`): deterministic, role-aware output with `simulated: true` on every result; no external credentials required. Designed for demos and end-to-end tests.
 - Demo seed: `POST /api/admin/demo/seed`, `agentos seed-demo` CLI, and the **Load demo** button in the admin UI (empty-tenant state) all create a synthetic demo tenant with two agents, a sample scanner finding, and the `compliance-loop` workflow parked at `waiting_approval`. Idempotent.
 - Active event subscriptions panel in the Automations view shows every active event-triggered workflow and its subscribed event kind.
+- Return for revision: a reviewer's `return_to_author` decision parks the run in a non-terminal `waiting_revision` state (instead of failing); `POST /api/admin/automations/runs/:id/resubmit` and a **Resubmit** control on the Active Work page re-enter the approval gate with an optionally-revised input.
 - New env vars: `AGENTOS_SCANNER_AUTOLOOP_SEVERITIES` (default `high,critical`), `AGENTOS_APPROVAL_SLA_HOURS` (default `24`), `AGENTOS_STUCK_ISSUE_THRESHOLD_HOURS` (default `4`), `AGENTOS_EVENT_SWEEP_MS` (default `900000`), `AGENTOS_LOOP_RECONCILE_MS` (default `60000`).
 - [Compliance Loop guide](docs/compliance-loop.md) — operator and contributor documentation.
 
