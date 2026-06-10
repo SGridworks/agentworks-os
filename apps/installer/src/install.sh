@@ -9,8 +9,8 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 # Constants
 # -----------------------------------------------------------------------------
-readonly INSTALLER_VERSION="0.1.0"
-readonly REPO="SGridworks/agentworks-os"
+readonly INSTALLER_VERSION="0.3.0-alpha.0"  # BUMP ON RELEASE
+readonly REPO="SGridworks/agentworks-os-v0.3"
 readonly COMPOSE_URL="https://raw.githubusercontent.com/${REPO}/main/docker-compose.yml"
 readonly GITHUB_API="https://api.github.com"
 readonly AGENTWORKS_DIR="${AGENTWORKS_DIR:-$HOME/.agentworks}"
@@ -53,7 +53,7 @@ check_docker() {
   fi
 
   local docker_version
-  docker_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null || docker --version | grep -oP '\d+\.\d+' | head -1)
+  docker_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null || docker --version | sed -nE 's/.*version ([0-9]+\.[0-9]+).*/\1/p' | head -1)
   if [[ -z "$docker_version" ]]; then
     log_error "Could not determine Docker version. Is the Docker daemon running?"
     exit 1
@@ -68,7 +68,7 @@ check_docker_compose() {
     exit 1
   fi
   local compose_version
-  compose_version=$(docker compose version --short 2>/dev/null || docker-compose --version | grep -oP '\d+\.\d+' | head -1)
+  compose_version=$(docker compose version --short 2>/dev/null || docker-compose --version | sed -nE 's/.*version ([0-9]+\.[0-9]+).*/\1/p' | head -1)
   log_info "Docker Compose version: ${compose_version}"
 }
 
@@ -126,15 +126,20 @@ download_compose() {
   log_step "Downloading docker-compose.yml..."
   local compose_file="${AGENTWORKS_DIR}/docker-compose.yml"
 
+  # Separate the status-check fetch from the actual download so only one -o
+  # flag is active per curl invocation (two -o flags → body written to the
+  # first one only, leaving $compose_file empty).
   local http_code
-  http_code=$(curl -o /dev/null -s -w "%{http_code}" \
-    --fail-with-body \
-    -L "${COMPOSE_URL}" \
-    -o "${compose_file}" 2>/dev/null || echo "000")
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" -L "${COMPOSE_URL}" 2>/dev/null || echo "000")
 
   if [[ "$http_code" != "200" ]]; then
     log_error "Failed to download docker-compose.yml (HTTP ${http_code})"
     log_error "URL: ${COMPOSE_URL}"
+    exit 1
+  fi
+
+  if ! curl -fsSL -L "${COMPOSE_URL}" -o "${compose_file}"; then
+    log_error "Failed to write docker-compose.yml to ${compose_file}"
     exit 1
   fi
 
@@ -162,15 +167,21 @@ generate_secrets() {
   # Write .env file to AGENTWORKS_DIR root (where docker-compose.yml lives)
   # so docker compose can read these variables automatically.
   # Also write a copy to CONFIG_DIR for the agentworks CLI tool.
+  # Resolve the installed version: prefer the release tag fetched at runtime,
+  # fall back to the compiled-in INSTALLER_VERSION constant.
+  local resolved_version
+  resolved_version=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
+    | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v?([^"]+)".*/\1/p' | head -1 || true)
+  [[ -z "$resolved_version" ]] && resolved_version="${INSTALLER_VERSION}"
+
   cat > "${AGENTWORKS_DIR}/.env" <<EOF
 # Auto-generated on $(date -u +%Y-%m-%dT%H:%M:%SZ)
 # DO NOT COMMIT THIS FILE
-AGENTWORKS_VERSION=${INSTALLER_VERSION}
+AGENTWORKS_VERSION=${resolved_version}
 AGENTWORKS_DATA_DIR=${DATA_DIR}
-AGENTWORKS_SESSION_SECRET=${session_secret}
-POSTGRES_PASSWORD=${db_password}
-POSTGRES_USER=agentworks
-POSTGRES_DB=agentworks
+# Auth token for the agentos-d API (read by docker-compose as AGENTOS_API_KEY).
+# Auto-generated per install so the API is not left on the shared default token.
+AGENTOS_API_KEY=${session_secret}
 AGENTOS_HOST=0.0.0.0
 AGENTOS_PORT=7710
 AGENTOS_LOG_LEVEL=info
@@ -359,6 +370,67 @@ print_next_steps() {
 }
 
 # -----------------------------------------------------------------------------
+# Install CLI wrapper — puts agentworks.sh on PATH as `agentworks`
+# -----------------------------------------------------------------------------
+install_cli_wrapper() {
+  log_step "Installing agentworks CLI..."
+
+  # Locate agentworks.sh relative to this script or via GitHub raw download
+  local cli_src=""
+  local this_dir
+  this_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+  if [[ -f "${this_dir}/agentworks.sh" ]]; then
+    cli_src="${this_dir}/agentworks.sh"
+  fi
+
+  # If not found locally, download from the release
+  if [[ -z "$cli_src" ]]; then
+    local dl_dest="${AGENTWORKS_DIR}/agentworks.sh"
+    local cli_url="https://raw.githubusercontent.com/${REPO}/main/apps/installer/src/agentworks.sh"
+    if curl -fsSL -L "${cli_url}" -o "${dl_dest}" 2>/dev/null; then
+      chmod +x "${dl_dest}"
+      cli_src="${dl_dest}"
+    else
+      log_warn "Could not download agentworks.sh — CLI wrapper not installed"
+      return 0
+    fi
+  fi
+
+  # Choose install target: /usr/local/bin if writable, else ~/.local/bin
+  local bin_dir="/usr/local/bin"
+  local needs_path_update=false
+  if [[ ! -w "$bin_dir" ]]; then
+    bin_dir="$HOME/.local/bin"
+    needs_path_update=true
+    mkdir -p "$bin_dir"
+  fi
+
+  local target="${bin_dir}/agentworks"
+  cp "${cli_src}" "${target}"
+  chmod +x "${target}"
+  log_info "CLI installed: ${target}"
+
+  # When using ~/.local/bin, append to shell rc idempotently
+  if [[ "$needs_path_update" == "true" ]]; then
+    local shell_rc=""
+    case "${SHELL:-}" in
+      */zsh)  shell_rc="$HOME/.zshrc" ;;
+      */bash) shell_rc="$HOME/.bashrc" ;;
+    esac
+
+    if [[ -n "$shell_rc" ]]; then
+      local path_line='export PATH="$HOME/.local/bin:$PATH"'
+      if ! grep -qF "$path_line" "$shell_rc" 2>/dev/null; then
+        printf '\n# Added by AgentWorks OS installer\n%s\n' "$path_line" >> "$shell_rc"
+        log_info "Added ~/.local/bin to PATH in ${shell_rc}"
+      fi
+    fi
+
+    log_warn "Restart your shell (or run: export PATH=\"\$HOME/.local/bin:\$PATH\") to use 'agentworks'"
+  fi
+}
+
+# -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
 main() {
@@ -394,6 +466,7 @@ main() {
   start_services
   wait_for_services
   verify_install || true
+  install_cli_wrapper
   print_next_steps
 }
 

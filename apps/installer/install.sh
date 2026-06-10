@@ -6,7 +6,7 @@
 #
 set -euo pipefail
 
-INSTALLER_VERSION="0.1.0"
+INSTALLER_VERSION="0.3.0-alpha.0"  # BUMP ON RELEASE
 AGENTWORKS_DIR="${AGENTWORKS_DIR:-$HOME/.agentworks}"
 DATA_DIR="${AGENTWORKS_DIR}/data"
 CONFIG_DIR="${AGENTWORKS_DIR}/config"
@@ -64,7 +64,7 @@ download_compose() {
 
   # If running from a checkout (repo root has docker-compose.yml), copy it and
   # use the local scripts + workflows directory.
-  if [[ -f "$(pwd)/docker-compose.yml" ]] && grep -q "agentworks/agentos-d" "$(pwd)/docker-compose.yml" 2>/dev/null; then
+  if [[ -f "$(pwd)/docker-compose.yml" ]] && grep -q "agentos-d:" "$(pwd)/docker-compose.yml" 2>/dev/null; then
     cp "$(pwd)/docker-compose.yml" "$compose_file"
     log_info "Using local checkout's docker-compose.yml"
     # Copy scripts directory if present
@@ -83,7 +83,7 @@ download_compose() {
   fi
 
   # GitHub-based install: fetch docker-compose.yml, the seed script, and workflows
-  local base_url="https://raw.githubusercontent.com/SGridworks/agentworks-os/main"
+  local base_url="https://raw.githubusercontent.com/SGridworks/agentworks-os-v0.3/main"
   local ok=true
 
   if ! curl -fsSL -L "$base_url/docker-compose.yml" -o "$compose_file" 2>/dev/null; then
@@ -123,8 +123,15 @@ gen_secrets() {
   local db_pw
   db_pw=$(openssl rand -base64 32 | tr -d '=\n' | head -c 32)
 
+  # Resolve the installed version: prefer the release tag fetched at runtime,
+  # fall back to the compiled-in INSTALLER_VERSION constant.
+  local resolved_version
+  resolved_version=$(curl -s "https://api.github.com/repos/SGridworks/agentworks-os-v0.3/releases/latest" 2>/dev/null \
+    | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v?([^"]+)".*/\1/p' | head -1 || true)
+  [[ -z "$resolved_version" ]] && resolved_version="${INSTALLER_VERSION}"
+
   cat > "$env_file" <<EOF
-AGENTWORKS_VERSION=${INSTALLER_VERSION}
+AGENTWORKS_VERSION=${resolved_version}
 AGENTWORKS_DATA_DIR=${DATA_DIR}
 AGENTWORKS_ADMIN_PASSWORD=${admin_pw}
 AGENTWORKS_SESSION_SECRET=${session_secret}
