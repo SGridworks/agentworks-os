@@ -207,6 +207,8 @@ export interface NativeAutomationTemplate {
   id: string;
   name: string;
   trigger: "Manual" | "Webhook" | "Event";
+  /** For event-triggered templates, the event kind they subscribe to (e.g. "scanner.finding"). */
+  event_kind?: string;
   status: "available" | "installed";
   description: string;
   definition: NativeAutomationDefinition;
@@ -634,6 +636,61 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
       ],
     },
   },
+  {
+    id: "scanner-compliance-loop",
+    name: "Scanner compliance loop",
+    trigger: "Event",
+    event_kind: "scanner.finding",
+    description:
+      "Event-driven sibling of compliance-loop: fires automatically when a scanner finding is persisted, evaluates it through policy, parks for human approval, dispatches remediation, and seals the evidence pack.",
+    definition: {
+      trigger: "event",
+      steps: [
+        {
+          id: "policy",
+          name: "Policy check",
+          type: "policy.check",
+          params: {
+            actionKind: "scanner.finding.remediate",
+            actorId: "native-automation",
+            actorLabel: "Native Automation",
+            // Summary is derived from the finding title supplied in context.input.finding
+            summary: "Review scanner finding before remediation dispatch",
+            shadowMode: true,
+          },
+        },
+        {
+          id: "approval",
+          name: "Wait for operator approval",
+          type: "approval.wait",
+          params: {
+            proposedActionKind: "scanner.finding.remediate",
+            proposedActionSummary: "Operator review required for scanner finding remediation",
+            decisionReason: "Policy evaluation routed scanner finding to human review",
+          },
+        },
+        {
+          id: "dispatch",
+          name: "Dispatch remediation work",
+          type: "dispatch",
+          params: {
+            taskKind: "workflow.dispatch",
+            targetAgentId: EXAMPLE_AGENT_ID,
+            input: { source: "scanner-compliance-loop" },
+            waitForCompletion: true,
+          },
+        },
+        {
+          id: "evidence",
+          name: "Seal evidence pack",
+          type: "evidence.pack",
+          params: {
+            include: ["policy-decision", "approval", "dispatch"],
+          },
+        },
+      ],
+    },
+  },
 ];
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -971,6 +1028,8 @@ export function createNativeAutomationWorkflow(input: {
   companyId?: string;
   name: string;
   trigger: string;
+  /** For event-triggered workflows, the event kind to subscribe to (e.g. "scanner.finding"). */
+  eventKind?: string | null;
   description?: string;
   definition: NativeAutomationDefinition;
   status?: "active" | "paused";
@@ -988,6 +1047,7 @@ export function createNativeAutomationWorkflow(input: {
     companyId,
     name: input.name,
     trigger: fromTemplateTrigger(input.trigger),
+    eventKind: input.eventKind ?? null,
     status: input.status ?? "paused",
     description: input.description ?? null,
     definitionJson: stringify(input.definition),
@@ -1002,10 +1062,10 @@ export function createNativeAutomationWorkflow(input: {
   sqlite
     .prepare(
       `INSERT INTO native_automation_workflows
-       (id, tenant_id, company_id, name, trigger_kind, status, description, definition_json,
-        source_template_id, external_engine, external_workflow_id, external_sync_status,
-        external_sync_at, external_sync_error, created_at, updated_at)
-       VALUES (@id, @tenantId, @companyId, @name, @trigger, @status, @description,
+       (id, tenant_id, company_id, name, trigger_kind, event_kind, status, description,
+        definition_json, source_template_id, external_engine, external_workflow_id,
+        external_sync_status, external_sync_at, external_sync_error, created_at, updated_at)
+       VALUES (@id, @tenantId, @companyId, @name, @trigger, @eventKind, @status, @description,
         @definitionJson, @sourceTemplateId, @externalEngine, @externalWorkflowId,
         @externalSyncStatus, NULL, NULL, @createdAt, @updatedAt)`,
     )
@@ -1748,6 +1808,7 @@ export function installNativeAutomationTemplate(
     companyId,
     name: template.name,
     trigger: template.definition.trigger,
+    eventKind: template.event_kind ?? null,
     status: "active",
     description: template.description,
     definition: template.definition,

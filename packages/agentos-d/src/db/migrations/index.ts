@@ -44,6 +44,7 @@ import { migrate as migrateNativeAutomationN8nAi } from "./0040_native_automatio
 import { migrate as migrateWorkflowEngine } from "./0041_workflow_engine.js";
 import { migrate as migrateAgentApiKeys } from "./0042_agent_api_keys.js";
 import { migrate as migrateLoopIndexes } from "./0043_loop_indexes.js";
+import { migrate as migrateWorkflowEventKind } from "./0044_workflow_event_kind.js";
 
 
 export function migrate(sqlite: Database): void {
@@ -87,4 +88,5 @@ export function migrate(sqlite: Database): void {
   migrateWorkflowEngine(sqlite);
   migrateAgentApiKeys(sqlite);
   migrateLoopIndexes(sqlite);
+  migrateWorkflowEventKind(sqlite);
 }

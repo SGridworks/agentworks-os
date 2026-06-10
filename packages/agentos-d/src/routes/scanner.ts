@@ -11,13 +11,26 @@
 
 import { Router } from "express";
 import { z } from "zod";
+import pino from "pino";
 import { getDb } from "../db/index.js";
 import { scannerFindings } from "../db/schema.js";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { Config } from "../config.js";
+import { fireWorkflowEvent } from "../services/workflow-events.js";
 
 type Severity = "critical" | "high" | "medium" | "low" | "info";
+
+const log = pino({ name: "scanner-router" });
+
+// Severities that auto-trigger the compliance loop. Configurable via env var;
+// defaults to "high,critical". Below-threshold findings persist but do not fire.
+const AUTOLOOP_SEVERITIES: Set<string> = new Set(
+  (process.env.AGENTOS_SCANNER_AUTOLOOP_SEVERITIES ?? "high,critical")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
+);
 
 export function createScannerRouter(config: Config): Router {
   const router = Router();
@@ -334,12 +347,13 @@ export function createScannerRouter(config: Config): Router {
         )
         .get();
       if (existing) continue;
+      const severity = (finding.severity?.toLowerCase() ?? "info") as Severity;
       db.insert(scannerFindings).values({
         id: findingId,
         tenantId: tenantId,
         originId: finding.id ?? finding.rule_id ?? findingId,
         originKind: "scanner_finding",
-        severity: (finding.severity?.toLowerCase() ?? "info") as Severity,
+        severity,
         ruleId: finding.rule_id ?? null,
         title: finding.title ?? "Untitled finding",
         description: finding.description ?? "",
@@ -352,6 +366,28 @@ export function createScannerRouter(config: Config): Router {
         createdAt: now,
         updatedAt: now,
       }).run();
+
+      // Fire the compliance-loop event for high-signal findings only.
+      // Below-threshold findings persist but do not auto-trigger.
+      if (AUTOLOOP_SEVERITIES.has(severity)) {
+        fireWorkflowEvent(
+          "scanner.finding",
+          {
+            finding: {
+              id: findingId,
+              tenantId,
+              severity,
+              title: finding.title ?? "Untitled finding",
+              ruleId: finding.rule_id ?? null,
+              description: finding.description ?? "",
+            },
+          },
+          { tenantId },
+          config,
+        ).catch((err: unknown) => {
+          log.error({ findingId, tenantId, err }, "scanner: fireWorkflowEvent failed");
+        });
+      }
     }
     }
 

@@ -804,6 +804,23 @@ export function previewLaneMatch(description: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Demo seed
+// ---------------------------------------------------------------------------
+
+export interface SeedDemoResult {
+  tenantId: string;
+  companyId: string;
+  workflowId: string;
+  runId: string;
+  approvalId: string;
+  message: string;
+}
+
+export function seedDemo() {
+  return request<SeedDemoResult>('/api/admin/demo/seed', { method: 'POST' });
+}
+
+// ---------------------------------------------------------------------------
 // Tenants
 // ---------------------------------------------------------------------------
 
