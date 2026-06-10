@@ -19,6 +19,7 @@
 import type { Database } from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { onDispatchResolved } from "./loop-driver.js";
+import { fireWorkflowEvent } from "./workflow-events.js";
 import type { Config } from "../config.js";
 
 export interface AdapterAgentSummary {
@@ -349,6 +350,19 @@ export class DispatchConsumer {
           err: err instanceof Error ? err.message : String(err),
         });
       });
+      if (this.config) {
+        fireWorkflowEvent(
+          "dispatch.failed",
+          { dispatch: { id: row.id, tenantId: row.tenant_id, error: outcome.error } },
+          { tenantId: row.tenant_id },
+          this.config,
+        ).catch((err: unknown) => {
+          this.logger.error("workflow-events: fireWorkflowEvent(dispatch.failed) failed", {
+            rowId: row.id,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
     }
   }
 

@@ -383,6 +383,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
     id: "issue-stuck-escalator",
     name: "Issue stuck escalator",
     trigger: "Event",
+    event_kind: "issue.stuck",
     description: "Create a reviewable escalation when an assigned issue sits in progress without fresh activity.",
     definition: {
       trigger: "event",
@@ -405,6 +406,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
     id: "failed-dispatch-recovery",
     name: "Failed dispatch recovery",
     trigger: "Event",
+    event_kind: "dispatch.failed",
     description: "Turn failed dispatch rows into visible repair work with the original failure attached.",
     definition: {
       trigger: "event",
@@ -449,6 +451,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
     id: "provider-degradation-watch",
     name: "Provider degradation watch",
     trigger: "Event",
+    event_kind: "provider.degraded",
     description: "Record degraded provider health and route operator-visible repair work before agents stall.",
     definition: {
       trigger: "event",
@@ -471,6 +474,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
     id: "approval-sla-watchdog",
     name: "Approval SLA watchdog",
     trigger: "Event",
+    event_kind: "approval.sla_breach",
     description: "Escalate stale approval queue items before they block operator hours.",
     definition: {
       trigger: "event",

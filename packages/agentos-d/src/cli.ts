@@ -10,6 +10,7 @@ import { startWebSocketServer } from "./websocket-server.js";
 import { EvidenceReportCron } from "./services/evidence-report-cron.js";
 import { startHotMdBuilder } from "./services/hot-md-builder.js";
 import { reconcileWaitingRuns } from "./services/loop-driver.js";
+import { runEventProducerSweeps } from "./services/event-producer-sweeps.js";
 import {
   DispatchConsumer,
   dispatchConsumerEnabled,
@@ -26,6 +27,7 @@ import { runRestore } from "./bin/restore.js";
 import { isPaused, pause, resume } from "./pause-service.js";
 import { createProcessWatcher, ProcessWatcher } from "./services/process-watcher/index.js";
 import type { ProcessWatcherConfig } from "./services/process-watcher/index.js";
+import { getProviderHealthService } from "./services/provider-health.js";
 
 function buildAdapter(sqlite: ReturnType<typeof getSqlite>): AgentAdapter | undefined {
   const choice = (process.env.AWOS_ADAPTER ?? "router").toLowerCase();
@@ -66,6 +68,9 @@ async function main(): Promise<void> {
   const dataDir = config.dataDir ?? "./data";
   await acquireLock(dataDir);
   initDb({ config, migrations: migrate });
+  // Give the provider-health singleton the config it needs to emit
+  // provider.degraded workflow events on a healthy->degraded transition.
+  getProviderHealthService().setConfig(config);
   const pdfEngine = createPdfEngine();
   const evidenceCron = new EvidenceReportCron({ engine: pdfEngine });
   evidenceCron.start();
@@ -120,6 +125,14 @@ async function main(): Promise<void> {
     });
   }, loopReconcileMs);
 
+  const eventSweepMs = Number(process.env.AGENTOS_EVENT_SWEEP_MS) || 900_000;
+  const eventSweepTimer = setInterval(() => {
+    runEventProducerSweeps(config).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[event-producer-sweeps] runEventProducerSweeps failed: ${msg}`);
+    });
+  }, eventSweepMs);
+
   const app = createApp(config);
   const server = app.listen({ host: config.host, port: config.port } as any, () => {
     console.log(`[agentos-d] listening on http://${config.host}:${config.port} (awcp=${config.awcpVersion}) retention=${config.auditLogRetentionDays}d`);
@@ -130,6 +143,7 @@ async function main(): Promise<void> {
       hotMdStop();
       dispatchConsumer?.stop();
       clearInterval(reconcileTimer);
+      clearInterval(eventSweepTimer);
       if (retentionTimer) clearInterval(retentionTimer);
       if ((global as any).evidenceCronRunning) {
         evidenceCron.stop();

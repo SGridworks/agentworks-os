@@ -2,6 +2,10 @@ import { stat } from "fs/promises";
 import { join } from "path";
 import { env } from "node:process";
 import { randomUUID } from "crypto";
+import pino from "pino";
+import { getSqlite } from "../db/index.js";
+import { fireWorkflowEvent } from "./workflow-events.js";
+import type { Config } from "../config.js";
 
 export interface ProviderStatus {
   id: string;
@@ -33,6 +37,8 @@ interface ProviderConfig {
   check: () => Promise<ProviderCheckResult>;
 }
 
+const healthLogger = pino({ name: "provider-health" });
+
 /**
  * Provider health poller with 30s TTL cache and non-blocking checks.
  * Populates the providers[] array for /api/admin/trust endpoint.
@@ -43,6 +49,9 @@ export class ProviderHealthService {
   private pollInterval = 30_000; // 30 seconds default
   private providers: ProviderConfig[];
   private polling = false;
+  /** Tracks the last-known status per provider id for edge-trigger detection. */
+  private readonly lastKnownStatus = new Map<string, ProviderStatus["status"]>();
+  private config: Config | null = null;
 
   constructor() {
     // Override poll interval from env var
@@ -96,6 +105,14 @@ export class ProviderHealthService {
         check: () => this.checkRules(),
       },
     ];
+  }
+
+  /**
+   * Provide the daemon config so pollProviders can fire workflow events.
+   * Called once during daemon startup from wherever the singleton is obtained.
+   */
+  setConfig(config: Config): void {
+    this.config = config;
   }
 
   /**
@@ -172,6 +189,54 @@ export class ProviderHealthService {
       });
 
       const providers = await Promise.all(providerPromises);
+
+      // Edge-trigger: emit provider.degraded for each healthy→degraded|down transition.
+      if (this.config) {
+        const config = this.config;
+        for (const p of providers) {
+          const prior = this.lastKnownStatus.get(p.id);
+          const isNewlyUnhealthy =
+            prior === "healthy" &&
+            (p.status === "degraded" || p.status === "down");
+          if (isNewlyUnhealthy) {
+            // Fan out across all tenants that have an active provider.degraded workflow.
+            try {
+              const sqlite = getSqlite();
+              const tenantRows = sqlite
+                .prepare(
+                  `SELECT DISTINCT tenant_id FROM native_automation_workflows
+                   WHERE status = 'active'
+                     AND trigger_kind = 'event'
+                     AND event_kind = 'provider.degraded'`,
+                )
+                .all() as { tenant_id: string }[];
+              for (const row of tenantRows) {
+                fireWorkflowEvent(
+                  "provider.degraded",
+                  { provider: { id: p.id, status: p.status, error: p.error } },
+                  { tenantId: row.tenant_id },
+                  config,
+                ).catch((err: unknown) => {
+                  healthLogger.error(
+                    { providerId: p.id, tenantId: row.tenant_id, err },
+                    "workflow-events: fireWorkflowEvent(provider.degraded) failed",
+                  );
+                });
+              }
+            } catch (err) {
+              healthLogger.error(
+                { providerId: p.id, err },
+                "provider-health: failed to query tenants for provider.degraded event",
+              );
+            }
+          }
+        }
+      }
+
+      // Update prior-status map after processing transitions.
+      for (const p of providers) {
+        this.lastKnownStatus.set(p.id, p.status);
+      }
 
       // Determine aggregate status
       const aggregateStatus = this.calculateAggregateStatus(providers);
