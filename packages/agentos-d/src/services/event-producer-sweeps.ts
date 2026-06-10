@@ -88,6 +88,23 @@ export async function sweepApprovalSlaBreaches(
     }
   }
 
+  // Clear emission rows for approvals that are no longer breaching so a future
+  // re-breach can fire again. Uses the same cutoff derived above.
+  const cleaned = sqlite
+    .prepare(
+      `DELETE FROM workflow_event_emissions
+       WHERE event_kind = 'approval.sla_breach'
+         AND subject_id NOT IN (
+           SELECT id FROM approval_queue
+           WHERE status = 'pending'
+             AND created_at < ?
+         )`,
+    )
+    .run(cutoff);
+  if (cleaned.changes > 0) {
+    console.log(`[event-producer-sweeps] approval.sla_breach cleared=${cleaned.changes} recovered-subject emission(s)`);
+  }
+
   return { fired };
 }
 
@@ -141,6 +158,24 @@ export async function sweepStuckIssues(
         `[event-producer-sweeps] issue.stuck fireWorkflowEvent failed for issue ${row.id}: ${msg}`,
       );
     }
+  }
+
+  // Clear emission rows for issues that are no longer stuck so a future
+  // re-breach can fire again. Uses the same cutoff derived above.
+  const cleaned = sqlite
+    .prepare(
+      `DELETE FROM workflow_event_emissions
+       WHERE event_kind = 'issue.stuck'
+         AND subject_id NOT IN (
+           SELECT id FROM execution_issues
+           WHERE status IN ('in_progress', 'blocked')
+             AND assignee_agent_id IS NOT NULL
+             AND updated_at < ?
+         )`,
+    )
+    .run(cutoff);
+  if (cleaned.changes > 0) {
+    console.log(`[event-producer-sweeps] issue.stuck cleared=${cleaned.changes} recovered-subject emission(s)`);
   }
 
   return { fired };

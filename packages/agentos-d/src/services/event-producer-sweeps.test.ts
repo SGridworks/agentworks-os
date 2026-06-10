@@ -374,6 +374,190 @@ describe("sweepStuckIssues", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Episode-level dedup: recovered subjects can re-breach
+// ---------------------------------------------------------------------------
+
+describe("sweepApprovalSlaBreaches — episode dedup", () => {
+  it("fires once while in breach; after approval resolved emission row is deleted", async () => {
+    const { tenantId, companyId } = seedTenant("SLA-EP-A");
+    ensureExampleFixtures(tenantId, companyId);
+    installNativeAutomationTemplate("approval-sla-watchdog", { tenantId, companyId });
+
+    const staleTime = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    const approvalId = insertApproval(tenantId, staleTime);
+
+    const now = new Date();
+    const first = await sweepApprovalSlaBreaches(config, now);
+    expect(first.fired).toBe(1);
+    expect(emissionCount("approval.sla_breach", approvalId)).toBe(1);
+
+    // Resolve the approval — mark it approved so it leaves the breach set.
+    getSqlite()
+      .prepare("UPDATE approval_queue SET status = 'approved', updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), approvalId);
+
+    // Next sweep should remove the emission row for the resolved approval.
+    const second = await sweepApprovalSlaBreaches(config, now);
+    expect(second.fired).toBe(0);
+    expect(emissionCount("approval.sla_breach", approvalId)).toBe(0);
+  });
+
+  it("re-breach fires again after recovery", async () => {
+    const { tenantId, companyId } = seedTenant("SLA-EP-B");
+    ensureExampleFixtures(tenantId, companyId);
+    installNativeAutomationTemplate("approval-sla-watchdog", { tenantId, companyId });
+
+    const staleTime = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    const approvalId = insertApproval(tenantId, staleTime);
+
+    const now = new Date();
+
+    // First breach: fires.
+    const first = await sweepApprovalSlaBreaches(config, now);
+    expect(first.fired).toBe(1);
+
+    // Resolve the approval.
+    getSqlite()
+      .prepare("UPDATE approval_queue SET status = 'approved', updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), approvalId);
+
+    // Sweep clears the emission row.
+    await sweepApprovalSlaBreaches(config, now);
+    expect(emissionCount("approval.sla_breach", approvalId)).toBe(0);
+
+    // Simulate a new breach: re-insert a new pending approval with an old created_at.
+    const newApprovalId = insertApproval(tenantId, staleTime);
+
+    // Should fire for the new (re-breach) approval.
+    const reBreachResult = await sweepApprovalSlaBreaches(config, now);
+    expect(reBreachResult.fired).toBe(1);
+    expect(emissionCount("approval.sla_breach", newApprovalId)).toBe(1);
+  });
+
+  it("persistently-breaching approval fires only once across N sweeps", async () => {
+    const { tenantId, companyId } = seedTenant("SLA-EP-C");
+    ensureExampleFixtures(tenantId, companyId);
+    installNativeAutomationTemplate("approval-sla-watchdog", { tenantId, companyId });
+
+    const staleTime = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    const approvalId = insertApproval(tenantId, staleTime);
+
+    const now = new Date();
+    const first = await sweepApprovalSlaBreaches(config, now);
+    expect(first.fired).toBe(1);
+
+    // Multiple re-sweeps: approval stays pending and stale.
+    for (let i = 0; i < 3; i++) {
+      const result = await sweepApprovalSlaBreaches(config, now);
+      expect(result.fired).toBe(0);
+    }
+
+    // Emission row persists throughout — no duplicate fires.
+    expect(emissionCount("approval.sla_breach", approvalId)).toBe(1);
+  });
+});
+
+describe("sweepStuckIssues — episode dedup", () => {
+  it("fires once while stuck; after recovery emission row is deleted", async () => {
+    const { tenantId, companyId } = seedTenant("STUCK-EP-A");
+    ensureExampleFixtures(tenantId, companyId);
+    installNativeAutomationTemplate("issue-stuck-escalator", { tenantId, companyId });
+
+    const staleTime = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    const issueId = insertIssue({
+      tenantId,
+      companyId,
+      status: "in_progress",
+      assigneeAgentId: EXAMPLE_AGENT_ID,
+      updatedAt: staleTime,
+    });
+
+    const now = new Date();
+    const first = await sweepStuckIssues(config, now);
+    expect(first.fired).toBe(1);
+    expect(emissionCount("issue.stuck", issueId)).toBe(1);
+
+    // Issue recovers — mark it done.
+    getSqlite()
+      .prepare("UPDATE execution_issues SET status = 'done', updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), issueId);
+
+    // Next sweep removes the emission row for the recovered issue.
+    const second = await sweepStuckIssues(config, now);
+    expect(second.fired).toBe(0);
+    expect(emissionCount("issue.stuck", issueId)).toBe(0);
+  });
+
+  it("re-stuck issue fires again after recovery", async () => {
+    const { tenantId, companyId } = seedTenant("STUCK-EP-B");
+    ensureExampleFixtures(tenantId, companyId);
+    installNativeAutomationTemplate("issue-stuck-escalator", { tenantId, companyId });
+
+    const staleTime = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    const issueId = insertIssue({
+      tenantId,
+      companyId,
+      status: "in_progress",
+      assigneeAgentId: EXAMPLE_AGENT_ID,
+      updatedAt: staleTime,
+    });
+
+    const now = new Date();
+
+    // First breach fires.
+    const first = await sweepStuckIssues(config, now);
+    expect(first.fired).toBe(1);
+
+    // Issue recovers.
+    getSqlite()
+      .prepare("UPDATE execution_issues SET status = 'done', updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), issueId);
+
+    // Sweep clears the emission row.
+    await sweepStuckIssues(config, now);
+    expect(emissionCount("issue.stuck", issueId)).toBe(0);
+
+    // Issue goes stuck again: revert to in_progress with the old stale updated_at.
+    getSqlite()
+      .prepare("UPDATE execution_issues SET status = 'in_progress', updated_at = ? WHERE id = ?")
+      .run(staleTime, issueId);
+
+    // Re-breach fires again.
+    const reBreachResult = await sweepStuckIssues(config, now);
+    expect(reBreachResult.fired).toBe(1);
+    expect(emissionCount("issue.stuck", issueId)).toBe(1);
+  });
+
+  it("persistently-stuck issue fires only once across N sweeps", async () => {
+    const { tenantId, companyId } = seedTenant("STUCK-EP-C");
+    ensureExampleFixtures(tenantId, companyId);
+    installNativeAutomationTemplate("issue-stuck-escalator", { tenantId, companyId });
+
+    const staleTime = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    const issueId = insertIssue({
+      tenantId,
+      companyId,
+      status: "in_progress",
+      assigneeAgentId: EXAMPLE_AGENT_ID,
+      updatedAt: staleTime,
+    });
+
+    const now = new Date();
+    const first = await sweepStuckIssues(config, now);
+    expect(first.fired).toBe(1);
+
+    // Multiple re-sweeps: issue stays stuck.
+    for (let i = 0; i < 3; i++) {
+      const result = await sweepStuckIssues(config, now);
+      expect(result.fired).toBe(0);
+    }
+
+    // Emission row persists — no duplicate fires.
+    expect(emissionCount("issue.stuck", issueId)).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tenant isolation
 // ---------------------------------------------------------------------------
 
