@@ -65,6 +65,7 @@ export type NativeAutomationRunStatus =
   | "running"
   | "waiting_approval"
   | "waiting_dispatch"
+  | "waiting_revision"
   | "paused"
   | "succeeded"
   | "failed"
@@ -2354,7 +2355,9 @@ export async function resumeNativeAutomationRun(
     const approvalId = run.waitingForApprovalId;
     const requested = asString(input.decision ?? input.approvalStatus, "");
     const hasDecision =
-      requested === "approved" || requested === "approve" || requested === "rejected" || requested === "reject";
+      requested === "approved" || requested === "approve" ||
+      requested === "rejected" || requested === "reject" ||
+      requested === "returned" || requested === "return";
     if (!hasDecision) {
       const approvalRow = approvalId
         ? (sqlite.prepare("SELECT status FROM approval_queue WHERE id = ?").get(approvalId) as { status: string } | undefined)
@@ -2416,15 +2419,49 @@ export async function resumeNativeAutomationRun(
           now,
           approvalId,
         );
+    } else if (requested === "returned" || requested === "return") {
+      sqlite
+        .prepare(
+          `UPDATE approval_queue
+           SET status = 'returned', reviewed_by = ?, reviewed_by_label = ?,
+               review_note = ?, reviewed_at = ?, updated_at = ?
+           WHERE id = ? AND status = 'pending'`,
+        )
+        .run(
+          asString(input.reviewedBy, "local-admin"),
+          asString(input.reviewedByLabel, "Local Admin"),
+          asString(input.reviewNote, "Returned for revision during workflow resume"),
+          now,
+          now,
+          approvalId,
+        );
     }
     const approval = sqlite.prepare("SELECT status FROM approval_queue WHERE id = ?").get(approvalId) as
       | { status: string }
       | undefined;
     if (!approval || approval.status === "pending") return getNativeAutomationRun(runId)!;
+    if (approval.status === "returned") {
+      // Park for revision — non-terminal. Keep waiting_for_approval_id so the audit
+      // trail links the returned approval. The run must be re-submitted explicitly.
+      const reviewNote = asString(input.reviewNote, "");
+      updateRunStep(sqlite, runId, run.currentStepIndex, {
+        status: "waiting_approval",
+        output: {
+          approvalQueueId: approvalId,
+          status: "returned",
+          revision: true,
+          reviewNote: reviewNote || null,
+        },
+        context: contextFromRecordedSteps(run.input, run.steps),
+        error: null,
+        retryCount: 0,
+        finishedAt: null,
+      });
+      updateRunSnapshot(sqlite, runId, "waiting_revision", "returned_for_revision", null, null, approvalId, null);
+      return getNativeAutomationRun(runId)!;
+    }
     if (approval.status !== "approved") {
-      // Distinguish a return-for-revision from an outright denial so the audit
-      // trail records why the run stopped (both halt the run today).
-      const reason = approval.status === "returned" ? "approval_returned" : "approval_denied";
+      const reason = "approval_denied";
       updateRunStep(sqlite, runId, run.currentStepIndex, {
         status: "failed",
         output: { approvalQueueId: approvalId, status: approval.status },
@@ -2501,6 +2538,84 @@ export async function resumeNativeAutomationRun(
     dryRun: refreshed.dryRun,
     context,
   });
+}
+
+/**
+ * Re-submit a run that is parked in `waiting_revision` (returned for revision by a reviewer).
+ *
+ * Atomically claims the run (CAS on `waiting_revision`) to prevent double-resubmit.
+ * Merges the optional `input` patch into the run's stored input, enqueues a fresh
+ * `pending` approval_queue entry for the same `approval.wait` step, and parks the
+ * run at `waiting_approval` on the new approval id.
+ *
+ * If the run is not in `waiting_revision`, returns it unchanged (no side-effects).
+ */
+export async function resubmitNativeAutomationRun(
+  runId: string,
+  inputPatch: Record<string, unknown> | undefined,
+  config: Config,
+): Promise<NativeAutomationRun> {
+  const sqlite = getSqlite();
+  const runRow = sqlite.prepare("SELECT * FROM native_automation_runs WHERE id = ?").get(runId);
+  if (!runRow) throw new Error("run_not_found");
+  const run = mapRun(runRow);
+  if (run.status !== "waiting_revision") return run;
+
+  // Atomically claim — prevents concurrent double-resubmit.
+  const now = new Date().toISOString();
+  const claim = sqlite
+    .prepare(
+      `UPDATE native_automation_runs
+       SET status = 'running', resumed_at = ?, terminal_reason = 'resubmitting'
+       WHERE id = ? AND status = 'waiting_revision'`,
+    )
+    .run(now, runId);
+  if (claim.changes === 0) {
+    // Another concurrent resubmit already claimed this run.
+    return getNativeAutomationRun(runId)!;
+  }
+
+  // Merge input patch (shallow) into the run's stored input and persist it.
+  const mergedInput: Record<string, unknown> = { ...run.input, ...(inputPatch ?? {}) };
+  sqlite
+    .prepare("UPDATE native_automation_runs SET input_json = ? WHERE id = ?")
+    .run(stringify(mergedInput), runId);
+
+  // Load the workflow so we can find the step definition for the approval.wait step.
+  const workflowRow = sqlite.prepare("SELECT * FROM native_automation_workflows WHERE id = ?").get(run.workflowId);
+  if (!workflowRow) throw new Error("workflow_not_found");
+  const workflow = ensureMappedWorkflowVersion(sqlite, workflowRow);
+  const version =
+    (run.workflowVersionId
+      ? sqlite.prepare("SELECT * FROM native_automation_workflow_versions WHERE id = ?").get(run.workflowVersionId)
+      : getLatestWorkflowVersionRow(workflow.id)) ?? null;
+  if (!version) throw new Error("workflow_version_not_found");
+  const definition = mapVersion(version).definition.steps.length > 0
+    ? mapVersion(version).definition
+    : workflow.definition;
+  const step = definition.steps[run.currentStepIndex];
+  if (!step || step.type !== "approval.wait") throw new Error("resubmit_step_not_approval_wait");
+
+  // Derive revision count from the number of 'returned' outcomes in step history.
+  const revisionCount = run.steps.filter(
+    (s) => s.stepIndex === run.currentStepIndex &&
+      typeof s.output?.status === "string" && s.output.status === "returned",
+  ).length + 1;
+
+  // Enqueue a fresh pending approval for the same step.
+  const queued = executeApprovalEnqueue(sqlite, workflow, step, {
+    runId,
+    stepId: step.id,
+    waitForDecision: true,
+    revisionCount,
+  });
+  const newApprovalId = asString(queued.approvalQueueId, null);
+  if (!newApprovalId) throw new Error("resubmit_approval_enqueue_failed");
+
+  // Park the run at waiting_approval on the new approval id.
+  updateRunSnapshot(sqlite, runId, "waiting_approval", "waiting_approval", null, null, newApprovalId, null);
+
+  return getNativeAutomationRun(runId)!;
 }
 
 export function cancelNativeAutomationRun(runId: string, reason = "cancelled_by_operator"): NativeAutomationRun {

@@ -69,6 +69,7 @@ import {
   listNativeAutomationWorkflows,
   nativeAutomationRuntime,
   replayNativeAutomationRun,
+  resubmitNativeAutomationRun,
   resumeNativeAutomationRun,
   runNativeAutomationWorkflow,
   rollbackNativeAutomationWorkflow,
@@ -111,6 +112,10 @@ const AutomationRunBody = z.object({
 
 const AutomationRunResumeBody = z.object({
   input: z.record(z.unknown()).default({}),
+});
+
+const AutomationRunResubmitBody = z.object({
+  input: z.record(z.unknown()).optional(),
 });
 
 const AutomationRunReplayBody = z.object({
@@ -1761,6 +1766,35 @@ export function createAdminRouter(config: Config): Router {
       res.json(await resumeNativeAutomationRun(req.params.runId, parsed.data.input, config));
     } catch (error) {
       const message = error instanceof Error ? error.message : "workflow resume failed";
+      res.status(message === "run_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
+  router.post("/automations/runs/:runId/resubmit", async (req, res) => {
+    const parsed = AutomationRunResubmitBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    const run = getNativeAutomationRun(req.params.runId);
+    if (!run) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, run.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
+    if (run.status !== "waiting_revision") {
+      res.status(409).json({ error: "not_waiting_revision", status: run.status });
+      return;
+    }
+    try {
+      res.json(await resubmitNativeAutomationRun(req.params.runId, parsed.data.input, config));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "workflow resubmit failed";
       res.status(message === "run_not_found" ? 404 : 500).json({ error: message });
     }
   });

@@ -3,7 +3,19 @@
 import { useEffect, useState } from "react";
 import { Circle } from 'lucide-react';
 import Link from "next/link";
-import { getIssue, getAgent, listDispatchQueue, listTenants, type DispatchQueueRow, type ExecutionIssue, type ExecutionAgent } from "@/lib/api";
+import {
+  getIssue,
+  getAgent,
+  listDispatchQueue,
+  listTenants,
+  getAutomationStatus,
+  resubmitAutomationRun,
+  cancelAutomationRun,
+  type DispatchQueueRow,
+  type ExecutionIssue,
+  type ExecutionAgent,
+  type AutomationRun,
+} from "@/lib/api";
 import { V2Shell } from "@/components/v2/shell";
 import { useV2Nav } from '@/components/v2/nav';
 
@@ -61,12 +73,68 @@ interface ActiveWorkRow {
   agent: ExecutionAgent | null;
 }
 
+interface ResubmitRowState {
+  inputText: string;
+  inputError: string | null;
+  submitting: boolean;
+  submitError: string | null;
+}
+
 export default function ActiveWorkPage() {
   const navigate = useV2Nav();
   const [rows, setRows] = useState<ActiveWorkRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [revisionRuns, setRevisionRuns] = useState<AutomationRun[]>([]);
+  const [resubmitState, setResubmitState] = useState<Record<string, ResubmitRowState>>({});
   const { t } = useTranslation();
+
+  function getResubmitRow(runId: string): ResubmitRowState {
+    return resubmitState[runId] ?? { inputText: '', inputError: null, submitting: false, submitError: null };
+  }
+
+  function patchResubmitRow(runId: string, patch: Partial<ResubmitRowState>) {
+    setResubmitState(prev => ({
+      ...prev,
+      [runId]: { ...getResubmitRow(runId), ...patch },
+    }));
+  }
+
+  async function handleResubmit(runId: string) {
+    const row = getResubmitRow(runId);
+    let parsedInput: Record<string, unknown> | undefined;
+    if (row.inputText.trim()) {
+      try {
+        parsedInput = JSON.parse(row.inputText) as Record<string, unknown>;
+      } catch {
+        patchResubmitRow(runId, { inputError: 'Invalid JSON' });
+        return;
+      }
+    }
+    patchResubmitRow(runId, { inputError: null, submitting: true, submitError: null });
+    try {
+      await resubmitAutomationRun(runId, parsedInput);
+      // Clear textarea and refresh
+      patchResubmitRow(runId, { inputText: '', submitting: false });
+      const status = await getAutomationStatus();
+      setRevisionRuns((status.recentRuns ?? []).filter(r => r.status === 'waiting_revision'));
+    } catch (e) {
+      patchResubmitRow(runId, {
+        submitting: false,
+        submitError: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  async function handleCancelRevision(runId: string) {
+    try {
+      await cancelAutomationRun(runId, 'cancelled_from_admin_ui');
+      const status = await getAutomationStatus();
+      setRevisionRuns((status.recentRuns ?? []).filter(r => r.status === 'waiting_revision'));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -74,8 +142,13 @@ export default function ActiveWorkPage() {
 
     async function fetchAndCategorize() {
       try {
-        const tenants = await listTenants();
+        const [tenants, automationStatus] = await Promise.all([listTenants(), getAutomationStatus()]);
         const tenant = tenants[0];
+
+        if (!cancelled) {
+          setRevisionRuns((automationStatus.recentRuns ?? []).filter(r => r.status === 'waiting_revision'));
+        }
+
         // Get all dispatch queue items (remove status filter)
         const page = await listDispatchQueue({ tenantId: tenant?.id, limit: 200 });
         const allRows = page.items;
@@ -303,6 +376,126 @@ export default function ActiveWorkPage() {
             </div>
           )}
         </div>
+        {revisionRuns.length > 0 && (
+          <div className="card" style={{ padding: 0, marginTop: 14 }}>
+            <div
+              className="eyebrow"
+              style={{
+                padding: "12px 14px",
+                borderBottom: "1px solid var(--rule)",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <Circle size={14} color="var(--warn)" />
+              <span style={{ color: "var(--warn)" }}>WAITING REVISION &middot; {revisionRuns.length}</span>
+            </div>
+            {revisionRuns.map(run => {
+              const rs = getResubmitRow(run.id);
+              const returnNote: string | null =
+                (run.terminalReason ?? null) ||
+                (() => {
+                  const steps = run.steps ?? [];
+                  for (let i = steps.length - 1; i >= 0; i--) {
+                    const s = steps[i];
+                    const note =
+                      (s.output as { reviewNote?: unknown } | undefined)?.reviewNote ??
+                      (s.output as { note?: unknown } | undefined)?.note ??
+                      (s.output as { revision_note?: unknown } | undefined)?.revision_note;
+                    if (typeof note === 'string' && note.trim()) return note;
+                  }
+                  return null;
+                })();
+              return (
+                <div
+                  key={run.id}
+                  style={{
+                    padding: "14px 14px 18px",
+                    borderTop: "1px solid var(--rule)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: "var(--ink)" }}>
+                        {run.workflowName ?? run.workflowId ?? run.id}
+                      </div>
+                      <div className="mono" style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 2 }}>
+                        {run.id}
+                      </div>
+                      {returnNote && (
+                        <div
+                          className="mono"
+                          style={{
+                            marginTop: 6,
+                            padding: "6px 10px",
+                            background: "var(--bg-2)",
+                            border: "1px solid var(--rule)",
+                            fontSize: 12,
+                            color: "var(--ink-2)",
+                            borderRadius: 4,
+                          }}
+                        >
+                          <span style={{ color: "var(--warn)", marginRight: 6 }}>Reviewer note:</span>
+                          {returnNote}
+                        </div>
+                      )}
+                    </div>
+                    <StatusPill kind="warn">waiting_revision</StatusPill>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <textarea
+                      className="input"
+                      rows={3}
+                      placeholder='Edited input (JSON) — leave blank to resubmit as-is'
+                      value={rs.inputText}
+                      onChange={e => patchResubmitRow(run.id, { inputText: e.target.value, inputError: null })}
+                      style={{
+                        background: "var(--bg-2)",
+                        border: "1px solid var(--rule)",
+                        color: "var(--ink)",
+                        padding: "6px 10px",
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: 11,
+                        resize: "vertical",
+                        width: "100%",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    {rs.inputError && (
+                      <span className="mono" style={{ fontSize: 11, color: "var(--err)" }}>
+                        {rs.inputError}
+                      </span>
+                    )}
+                    {rs.submitError && (
+                      <span className="mono" style={{ fontSize: 11, color: "var(--err)" }}>
+                        {rs.submitError}
+                      </span>
+                    )}
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        className="btn btn-sm"
+                        disabled={rs.submitting}
+                        onClick={() => handleResubmit(run.id)}
+                      >
+                        {rs.submitting ? "Resubmitting..." : "Resubmit"}
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        disabled={rs.submitting}
+                        onClick={() => handleCancelRevision(run.id)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         <div className="card" style={{ padding: 16, marginTop: 14, display: "flex", gap: 10, color: "var(--ink-3)", fontSize: 12 }}>
           <Circle size={16} color="var(--ink-3)" aria-hidden="true" />
           <div className="mono" style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 2 }}>

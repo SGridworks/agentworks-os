@@ -282,7 +282,8 @@ export function createApprovalQueueRouter(config: Config): Router {
     // Resume any native automation runs that were parked waiting on this approval.
     // Fire-and-forget: resume returns quickly (enqueues next step), so we don't
     // hold up the HTTP response. Errors are logged inside onApprovalResolved.
-    const resolvedDecision = reviewDecision === "approve" ? "approved" : "rejected";
+    const resolvedDecision: "approved" | "rejected" | "returned" =
+      reviewDecision === "approve" ? "approved" : reviewDecision === "return_to_author" ? "returned" : "rejected";
     const resumeMeta: { reviewedBy?: string; reviewNote?: string } = { reviewedBy };
     if (reviewNote !== undefined) resumeMeta.reviewNote = reviewNote;
     onApprovalResolved(id, resolvedDecision, resumeMeta, config).catch(

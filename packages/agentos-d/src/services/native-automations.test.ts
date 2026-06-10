@@ -19,6 +19,7 @@ import {
   listNativeAutomationTemplates,
   listNativeAutomationWorkflows,
   replayNativeAutomationRun,
+  resubmitNativeAutomationRun,
   resumeNativeAutomationRun,
   runNativeAutomationWorkflow,
   simulateNativeAutomationWorkflow,
@@ -639,9 +640,8 @@ describe("native automations", () => {
     expect(resumed.steps.map((s) => s.status)).toEqual(["succeeded", "succeeded"]);
   });
 
-  // A returned-for-revision approval halts the run but is recorded distinctly
-  // from an outright denial in the audit trail.
-  it("records approval_returned (not approval_denied) when an approval is returned", async () => {
+  // A returned-for-revision approval parks the run in waiting_revision (non-terminal).
+  it("parks the run in waiting_revision when an approval row is returned", async () => {
     const workflow = createNativeAutomationWorkflow({
       tenantId: TENANT_ID,
       companyId: COMPANY_ID,
@@ -660,14 +660,26 @@ describe("native automations", () => {
     const waiting = await runNativeAutomationWorkflow(workflow.id, {}, config);
     expect(waiting.status).toBe("waiting_approval");
 
-    // Reviewer returns the item for revision.
-    getSqlite()
-      .prepare("UPDATE approval_queue SET status = 'returned' WHERE id = ?")
-      .run(waiting.waitingForApprovalId);
-
-    const resumed = await resumeNativeAutomationRun(waiting.id, { decision: "rejected" }, config);
-    expect(resumed.status).toBe("failed");
-    expect(resumed.terminalReason).toBe("approval_returned");
+    // Reviewer returns the item via the "returned" decision signal.
+    const returned = await resumeNativeAutomationRun(
+      waiting.id,
+      { decision: "returned", reviewNote: "Needs more detail" },
+      config,
+    );
+    expect(returned.status).toBe("waiting_revision");
+    expect(returned.terminalReason).toBe("returned_for_revision");
+    // finishedAt must be null — the run is non-terminal.
+    expect(returned.finishedAt).toBeNull();
+    // The approval link is preserved for audit.
+    expect(returned.waitingForApprovalId).toBe(waiting.waitingForApprovalId);
+    // The step must NOT be succeeded or failed.
+    expect(returned.steps[0]?.status).not.toBe("succeeded");
+    expect(returned.steps[0]?.status).not.toBe("failed");
+    // The returned approval row must still be 'returned'.
+    const approvalRow = getSqlite()
+      .prepare("SELECT status FROM approval_queue WHERE id = ?")
+      .get(waiting.waitingForApprovalId) as { status: string } | undefined;
+    expect(approvalRow?.status).toBe("returned");
   });
 
   // Positive regression: a forced dispatch completion advances the run.
@@ -703,5 +715,169 @@ describe("native automations", () => {
     const resumed = await resumeNativeAutomationRun(waiting.id, { dispatchStatus: "completed" }, config);
     expect(resumed.status).toBe("succeeded");
     expect(resumed.steps.map((s) => s.status)).toEqual(["succeeded", "succeeded"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Return-for-revision + resubmit
+// ---------------------------------------------------------------------------
+
+describe("return-for-revision and resubmit", () => {
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "awos-resubmit-"));
+    config = makeConfig(join(root, "data"));
+    previousVaultRoot = process.env.VAULT_ROOT;
+    process.env.VAULT_ROOT = join(root, "vault");
+    _resetVaultStoreForTesting();
+    initDb({ config, migrations: migrate });
+  });
+
+  afterEach(() => {
+    resetDb();
+    _resetVaultStoreForTesting();
+    if (previousVaultRoot === undefined) {
+      delete process.env.VAULT_ROOT;
+    } else {
+      process.env.VAULT_ROOT = previousVaultRoot;
+    }
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function makeApprovalWorkflow(name: string) {
+    return createNativeAutomationWorkflow({
+      tenantId: TENANT_ID,
+      companyId: COMPANY_ID,
+      name,
+      trigger: "manual",
+      status: "active",
+      definition: {
+        trigger: "manual",
+        steps: [
+          {
+            id: "gate",
+            name: "Gate",
+            type: "approval.wait",
+            params: { proposedActionSummary: "Approve this", proposedActionKind: "test.action" },
+          },
+          { id: "after", name: "After", type: "data.set", params: { value: { approved: true } } },
+        ],
+      },
+    });
+  }
+
+  it("return_to_author signal parks run in waiting_revision (not failed/succeeded)", async () => {
+    const workflow = makeApprovalWorkflow("return-parks-run");
+    const waiting = await runNativeAutomationWorkflow(workflow.id, {}, config);
+    expect(waiting.status).toBe("waiting_approval");
+    expect(waiting.waitingForApprovalId).toBeTruthy();
+
+    const returned = await resumeNativeAutomationRun(
+      waiting.id,
+      { decision: "returned", reviewNote: "Please revise the proposal" },
+      config,
+    );
+
+    expect(returned.status).toBe("waiting_revision");
+    expect(returned.terminalReason).toBe("returned_for_revision");
+    expect(returned.finishedAt).toBeNull();
+    expect(returned.waitingForApprovalId).toBe(waiting.waitingForApprovalId);
+
+    // Approval row must be 'returned'
+    const approvalRow = getSqlite()
+      .prepare("SELECT status FROM approval_queue WHERE id = ?")
+      .get(waiting.waitingForApprovalId) as { status: string } | undefined;
+    expect(approvalRow?.status).toBe("returned");
+  });
+
+  it("resubmit on waiting_revision creates fresh pending approval and sets run to waiting_approval", async () => {
+    const workflow = makeApprovalWorkflow("resubmit-fresh-approval");
+    const waiting = await runNativeAutomationWorkflow(workflow.id, {}, config);
+    const originalApprovalId = waiting.waitingForApprovalId!;
+
+    // Return for revision
+    await resumeNativeAutomationRun(waiting.id, { decision: "returned" }, config);
+
+    // Resubmit
+    const resubmitted = await resubmitNativeAutomationRun(waiting.id, undefined, config);
+    expect(resubmitted.status).toBe("waiting_approval");
+    expect(resubmitted.waitingForApprovalId).toBeTruthy();
+    expect(resubmitted.waitingForApprovalId).not.toBe(originalApprovalId);
+
+    // Fresh approval row must be pending
+    const freshApproval = getSqlite()
+      .prepare("SELECT status FROM approval_queue WHERE id = ?")
+      .get(resubmitted.waitingForApprovalId) as { status: string } | undefined;
+    expect(freshApproval?.status).toBe("pending");
+
+    // Old approval row remains 'returned'
+    const oldApproval = getSqlite()
+      .prepare("SELECT status FROM approval_queue WHERE id = ?")
+      .get(originalApprovalId) as { status: string } | undefined;
+    expect(oldApproval?.status).toBe("returned");
+  });
+
+  it("approving the fresh approval after resubmit advances the run to succeeded", async () => {
+    const workflow = makeApprovalWorkflow("resubmit-then-approve");
+    const waiting = await runNativeAutomationWorkflow(workflow.id, {}, config);
+
+    // Return then resubmit
+    await resumeNativeAutomationRun(waiting.id, { decision: "returned" }, config);
+    const resubmitted = await resubmitNativeAutomationRun(waiting.id, undefined, config);
+    expect(resubmitted.status).toBe("waiting_approval");
+
+    // Approve the fresh approval
+    const approved = await resumeNativeAutomationRun(resubmitted.id, { decision: "approved" }, config);
+    expect(approved.status).toBe("succeeded");
+    expect(approved.steps.map((s) => s.status)).toEqual(["succeeded", "succeeded"]);
+  });
+
+  it("resubmit with input patch merges the patch into run input", async () => {
+    const workflow = makeApprovalWorkflow("resubmit-input-patch");
+    const waiting = await runNativeAutomationWorkflow(workflow.id, { original: "value" }, config);
+
+    await resumeNativeAutomationRun(waiting.id, { decision: "returned" }, config);
+    const resubmitted = await resubmitNativeAutomationRun(
+      waiting.id,
+      { revised: true, original: "overwritten" },
+      config,
+    );
+
+    expect(resubmitted.input.revised).toBe(true);
+    expect(resubmitted.input.original).toBe("overwritten");
+  });
+
+  it("resubmit on a non-waiting_revision run returns unchanged", async () => {
+    const workflow = makeApprovalWorkflow("resubmit-non-revision");
+    const waiting = await runNativeAutomationWorkflow(workflow.id, {}, config);
+    // Run is waiting_approval, not waiting_revision
+    expect(waiting.status).toBe("waiting_approval");
+
+    const unchanged = await resubmitNativeAutomationRun(waiting.id, undefined, config);
+    expect(unchanged.status).toBe("waiting_approval");
+    expect(unchanged.id).toBe(waiting.id);
+  });
+
+  it("concurrent double-resubmit yields exactly one fresh approval", async () => {
+    const workflow = makeApprovalWorkflow("concurrent-resubmit");
+    const waiting = await runNativeAutomationWorkflow(workflow.id, {}, config);
+
+    await resumeNativeAutomationRun(waiting.id, { decision: "returned" }, config);
+
+    // Fire two resubmits concurrently
+    const [r1, r2] = await Promise.all([
+      resubmitNativeAutomationRun(waiting.id, undefined, config),
+      resubmitNativeAutomationRun(waiting.id, undefined, config),
+    ]);
+
+    // Both should resolve to the same run state
+    expect(r1.status).toBe("waiting_approval");
+    expect(r2.status).toBe("waiting_approval");
+    expect(r1.waitingForApprovalId).toBe(r2.waitingForApprovalId);
+
+    // Exactly one fresh pending approval should exist
+    const pendingCount = getSqlite()
+      .prepare("SELECT COUNT(*) AS count FROM approval_queue WHERE status = 'pending'")
+      .get() as { count: number };
+    expect(pendingCount.count).toBe(1);
   });
 });

@@ -113,6 +113,7 @@ export interface AutomationDefinition {
 export type AutomationRunStatus =
   | 'running'
   | 'waiting_approval'
+  | 'waiting_revision'
   | 'waiting_dispatch'
   | 'paused'
   | 'succeeded'
@@ -356,6 +357,13 @@ export function cancelAutomationRun(runId: string, reason = 'cancelled_by_operat
   return request<AutomationRun>(`/api/admin/automations/runs/${runId}/cancel`, {
     method: 'POST',
     body: JSON.stringify({ reason }),
+  });
+}
+
+export function resubmitAutomationRun(runId: string, input?: Record<string, unknown>) {
+  return request<AutomationRun>(`/api/admin/automations/runs/${runId}/resubmit`, {
+    method: 'POST',
+    body: JSON.stringify(input !== undefined ? { input } : {}),
   });
 }
 

@@ -46,7 +46,7 @@ interface DispatchStatusRow {
  */
 export async function onApprovalResolved(
   approvalId: string,
-  decision: "approved" | "rejected",
+  decision: "approved" | "rejected" | "returned",
   meta?: { reviewedBy?: string; reviewNote?: string },
   config?: Config,
 ): Promise<void> {
