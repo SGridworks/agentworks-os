@@ -827,5 +827,164 @@ describe("scanner routes", () => {
 
       expect(res.status).toBe(200);
     });
+
+    // -----------------------------------------------------------------------
+    // Ownership enforcement: stored tenant beats caller-supplied tenantId
+    // -----------------------------------------------------------------------
+
+    function insertScannerJob(
+      sqlite: Database.Database,
+      opts: { id: string; tenantId: string; companyId?: string },
+    ): void {
+      sqlite
+        .prepare(
+          `INSERT OR IGNORE INTO scanner_jobs (id, tenant_id, company_id, created_at)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(opts.id, opts.tenantId, opts.companyId ?? null, new Date().toISOString());
+    }
+
+    it("GET /jobs/:id enforces stored tenant — principal scoped to A cannot access job owned by B, even passing ?tenantId=A", async () => {
+      const jobId = randomUUID();
+      insertScannerJob(_dbState.sqlite!, { id: jobId, tenantId: TENANT_B });
+
+      global.fetch = vi.fn<any>().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ scan_id: jobId, status: "complete", findings: [], scanned_at: new Date().toISOString() }),
+      });
+
+      const res = await request(app)
+        .get(`/api/scanner/jobs/${jobId}?tenantId=${TENANT_A}`)
+        .set("Authorization", `Bearer ${SCOPED_TOKEN_A}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("forbidden");
+    });
+
+    it("GET /jobs/:id allows owner principal (tenants='*') regardless of stored tenant", async () => {
+      const jobId = randomUUID();
+      insertScannerJob(_dbState.sqlite!, { id: jobId, tenantId: TENANT_B });
+
+      global.fetch = vi.fn<any>().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ scan_id: jobId, status: "complete", findings: [], scanned_at: new Date().toISOString() }),
+      });
+
+      const res = await request(app)
+        .get(`/api/scanner/jobs/${jobId}?tenantId=${TENANT_B}`)
+        .set("Authorization", `Bearer ${OWNER_TOKEN}`);
+
+      expect(res.status).toBe(200);
+    });
+
+    it("GET /jobs/:id allows principal scoped to B when job is owned by B", async () => {
+      // Insert a second scoped key for tenant B
+      const SCOPED_TOKEN_B = "scanner-test-scoped-token-b";
+      const AGENT_B_ID = "eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee";
+      const COMPANY_B = "ffffffff-ffff-4fff-ffff-ffffffffffff";
+      const now = new Date().toISOString();
+      _dbState.sqlite!
+        .prepare(
+          `INSERT INTO execution_companies
+           (id, tenant_id, name, status, metadata_json, source, created_at, updated_at)
+           VALUES (?, ?, 'Tenant B Company', 'active', '{}', 'awos', ?, ?)`,
+        )
+        .run(COMPANY_B, TENANT_B, now, now);
+      _dbState.sqlite!
+        .prepare(
+          `INSERT INTO execution_agents
+           (id, tenant_id, company_id, name, role, status, config_json, source, created_at, updated_at)
+           VALUES (?, ?, ?, 'Agent B', 'worker', 'active', '{}', 'awos', ?, ?)`,
+        )
+        .run(AGENT_B_ID, TENANT_B, COMPANY_B, now, now);
+      _dbState.sqlite!
+        .prepare(
+          `INSERT INTO agent_api_keys
+           (id, agent_id, key_hash, key_prefix, scopes, tenant_allowlist, created_at, revoked_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          randomUUID(),
+          AGENT_B_ID,
+          createHash("sha256").update(SCOPED_TOKEN_B).digest("hex"),
+          SCOPED_TOKEN_B.slice(0, 8),
+          JSON.stringify(["memory:read"]),
+          JSON.stringify([TENANT_B]),
+          now,
+          null,
+        );
+
+      const jobId = randomUUID();
+      insertScannerJob(_dbState.sqlite!, { id: jobId, tenantId: TENANT_B });
+
+      global.fetch = vi.fn<any>().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ scan_id: jobId, status: "complete", findings: [], scanned_at: new Date().toISOString() }),
+      });
+
+      const res = await request(app)
+        .get(`/api/scanner/jobs/${jobId}?tenantId=${TENANT_B}`)
+        .set("Authorization", `Bearer ${SCOPED_TOKEN_B}`);
+
+      expect(res.status).toBe(200);
+    });
+
+    it("GET /jobs/:id falls back to claimed tenantId when no ownership record exists", async () => {
+      const jobId = randomUUID();
+      // No scanner_jobs row inserted — fallback path
+
+      global.fetch = vi.fn<any>().mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve("not found"),
+      });
+
+      // Scoped to A, claims A, no row → fallback uses A → assertTenantAllowed(A, A) passes
+      const res = await request(app)
+        .get(`/api/scanner/jobs/${jobId}?tenantId=${TENANT_A}`)
+        .set("Authorization", `Bearer ${SCOPED_TOKEN_A}`);
+
+      // Auth passes (fallback), scanner-worker 404 proxied
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /jobs/:id/sarif enforces stored tenant — A cannot access job owned by B", async () => {
+      const jobId = randomUUID();
+      insertScannerJob(_dbState.sqlite!, { id: jobId, tenantId: TENANT_B });
+
+      const res = await request(app)
+        .get(`/api/scanner/jobs/${jobId}/sarif?tenantId=${TENANT_A}`)
+        .set("Authorization", `Bearer ${SCOPED_TOKEN_A}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("forbidden");
+    });
+
+    it("GET /jobs/:id/json enforces stored tenant — A cannot access job owned by B", async () => {
+      const jobId = randomUUID();
+      insertScannerJob(_dbState.sqlite!, { id: jobId, tenantId: TENANT_B });
+
+      const res = await request(app)
+        .get(`/api/scanner/jobs/${jobId}/json?tenantId=${TENANT_A}`)
+        .set("Authorization", `Bearer ${SCOPED_TOKEN_A}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("forbidden");
+    });
+
+    it("POST /jobs/:id/cancel enforces stored tenant — A cannot cancel job owned by B", async () => {
+      const jobId = randomUUID();
+      insertScannerJob(_dbState.sqlite!, { id: jobId, tenantId: TENANT_B });
+
+      const res = await request(app)
+        .post(`/api/scanner/jobs/${jobId}/cancel?tenantId=${TENANT_A}`)
+        .set("Authorization", `Bearer ${SCOPED_TOKEN_A}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("forbidden");
+    });
   });
 });

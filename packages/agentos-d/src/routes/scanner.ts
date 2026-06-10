@@ -12,7 +12,7 @@
 import { Router, type Response as ExpressResponse } from "express";
 import { z } from "zod";
 import pino from "pino";
-import { getDb } from "../db/index.js";
+import { getDb, getSqlite } from "../db/index.js";
 import { scannerFindings } from "../db/schema.js";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -30,6 +30,44 @@ function denyTenant(res: ExpressResponse, err: unknown): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * Persist a scan/job id → tenant ownership record at submit time.
+ * Uses INSERT OR IGNORE so duplicate submits are safe.
+ */
+function recordJobOwnership(
+  jobId: string,
+  tenantId: string,
+  companyId: string | null,
+): void {
+  try {
+    const sqlite = getSqlite();
+    sqlite
+      .prepare(
+        `INSERT OR IGNORE INTO scanner_jobs (id, tenant_id, company_id, created_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(jobId, tenantId, companyId ?? null, new Date().toISOString());
+  } catch (err) {
+    log.warn({ jobId, tenantId, err }, "scanner: failed to record job ownership — ownership row skipped");
+  }
+}
+
+/**
+ * Look up the stored tenant for a scan/job id.
+ * Returns null when the job has no ownership record (pre-migration or out-of-band submit).
+ */
+function lookupJobTenant(jobId: string): string | null {
+  try {
+    const sqlite = getSqlite();
+    const row = sqlite
+      .prepare("SELECT tenant_id FROM scanner_jobs WHERE id = ?")
+      .get(jobId) as { tenant_id: string } | undefined;
+    return row?.tenant_id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // Severities that auto-trigger the compliance loop. Configurable via env var;
@@ -205,9 +243,20 @@ export function createScannerRouter(config: Config): Router {
     }
 
     const result = (await upstreamRes.json()) as Record<string, any>;
+    const confirmedBatchId: string = result.batch_id ?? batchId;
+    // Persist ownership for the batch id and any individual scan ids in results.
+    recordJobOwnership(confirmedBatchId, body.tenantId, null);
+    if (Array.isArray(result.results)) {
+      for (const r of result.results as Array<Record<string, any>>) {
+        const jobId: string | undefined = r.scan_id ?? r.scanId ?? r.job_id ?? r.jobId;
+        if (typeof jobId === "string") {
+          recordJobOwnership(jobId, body.tenantId, null);
+        }
+      }
+    }
     // Normalize snake_case from scanner-worker → camelCase for agentos-d consumers
     res.status(upstreamRes.status).json({
-      batchId: result.batch_id ?? batchId,
+      batchId: confirmedBatchId,
       status: result.status,
       targetCount: result.targetCount ?? body.targets.length,
       estimatedSeconds: result.estimatedSeconds,
@@ -311,9 +360,12 @@ export function createScannerRouter(config: Config): Router {
     }
 
     const scanResult = (await upstreamRes.json()) as Record<string, any>;
+    const confirmedScanId: string = scanResult.scan_id ?? scanId;
+    // Persist ownership so job-level routes can enforce it against the stored tenant.
+    recordJobOwnership(confirmedScanId, body.tenantId, null);
     // RFC 003: scanResult may have status "complete", "queued", or "error"
     res.status(202).json({
-      scanId: scanResult.scan_id ?? scanId,
+      scanId: confirmedScanId,
       status: scanResult.status,
       submittedAt: new Date().toISOString(),
     });
@@ -330,11 +382,19 @@ export function createScannerRouter(config: Config): Router {
       res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
       return;
     }
-    const tenantId = tenantIdParse.data;
+    const claimedTenantId = tenantIdParse.data;
 
     if (!req.principal) {
       res.status(401).json({ error: "unauthorized" });
       return;
+    }
+
+    // Enforce against the STORED tenant if an ownership record exists;
+    // fall back to the claimed tenantId for pre-migration / out-of-band jobs.
+    const storedTenant = lookupJobTenant(req.params.id);
+    const tenantId = storedTenant ?? claimedTenantId;
+    if (!storedTenant) {
+      log.debug({ jobId: req.params.id }, "scanner: no ownership record for job — using claimed tenantId");
     }
     try {
       assertTenantAllowed(req.principal, tenantId);
@@ -459,8 +519,13 @@ export function createScannerRouter(config: Config): Router {
       res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
       return;
     }
+    const storedTenant = lookupJobTenant(req.params.id);
+    const tenantId = storedTenant ?? tenantIdParse.data;
+    if (!storedTenant) {
+      log.debug({ jobId: req.params.id }, "scanner: no ownership record for job — using claimed tenantId");
+    }
     try {
-      assertTenantAllowed(req.principal, tenantIdParse.data);
+      assertTenantAllowed(req.principal, tenantId);
     } catch (err) {
       if (denyTenant(res, err)) return;
       throw err;
@@ -508,8 +573,13 @@ export function createScannerRouter(config: Config): Router {
       res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
       return;
     }
+    const storedTenant = lookupJobTenant(req.params.id);
+    const tenantId = storedTenant ?? tenantIdParse.data;
+    if (!storedTenant) {
+      log.debug({ jobId: req.params.id }, "scanner: no ownership record for job — using claimed tenantId");
+    }
     try {
-      assertTenantAllowed(req.principal, tenantIdParse.data);
+      assertTenantAllowed(req.principal, tenantId);
     } catch (err) {
       if (denyTenant(res, err)) return;
       throw err;
@@ -564,8 +634,13 @@ export function createScannerRouter(config: Config): Router {
       res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
       return;
     }
+    const storedTenant = lookupJobTenant(req.params.id);
+    const tenantId = storedTenant ?? tenantIdParse.data;
+    if (!storedTenant) {
+      log.debug({ jobId: req.params.id }, "scanner: no ownership record for job — using claimed tenantId");
+    }
     try {
-      assertTenantAllowed(req.principal, tenantIdParse.data);
+      assertTenantAllowed(req.principal, tenantId);
     } catch (err) {
       if (denyTenant(res, err)) return;
       throw err;
