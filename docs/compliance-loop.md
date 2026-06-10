@@ -85,6 +85,7 @@ The `scanner-compliance-loop` template is the event-driven sibling of `complianc
 | `AGENTOS_STUCK_ISSUE_THRESHOLD_HOURS` | `4` | Age in hours (since last update) after which an assigned in-progress or blocked issue fires an `issue.stuck` event. |
 | `AGENTOS_EVENT_SWEEP_MS` | `900000` | Interval (ms) between event-producer sweeps (approval SLA + stuck issues). Default is 15 minutes. |
 | `AGENTOS_LOOP_RECONCILE_MS` | `60000` | Interval (ms) for the loop-driver reconciler that re-wakes waiting runs whose linked approval or dispatch already resolved. Default is 1 minute. |
+| `AGENTOS_PROVIDER_POLL_MS` | `300000` | Interval (ms) for the background provider-health poll that fires `provider.degraded` on a healthy-to-degraded transition. Default is 5 minutes; set `0` to disable. |
 
 ---
 

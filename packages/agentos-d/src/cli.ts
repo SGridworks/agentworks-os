@@ -133,6 +133,25 @@ async function main(): Promise<void> {
     });
   }, eventSweepMs);
 
+  // Background provider-health poll so provider.degraded fires on a
+  // healthy->degraded transition autonomously, not only when the trust page is
+  // loaded. Set AGENTOS_PROVIDER_POLL_MS=0 to disable.
+  const providerPollMs =
+    process.env.AGENTOS_PROVIDER_POLL_MS !== undefined
+      ? Number(process.env.AGENTOS_PROVIDER_POLL_MS)
+      : 300_000;
+  const providerPollTimer =
+    providerPollMs > 0
+      ? setInterval(() => {
+          getProviderHealthService()
+            .refresh()
+            .catch((err: unknown) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error(`[provider-health] background poll failed: ${msg}`);
+            });
+        }, providerPollMs)
+      : null;
+
   const app = createApp(config);
   const server = app.listen({ host: config.host, port: config.port } as any, () => {
     console.log(`[agentos-d] listening on http://${config.host}:${config.port} (awcp=${config.awcpVersion}) retention=${config.auditLogRetentionDays}d`);
@@ -144,6 +163,7 @@ async function main(): Promise<void> {
       dispatchConsumer?.stop();
       clearInterval(reconcileTimer);
       clearInterval(eventSweepTimer);
+      if (providerPollTimer) clearInterval(providerPollTimer);
       if (retentionTimer) clearInterval(retentionTimer);
       if ((global as any).evidenceCronRunning) {
         evidenceCron.stop();
