@@ -16,6 +16,7 @@ import type { Config } from "../config.js";
 import { broadcast } from "../websocket-server.js";
 import { assertTenantAllowed, TenantAccessError } from "../auth/tenant-access.js";
 import { requireScope } from "../auth/scope-guard.js";
+import { onApprovalResolved } from "../services/loop-driver.js";
 
 function denyTenant(res: Response, err: unknown): boolean {
   if (err instanceof TenantAccessError) {
@@ -277,6 +278,19 @@ export function createApprovalQueueRouter(config: Config): Router {
       reviewedBy,
       reviewedAt: now,
     });
+
+    // Resume any native automation runs that were parked waiting on this approval.
+    // Fire-and-forget: resume returns quickly (enqueues next step), so we don't
+    // hold up the HTTP response. Errors are logged inside onApprovalResolved.
+    const resolvedDecision = reviewDecision === "approve" ? "approved" : "rejected";
+    const resumeMeta: { reviewedBy?: string; reviewNote?: string } = { reviewedBy };
+    if (reviewNote !== undefined) resumeMeta.reviewNote = reviewNote;
+    onApprovalResolved(id, resolvedDecision, resumeMeta, config).catch(
+      (err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`loop-driver: onApprovalResolved failed for ${id}: ${msg}`);
+      },
+    );
 
     res.json(updated);
   });

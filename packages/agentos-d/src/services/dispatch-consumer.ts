@@ -18,6 +18,8 @@
 
 import type { Database } from "better-sqlite3";
 import { randomUUID } from "node:crypto";
+import { onDispatchResolved } from "./loop-driver.js";
+import type { Config } from "../config.js";
 
 export interface AdapterAgentSummary {
   id: string;
@@ -82,6 +84,12 @@ export interface DispatchConsumerOptions {
   logger?: { info: (msg: string, ctx?: unknown) => void; warn: (msg: string, ctx?: unknown) => void; error: (msg: string, ctx?: unknown) => void };
   /** Claim rows for legacy local_gateway agents. Default false unless explicitly enabled. */
   claimLocalGateway?: boolean;
+  /**
+   * Config to pass to onDispatchResolved so the loop-driver can resume
+   * native-automation runs with real config rather than the {} fallback.
+   * If omitted, onDispatchResolved falls back to loadConfig() at call time.
+   */
+  config?: Config;
 }
 
 export interface TickResult {
@@ -97,7 +105,7 @@ interface DispatchRow {
   task_kind: string;
   target_agent_id: string;
   input: string;
-  status: "queued" | "dispatched" | "completed" | "failed";
+  status: "queued" | "waiting" | "dispatched" | "completed" | "failed";
   created_at: string;
 }
 
@@ -138,6 +146,7 @@ export class DispatchConsumer {
   private readonly skipStatuses: Set<string>;
   private readonly logger: NonNullable<DispatchConsumerOptions["logger"]>;
   private readonly claimLocalGateway: boolean;
+  private readonly config: Config | undefined;
   private timer: NodeJS.Timeout | null = null;
   /** target_agent_id → in-flight adapter promise. Prevents two dispatches to the same agent in parallel. */
   private readonly inFlight = new Map<string, Promise<void>>();
@@ -150,6 +159,7 @@ export class DispatchConsumer {
     this.batchSize = opts.batchSize ?? DEFAULT_BATCH;
     this.skipStatuses = new Set(opts.skipAgentStatuses ?? ["paused", "retired"]);
     this.claimLocalGateway = opts.claimLocalGateway ?? claimLocalGatewayDispatch();
+    this.config = opts.config;
     this.logger =
       opts.logger ?? {
         info: () => {},
@@ -323,10 +333,22 @@ export class DispatchConsumer {
       );
       this.recordHeartbeat(agent, outcome);
       result.completed++;
+      onDispatchResolved(row.id, "completed", this.config).catch((err: unknown) => {
+        this.logger.error("loop-driver: onDispatchResolved(completed) failed", {
+          rowId: row.id,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      });
     } else {
       const completedAt = this.markFailed(row.id, outcome.error);
       this.reconcileIssueFromDispatch(row, "blocked", completedAt, `Dispatch failed: ${outcome.error}`);
       result.failed++;
+      onDispatchResolved(row.id, "failed", this.config).catch((err: unknown) => {
+        this.logger.error("loop-driver: onDispatchResolved(failed) failed", {
+          rowId: row.id,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      });
     }
   }
 
@@ -341,7 +363,7 @@ export class DispatchConsumer {
                 dq.input, dq.status, dq.created_at
          FROM dispatch_queue dq
          LEFT JOIN execution_agents ea ON ea.id = dq.target_agent_id
-         WHERE dq.status = 'queued'
+         WHERE dq.status IN ('queued', 'waiting')
            ${localGatewayFilter}
          ORDER BY dq.created_at ASC
          LIMIT ?`,
@@ -349,14 +371,14 @@ export class DispatchConsumer {
       .all(this.batchSize) as DispatchRow[];
   }
 
-  /** Atomic claim: returns true iff this call moved queued→dispatched. */
+  /** Atomic claim: returns true iff this call moved queued/waiting→dispatched. */
   private tryClaim(id: string): boolean {
     const now = new Date().toISOString();
     const result = this.sqlite
       .prepare(
         `UPDATE dispatch_queue
          SET status = 'dispatched', dispatched_at = ?
-         WHERE id = ? AND status = 'queued'`
+         WHERE id = ? AND status IN ('queued', 'waiting')`
       )
       .run(now, id);
     return result.changes === 1;

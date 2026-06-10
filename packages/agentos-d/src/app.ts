@@ -28,6 +28,7 @@ import { healthHandler } from "./health-handler.js";
 import { createProxyAwareMiddleware, DEFAULT_TRANSPARENT_PROXY_CONFIG } from "./middleware/proxy-aware.js";
 import { createRequireAuthMiddleware } from "./middleware/require-auth.js";
 import { createAgentKeysRouter } from "./routes/admin/agent-keys.js";
+import { createDemoSeedRouter } from "./routes/admin/demo-seed.js";
 
 const STARTED_AT = new Date().toISOString();
 const PACKAGE_VERSION = "0.1.0";
@@ -95,6 +96,7 @@ export function createApp(config: Config): Express {
   // Admin — pause/resume + daemon status
   const adminRouter = createAdminRouter(config);
   app.use("/api/admin", createAgentKeysRouter(config));
+  app.use("/api/admin", createDemoSeedRouter(config));
   app.use("/api/admin", adminRouter);
   // Alias: UI's getActivityLog() hits /api/activity-log (not /api/admin/activity-log).
   // Rewrite the path so the same handler under /api/admin/activity-log answers.
