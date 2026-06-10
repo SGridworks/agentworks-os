@@ -65,6 +65,7 @@ ENV NODE_ENV=production \
     AGENTOS_HOST=0.0.0.0 \
     AGENTOS_PORT=7710 \
     RULE_PACKS_DIR=/opt/agentworks/rule-packs \
+    AGENTOS_DATA_DIR=/data \
     VAULT_ROOT=/data/vault
 
 EXPOSE 7710

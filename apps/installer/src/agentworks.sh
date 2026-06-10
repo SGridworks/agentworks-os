@@ -26,8 +26,8 @@ readonly CONFIG_DIR="${AGENTWORKS_DIR}/config"
 readonly SECRETS_FILE="${CONFIG_DIR}/secrets.json"
 readonly LOG_DIR="${AGENTWORKS_DIR}/logs"
 readonly DATA_DIR="${AGENTWORKS_DIR}/data"
-readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.1.0}"
-readonly REPO="SGridworks/agentworks-os"
+readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.3.0-alpha.0}"  # BUMP ON RELEASE
+readonly REPO="SGridworks/agentworks-os-v0.3"
 readonly GITHUB_RELEASES="https://api.github.com/repos/${REPO}/releases"
 
 # Color codes
@@ -157,7 +157,8 @@ cmd_update() {
   log_step "Checking for updates..."
 
   local latest_version
-  latest_version=$(curl -s "$GITHUB_RELEASES/latest" 2>/dev/null | grep '"tag_name"' | grep -oP 'v\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+  latest_version=$(curl -s "$GITHUB_RELEASES/latest" 2>/dev/null \
+    | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v?([^"]+)".*/\1/p' | head -1 || true)
 
   if [[ -z "$latest_version" ]]; then
     log_warn "Could not fetch latest version from GitHub."

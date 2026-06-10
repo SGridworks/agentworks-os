@@ -32,7 +32,7 @@ services:
     container_name: agentworks-agentos-d
     restart: unless-stopped
     ports:
-      - "7710:7710"   # REST + MCP
+      - "127.0.0.1:7710:7710"   # REST + MCP — loopback-only (unauthenticated API)
     environment:
       AGENTOS_HOST: "0.0.0.0"
       AGENTOS_PORT: "7710"
@@ -40,8 +40,7 @@ services:
       AGENTOS_AWCP_VERSION: "awcp/v0.1"
       RULE_PACKS_DIR: /opt/agentworks/rule-packs
       VAULT_ROOT: /data/vault
-      AGENTWORKS_DATA_DIR: /data
-      AGENTOS_EXECUTION_DATABASE_URL: postgres://agentworks:agentworks-local@postgres:5432/agentworks
+      AGENTOS_DATA_DIR: /data
     env_file:
       - path: ./config/.env
         required: false
@@ -54,32 +53,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
-    networks:
-      - agentworks
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  # ------------------------------------------------------------------
-  # postgres - local execution database
-  # ------------------------------------------------------------------
-  postgres:
-    image: postgres:16-alpine
-    container_name: agentworks-postgres
-    restart: unless-stopped
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_USER: agentworks
-      POSTGRES_PASSWORD: agentworks-local
-      POSTGRES_DB: agentworks
-    volumes:
-      - agentworks-postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U agentworks -d agentworks"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     networks:
       - agentworks
 
@@ -156,8 +129,6 @@ networks:
 volumes:
   agentworks-data:
     name: agentworks-dev-data
-  agentworks-postgres-data:
-    name: agentworks-dev-postgres-data
   agentworks-scanner-data:
     name: agentworks-dev-scanner-data
   agentworks-n8n-data:

@@ -42,6 +42,11 @@ import { migrate as migrateMissionMap } from "./0034_mission_map.js";
 import { migrate as migrateNativeAutomations } from "./0039_native_automations.js";
 import { migrate as migrateNativeAutomationN8nAi } from "./0040_native_automation_n8n_ai.js";
 import { migrate as migrateWorkflowEngine } from "./0041_workflow_engine.js";
+import { migrate as migrateAgentApiKeys } from "./0042_agent_api_keys.js";
+import { migrate as migrateLoopIndexes } from "./0043_loop_indexes.js";
+import { migrate as migrateWorkflowEventKind } from "./0044_workflow_event_kind.js";
+import { migrateWorkflowEventEmissions } from "./0045_workflow_event_emissions.js";
+import { migrateScannerJobs } from "./0046_scanner_jobs.js";
 
 
 export function migrate(sqlite: Database): void {
@@ -83,4 +88,9 @@ export function migrate(sqlite: Database): void {
   migrateNativeAutomations(sqlite);
   migrateNativeAutomationN8nAi(sqlite);
   migrateWorkflowEngine(sqlite);
+  migrateAgentApiKeys(sqlite);
+  migrateLoopIndexes(sqlite);
+  migrateWorkflowEventKind(sqlite);
+  migrateWorkflowEventEmissions(sqlite);
+  migrateScannerJobs(sqlite);
 }

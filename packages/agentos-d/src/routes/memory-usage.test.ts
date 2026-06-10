@@ -8,6 +8,7 @@ import type { Server } from "node:http";
 import { createMemoryRouter } from "./memory.js";
 import type { Config } from "../config.js";
 import { _resetVaultStoreForTesting } from "./memory.js";
+import { ALL_SCOPES } from "../auth/principal.js";
 
 const TENANT_A = "11111111-1111-1111-1111-111111111111";
 const AGENT_1 = "704c0f26-757a-4e4d-922f-3695895bc95c";
@@ -26,6 +27,10 @@ describe("Memory Routes - Usage Tracking", () => {
     _resetVaultStoreForTesting();
     app = express();
     app.use(express.json());
+    app.use((req, _res, next) => {
+      req.principal = { kind: "owner", id: "owner", scopes: new Set(ALL_SCOPES), tenants: "*" };
+      next();
+    });
     app.use("/api/memory", createMemoryRouter({} as Config));
     await new Promise<void>((resolve) => {
       server = app.listen(0, "127.0.0.1", () => resolve());

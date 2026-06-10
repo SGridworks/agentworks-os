@@ -65,6 +65,7 @@ export type NativeAutomationRunStatus =
   | "running"
   | "waiting_approval"
   | "waiting_dispatch"
+  | "waiting_revision"
   | "paused"
   | "succeeded"
   | "failed"
@@ -97,6 +98,8 @@ export interface NativeAutomationWorkflow {
   companyId: string;
   name: string;
   trigger: string;
+  /** For event-triggered workflows, the event kind they subscribe to (e.g. "scanner.finding"). */
+  eventKind: string | null;
   status: "active" | "paused";
   description: string | null;
   definition: NativeAutomationDefinition;
@@ -207,6 +210,8 @@ export interface NativeAutomationTemplate {
   id: string;
   name: string;
   trigger: "Manual" | "Webhook" | "Event";
+  /** For event-triggered templates, the event kind they subscribe to (e.g. "scanner.finding"). */
+  event_kind?: string;
   status: "available" | "installed";
   description: string;
   definition: NativeAutomationDefinition;
@@ -381,6 +386,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
     id: "issue-stuck-escalator",
     name: "Issue stuck escalator",
     trigger: "Event",
+    event_kind: "issue.stuck",
     description: "Create a reviewable escalation when an assigned issue sits in progress without fresh activity.",
     definition: {
       trigger: "event",
@@ -403,6 +409,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
     id: "failed-dispatch-recovery",
     name: "Failed dispatch recovery",
     trigger: "Event",
+    event_kind: "dispatch.failed",
     description: "Turn failed dispatch rows into visible repair work with the original failure attached.",
     definition: {
       trigger: "event",
@@ -447,6 +454,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
     id: "provider-degradation-watch",
     name: "Provider degradation watch",
     trigger: "Event",
+    event_kind: "provider.degraded",
     description: "Record degraded provider health and route operator-visible repair work before agents stall.",
     definition: {
       trigger: "event",
@@ -469,6 +477,7 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
     id: "approval-sla-watchdog",
     name: "Approval SLA watchdog",
     trigger: "Event",
+    event_kind: "approval.sla_breach",
     description: "Escalate stale approval queue items before they block operator hours.",
     definition: {
       trigger: "event",
@@ -580,6 +589,115 @@ const TEMPLATE_DEFINITIONS: Omit<NativeAutomationTemplate, "status">[] = [
       ],
     },
   },
+  {
+    id: "compliance-loop",
+    name: "Compliance loop",
+    trigger: "Manual",
+    description:
+      "Full-chain compliance workflow: evaluate a finding through policy, park for human approval, dispatch to the responsible agent, and seal the evidence pack.",
+    definition: {
+      trigger: "manual",
+      steps: [
+        {
+          id: "policy",
+          name: "Policy check",
+          type: "policy.check",
+          params: {
+            actionKind: "outbound.message",
+            actorId: "native-automation",
+            actorLabel: "Native Automation",
+            // Uses the finding summary supplied in the run input when present.
+            summary: "Review flagged outbound-message finding before dispatch",
+            shadowMode: true,
+          },
+        },
+        {
+          id: "approval",
+          name: "Wait for operator approval",
+          type: "approval.wait",
+          params: {
+            proposedActionKind: "outbound.message",
+            proposedActionSummary: "Operator review required for flagged finding",
+            decisionReason: "Policy evaluation routed finding to human review",
+          },
+        },
+        {
+          id: "dispatch",
+          name: "Dispatch remediation work",
+          type: "dispatch",
+          params: {
+            taskKind: "workflow.dispatch",
+            targetAgentId: EXAMPLE_AGENT_ID,
+            input: { source: "compliance-loop" },
+            waitForCompletion: true,
+          },
+        },
+        {
+          id: "evidence",
+          name: "Seal evidence pack",
+          type: "evidence.pack",
+          params: {
+            include: ["policy-decision", "approval", "dispatch"],
+          },
+        },
+      ],
+    },
+  },
+  {
+    id: "scanner-compliance-loop",
+    name: "Scanner compliance loop",
+    trigger: "Event",
+    event_kind: "scanner.finding",
+    description:
+      "Event-driven sibling of compliance-loop: fires automatically when a scanner finding is persisted, evaluates it through policy, parks for human approval, dispatches remediation, and seals the evidence pack.",
+    definition: {
+      trigger: "event",
+      steps: [
+        {
+          id: "policy",
+          name: "Policy check",
+          type: "policy.check",
+          params: {
+            actionKind: "scanner.finding.remediate",
+            actorId: "native-automation",
+            actorLabel: "Native Automation",
+            // Summary is derived from the finding title supplied in context.input.finding
+            summary: "Review scanner finding before remediation dispatch",
+            shadowMode: true,
+          },
+        },
+        {
+          id: "approval",
+          name: "Wait for operator approval",
+          type: "approval.wait",
+          params: {
+            proposedActionKind: "scanner.finding.remediate",
+            proposedActionSummary: "Operator review required for scanner finding remediation",
+            decisionReason: "Policy evaluation routed scanner finding to human review",
+          },
+        },
+        {
+          id: "dispatch",
+          name: "Dispatch remediation work",
+          type: "dispatch",
+          params: {
+            taskKind: "workflow.dispatch",
+            targetAgentId: EXAMPLE_AGENT_ID,
+            input: { source: "scanner-compliance-loop" },
+            waitForCompletion: true,
+          },
+        },
+        {
+          id: "evidence",
+          name: "Seal evidence pack",
+          type: "evidence.pack",
+          params: {
+            include: ["policy-decision", "approval", "dispatch"],
+          },
+        },
+      ],
+    },
+  },
 ];
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -620,6 +738,7 @@ function mapWorkflow(row: any): NativeAutomationWorkflow {
     companyId: row.company_id,
     name: row.name,
     trigger: row.trigger_kind,
+    eventKind: row.event_kind ?? null,
     status: row.status,
     description: row.description ?? null,
     definition: parseJson<NativeAutomationDefinition>(row.definition_json, {
@@ -793,6 +912,7 @@ function mapTemplate(row: any, installed: Set<string>): NativeAutomationTemplate
     id: row.id,
     name: row.name,
     trigger: toTemplateTrigger(row.trigger_kind),
+    event_kind: row.event_kind ?? undefined,
     status: installed.has(row.id) ? "installed" : "available",
     description: row.description,
     definition: parseJson<NativeAutomationDefinition>(row.definition_json, {
@@ -917,6 +1037,8 @@ export function createNativeAutomationWorkflow(input: {
   companyId?: string;
   name: string;
   trigger: string;
+  /** For event-triggered workflows, the event kind to subscribe to (e.g. "scanner.finding"). */
+  eventKind?: string | null;
   description?: string;
   definition: NativeAutomationDefinition;
   status?: "active" | "paused";
@@ -934,6 +1056,7 @@ export function createNativeAutomationWorkflow(input: {
     companyId,
     name: input.name,
     trigger: fromTemplateTrigger(input.trigger),
+    eventKind: input.eventKind ?? null,
     status: input.status ?? "paused",
     description: input.description ?? null,
     definitionJson: stringify(input.definition),
@@ -948,10 +1071,10 @@ export function createNativeAutomationWorkflow(input: {
   sqlite
     .prepare(
       `INSERT INTO native_automation_workflows
-       (id, tenant_id, company_id, name, trigger_kind, status, description, definition_json,
-        source_template_id, external_engine, external_workflow_id, external_sync_status,
-        external_sync_at, external_sync_error, created_at, updated_at)
-       VALUES (@id, @tenantId, @companyId, @name, @trigger, @status, @description,
+       (id, tenant_id, company_id, name, trigger_kind, event_kind, status, description,
+        definition_json, source_template_id, external_engine, external_workflow_id,
+        external_sync_status, external_sync_at, external_sync_error, created_at, updated_at)
+       VALUES (@id, @tenantId, @companyId, @name, @trigger, @eventKind, @status, @description,
         @definitionJson, @sourceTemplateId, @externalEngine, @externalWorkflowId,
         @externalSyncStatus, NULL, NULL, @createdAt, @updatedAt)`,
     )
@@ -1694,6 +1817,7 @@ export function installNativeAutomationTemplate(
     companyId,
     name: template.name,
     trigger: template.definition.trigger,
+    eventKind: template.event_kind ?? null,
     status: "active",
     description: template.description,
     definition: template.definition,
@@ -1820,6 +1944,15 @@ async function executeWorkflowRun(
   const context: Record<string, unknown> = options.context ?? { input };
   if (options.replayOfRunId) context["replayOfRunId"] = options.replayOfRunId;
 
+  // M1: verify the version's definition_json is consistent with its stored definition_hash —
+  // guards against out-of-band tampering of either column in the versions table.
+  // We always recompute from what we actually parsed (definition), not from a fresh workflow lookup.
+  const liveHash = definitionHash(definition);
+  if (version.definitionHash && liveHash !== version.definitionHash) {
+    updateRunSnapshot(sqlite, runId, "failed", "definition_hash_mismatch", "definition_hash_mismatch", new Date().toISOString(), null, null);
+    return getNativeAutomationRun(runId)!;
+  }
+
   if (options.startIndex > 0 && getRunStepRows(runId).length === 0) {
     for (let index = 0; index < Math.min(options.startIndex, definition.steps.length); index += 1) {
       const step = definition.steps[index];
@@ -1845,6 +1978,12 @@ async function executeWorkflowRun(
   }
 
   for (let index = options.startIndex; index < definition.steps.length; index += 1) {
+    // H1: re-read run status before executing each step so an external cancel/pause is honored
+    const liveStatusRow = sqlite.prepare("SELECT status FROM native_automation_runs WHERE id = ?").get(runId) as { status: string } | undefined;
+    if (liveStatusRow && (liveStatusRow.status === "cancelled" || liveStatusRow.status === "paused" || liveStatusRow.status === "failed")) {
+      return getNativeAutomationRun(runId)!;
+    }
+
     const step = definition.steps[index];
     if (!step) continue;
     const maxRetries = numericParam(step.params.maxRetries, 0);
@@ -1869,21 +2008,25 @@ async function executeWorkflowRun(
 
     if (shouldSkipStep(step, context)) {
       const finishedAt = new Date().toISOString();
-      updateRunStep(sqlite, runId, index, {
-        status: "skipped",
-        output: { reason: "condition_not_met" },
-        context,
-        error: null,
-        retryCount: 0,
-        finishedAt,
-      });
-      updateRunSnapshot(sqlite, runId, "running", "in_progress", null, null, null, null);
+      // M2: commit skip state atomically
+      sqlite.transaction(() => {
+        updateRunStep(sqlite, runId, index, {
+          status: "skipped",
+          output: { reason: "condition_not_met" },
+          context,
+          error: null,
+          retryCount: 0,
+          finishedAt,
+        });
+        updateRunSnapshot(sqlite, runId, "running", "in_progress", null, null, null, null);
+      })();
       continue;
     }
 
     let lastError: string | null = null;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       try {
+        // M2: async execution OUTSIDE the transaction (cannot await inside db.transaction)
         const output = await executeStep(sqlite, workflow, step, input, context, config, {
           runId,
           workflowVersionId: version.id,
@@ -1895,36 +2038,42 @@ async function executeWorkflowRun(
           const finishedAt = new Date().toISOString();
           const waitingApprovalId = asString(output["waitingForApprovalId"], null) || null;
           const waitingDispatchId = asString(output["waitingForDispatchId"], null) || null;
+          // M2: commit wait state atomically
+          sqlite.transaction(() => {
+            updateRunStep(sqlite, runId, index, {
+              status: waitStatus,
+              output,
+              context,
+              error: null,
+              retryCount: attempt,
+              finishedAt,
+            });
+            updateRunSnapshot(
+              sqlite,
+              runId,
+              waitStatus,
+              waitStatus,
+              null,
+              null,
+              waitingApprovalId,
+              waitingDispatchId,
+            );
+          })();
+          return getNativeAutomationRun(runId)!;
+        }
+
+        // M2: commit success state atomically
+        sqlite.transaction(() => {
           updateRunStep(sqlite, runId, index, {
-            status: waitStatus,
+            status: "succeeded",
             output,
             context,
             error: null,
             retryCount: attempt,
-            finishedAt,
+            finishedAt: new Date().toISOString(),
           });
-          updateRunSnapshot(
-            sqlite,
-            runId,
-            waitStatus,
-            waitStatus,
-            null,
-            null,
-            waitingApprovalId,
-            waitingDispatchId,
-          );
-          return getNativeAutomationRun(runId)!;
-        }
-
-        updateRunStep(sqlite, runId, index, {
-          status: "succeeded",
-          output,
-          context,
-          error: null,
-          retryCount: attempt,
-          finishedAt: new Date().toISOString(),
-        });
-        updateRunSnapshot(sqlite, runId, "running", "in_progress", null, null, null, null);
+          updateRunSnapshot(sqlite, runId, "running", "in_progress", null, null, null, null);
+        })();
         lastError = null;
         break;
       } catch (err) {
@@ -1940,14 +2089,17 @@ async function executeWorkflowRun(
           });
           continue;
         }
-        updateRunStep(sqlite, runId, index, {
-          status: "failed",
-          output: {},
-          context,
-          error: lastError,
-          retryCount: attempt,
-          finishedAt: new Date().toISOString(),
-        });
+        // M2: commit failure state atomically
+        sqlite.transaction(() => {
+          updateRunStep(sqlite, runId, index, {
+            status: "failed",
+            output: {},
+            context,
+            error: lastError,
+            retryCount: attempt,
+            finishedAt: new Date().toISOString(),
+          });
+        })();
       }
     }
 
@@ -1957,7 +2109,23 @@ async function executeWorkflowRun(
     }
   }
 
-  updateRunSnapshot(sqlite, runId, "succeeded", "completed", null, new Date().toISOString(), null, null);
+  // M3: atomic succeeded transition — run status and evidence pack status must
+  // agree. A crash between the two separate UPDATEs would leave a 'running'
+  // evidence pack under a 'succeeded' run, which is unrecoverable without a
+  // manual fix. Both are sync better-sqlite3 statements so this is safe.
+  sqlite.transaction(() => {
+    updateRunSnapshot(sqlite, runId, "succeeded", "completed", null, new Date().toISOString(), null, null);
+    // Backfill evidence pack status to match the terminal run status.
+    // Packs are created during the evidence.pack step while the run is still
+    // 'running'; update them now so the pack reflects the final outcome.
+    sqlite
+      .prepare(
+        `UPDATE native_automation_evidence_packs
+         SET status = 'succeeded'
+         WHERE run_id = ? AND status = 'running'`,
+      )
+      .run(runId);
+  })();
   return getNativeAutomationRun(runId)!;
 }
 
@@ -2165,7 +2333,56 @@ export async function resumeNativeAutomationRun(
       : getLatestWorkflowVersionRow(workflow.id)) ?? null;
   if (!version) throw new Error("workflow_version_not_found");
 
+  // H3: pre-claim guard — verify the resume will actually make progress before
+  // atomically claiming. Without this, claiming clears waiting_for_*_id and
+  // status transitions to 'running', but the post-claim early-returns fire
+  // (dispatch still in-flight, approval still pending), abandoning the run
+  // permanently because neither the reconciler nor onApprovalResolved /
+  // onDispatchResolved can find it by its old wait status.
+  if (run.status === "waiting_dispatch") {
+    const dispatchId = run.waitingForDispatchId;
+    const forcedStatus = asString(input.dispatchStatus, "");
+    const isForced = forcedStatus === "completed" || forcedStatus === "failed" || input.forceComplete === true;
+    if (!isForced) {
+      const dispatchRow = dispatchId
+        ? (sqlite.prepare("SELECT status FROM dispatch_queue WHERE id = ?").get(dispatchId) as { status: string } | undefined)
+        : undefined;
+      if (!dispatchRow || ["waiting", "queued", "dispatched"].includes(dispatchRow.status)) {
+        return getNativeAutomationRun(runId)!;
+      }
+    }
+  } else if (run.status === "waiting_approval") {
+    const approvalId = run.waitingForApprovalId;
+    const requested = asString(input.decision ?? input.approvalStatus, "");
+    const hasDecision =
+      requested === "approved" || requested === "approve" ||
+      requested === "rejected" || requested === "reject" ||
+      requested === "returned" || requested === "return";
+    if (!hasDecision) {
+      const approvalRow = approvalId
+        ? (sqlite.prepare("SELECT status FROM approval_queue WHERE id = ?").get(approvalId) as { status: string } | undefined)
+        : undefined;
+      if (!approvalRow || approvalRow.status === "pending") {
+        return getNativeAutomationRun(runId)!;
+      }
+    }
+  }
+
+  // H2: atomically claim the run before doing any work — prevents double-execution on concurrent resumes
   const now = new Date().toISOString();
+  const claimResult = sqlite
+    .prepare(
+      `UPDATE native_automation_runs
+       SET status = 'running', resumed_at = ?, waiting_for_approval_id = NULL,
+           waiting_for_dispatch_id = NULL, finished_at = NULL, terminal_reason = 'resumed'
+       WHERE id = ? AND status IN ('waiting_approval','waiting_dispatch','paused')`,
+    )
+    .run(now, runId);
+  if (claimResult.changes === 0) {
+    // Another concurrent resume already claimed this run
+    return getNativeAutomationRun(runId)!;
+  }
+
   if (run.status === "waiting_approval") {
     const approvalId = run.waitingForApprovalId;
     if (!approvalId) throw new Error("approval_wait_missing");
@@ -2202,21 +2419,58 @@ export async function resumeNativeAutomationRun(
           now,
           approvalId,
         );
+    } else if (requested === "returned" || requested === "return") {
+      sqlite
+        .prepare(
+          `UPDATE approval_queue
+           SET status = 'returned', reviewed_by = ?, reviewed_by_label = ?,
+               review_note = ?, reviewed_at = ?, updated_at = ?
+           WHERE id = ? AND status = 'pending'`,
+        )
+        .run(
+          asString(input.reviewedBy, "local-admin"),
+          asString(input.reviewedByLabel, "Local Admin"),
+          asString(input.reviewNote, "Returned for revision during workflow resume"),
+          now,
+          now,
+          approvalId,
+        );
     }
     const approval = sqlite.prepare("SELECT status FROM approval_queue WHERE id = ?").get(approvalId) as
       | { status: string }
       | undefined;
     if (!approval || approval.status === "pending") return getNativeAutomationRun(runId)!;
+    if (approval.status === "returned") {
+      // Park for revision — non-terminal. Keep waiting_for_approval_id so the audit
+      // trail links the returned approval. The run must be re-submitted explicitly.
+      const reviewNote = asString(input.reviewNote, "");
+      updateRunStep(sqlite, runId, run.currentStepIndex, {
+        status: "waiting_approval",
+        output: {
+          approvalQueueId: approvalId,
+          status: "returned",
+          revision: true,
+          reviewNote: reviewNote || null,
+        },
+        context: contextFromRecordedSteps(run.input, run.steps),
+        error: null,
+        retryCount: 0,
+        finishedAt: null,
+      });
+      updateRunSnapshot(sqlite, runId, "waiting_revision", "returned_for_revision", null, null, approvalId, null);
+      return getNativeAutomationRun(runId)!;
+    }
     if (approval.status !== "approved") {
+      const reason = "approval_denied";
       updateRunStep(sqlite, runId, run.currentStepIndex, {
         status: "failed",
         output: { approvalQueueId: approvalId, status: approval.status },
         context: contextFromRecordedSteps(run.input, run.steps),
-        error: "approval_denied",
+        error: reason,
         retryCount: 0,
         finishedAt: now,
       });
-      updateRunSnapshot(sqlite, runId, "failed", "approval_denied", "approval_denied", now, null, null);
+      updateRunSnapshot(sqlite, runId, "failed", reason, reason, now, null, null);
       return getNativeAutomationRun(runId)!;
     }
     updateRunStep(sqlite, runId, run.currentStepIndex, {
@@ -2277,14 +2531,6 @@ export async function resumeNativeAutomationRun(
     });
   }
 
-  sqlite
-    .prepare(
-      `UPDATE native_automation_runs
-       SET status = 'running', resumed_at = ?, waiting_for_approval_id = NULL,
-           waiting_for_dispatch_id = NULL, finished_at = NULL, terminal_reason = 'resumed'
-       WHERE id = ?`,
-    )
-    .run(now, runId);
   const refreshed = getNativeAutomationRun(runId)!;
   const context = contextFromRecordedSteps(refreshed.input, refreshed.steps);
   return executeWorkflowRun(sqlite, workflow, mapVersion(version), runId, refreshed.input, config, {
@@ -2292,6 +2538,84 @@ export async function resumeNativeAutomationRun(
     dryRun: refreshed.dryRun,
     context,
   });
+}
+
+/**
+ * Re-submit a run that is parked in `waiting_revision` (returned for revision by a reviewer).
+ *
+ * Atomically claims the run (CAS on `waiting_revision`) to prevent double-resubmit.
+ * Merges the optional `input` patch into the run's stored input, enqueues a fresh
+ * `pending` approval_queue entry for the same `approval.wait` step, and parks the
+ * run at `waiting_approval` on the new approval id.
+ *
+ * If the run is not in `waiting_revision`, returns it unchanged (no side-effects).
+ */
+export async function resubmitNativeAutomationRun(
+  runId: string,
+  inputPatch: Record<string, unknown> | undefined,
+  config: Config,
+): Promise<NativeAutomationRun> {
+  const sqlite = getSqlite();
+  const runRow = sqlite.prepare("SELECT * FROM native_automation_runs WHERE id = ?").get(runId);
+  if (!runRow) throw new Error("run_not_found");
+  const run = mapRun(runRow);
+  if (run.status !== "waiting_revision") return run;
+
+  // Atomically claim — prevents concurrent double-resubmit.
+  const now = new Date().toISOString();
+  const claim = sqlite
+    .prepare(
+      `UPDATE native_automation_runs
+       SET status = 'running', resumed_at = ?, terminal_reason = 'resubmitting'
+       WHERE id = ? AND status = 'waiting_revision'`,
+    )
+    .run(now, runId);
+  if (claim.changes === 0) {
+    // Another concurrent resubmit already claimed this run.
+    return getNativeAutomationRun(runId)!;
+  }
+
+  // Merge input patch (shallow) into the run's stored input and persist it.
+  const mergedInput: Record<string, unknown> = { ...run.input, ...(inputPatch ?? {}) };
+  sqlite
+    .prepare("UPDATE native_automation_runs SET input_json = ? WHERE id = ?")
+    .run(stringify(mergedInput), runId);
+
+  // Load the workflow so we can find the step definition for the approval.wait step.
+  const workflowRow = sqlite.prepare("SELECT * FROM native_automation_workflows WHERE id = ?").get(run.workflowId);
+  if (!workflowRow) throw new Error("workflow_not_found");
+  const workflow = ensureMappedWorkflowVersion(sqlite, workflowRow);
+  const version =
+    (run.workflowVersionId
+      ? sqlite.prepare("SELECT * FROM native_automation_workflow_versions WHERE id = ?").get(run.workflowVersionId)
+      : getLatestWorkflowVersionRow(workflow.id)) ?? null;
+  if (!version) throw new Error("workflow_version_not_found");
+  const definition = mapVersion(version).definition.steps.length > 0
+    ? mapVersion(version).definition
+    : workflow.definition;
+  const step = definition.steps[run.currentStepIndex];
+  if (!step || step.type !== "approval.wait") throw new Error("resubmit_step_not_approval_wait");
+
+  // Derive revision count from the number of 'returned' outcomes in step history.
+  const revisionCount = run.steps.filter(
+    (s) => s.stepIndex === run.currentStepIndex &&
+      typeof s.output?.status === "string" && s.output.status === "returned",
+  ).length + 1;
+
+  // Enqueue a fresh pending approval for the same step.
+  const queued = executeApprovalEnqueue(sqlite, workflow, step, {
+    runId,
+    stepId: step.id,
+    waitForDecision: true,
+    revisionCount,
+  });
+  const newApprovalId = asString(queued.approvalQueueId, null);
+  if (!newApprovalId) throw new Error("resubmit_approval_enqueue_failed");
+
+  // Park the run at waiting_approval on the new approval id.
+  updateRunSnapshot(sqlite, runId, "waiting_approval", "waiting_approval", null, null, newApprovalId, null);
+
+  return getNativeAutomationRun(runId)!;
 }
 
 export function cancelNativeAutomationRun(runId: string, reason = "cancelled_by_operator"): NativeAutomationRun {
@@ -2432,11 +2756,18 @@ export function createNativeAutomationEvidencePack(runId: string): NativeAutomat
     dispatches: run.steps
       .map((step) => step.output.taskId)
       .filter((value): value is string => typeof value === "string"),
+    // Surface simulated flags from dispatch step outputs so the pack makes
+    // clear when the run was driven by the simulated adapter rather than a
+    // real agent. simulated:true is set by the simulated adapter at runtime.
+    simulatedSteps: run.steps
+      .filter((step) => step.output.simulated === true)
+      .map((step) => step.id),
     steps: run.steps.map((step) => ({
       id: step.id,
       name: step.name,
       type: step.type,
       status: step.status,
+      simulated: step.output.simulated === true ? true : undefined,
       error: step.error,
     })),
   };

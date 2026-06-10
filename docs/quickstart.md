@@ -37,7 +37,7 @@ AgentWorks OS installer
 ✓ Pulling images...
 ✓ Generating tenant ID: ...
 ✓ Starting services...
-✓ Admin UI: http://localhost:7710
+✓ Admin UI: http://localhost:3000
 ✓ Admin password: Aw-XXXXXXXXXXXX
 ```
 
@@ -48,7 +48,7 @@ If the script completes without error, the stack is running.
 ## Step 2 — Open the Admin UI
 
 ```
-http://localhost:7710
+http://localhost:3000/mission-control
 ```
 
 Log in with:
@@ -72,6 +72,7 @@ Expected:
 | Service | Status | Port |
 |---|---|---|
 | `agentos-d` | Up | 7710 |
+| `admin-ui` | Up | 3000 |
 | `scanner-worker` | Up | 3101 |
 | `n8n` | Up | 5678 |
 

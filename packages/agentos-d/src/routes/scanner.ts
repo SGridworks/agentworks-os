@@ -9,15 +9,75 @@
  * PATCH  /api/scanner/findings/:id - update finding status (resolve/reopen)
  */
 
-import { Router } from "express";
+import { Router, type Response as ExpressResponse } from "express";
 import { z } from "zod";
-import { getDb } from "../db/index.js";
+import pino from "pino";
+import { getDb, getSqlite } from "../db/index.js";
 import { scannerFindings } from "../db/schema.js";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { Config } from "../config.js";
+import { fireWorkflowEvent } from "../services/workflow-events.js";
+import { assertTenantAllowed, TenantAccessError } from "../auth/tenant-access.js";
 
 type Severity = "critical" | "high" | "medium" | "low" | "info";
+
+const log = pino({ name: "scanner-router" });
+
+function denyTenant(res: ExpressResponse, err: unknown): boolean {
+  if (err instanceof TenantAccessError) {
+    res.status(403).json({ error: "forbidden", message: err.message });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Persist a scan/job id → tenant ownership record at submit time.
+ * Uses INSERT OR IGNORE so duplicate submits are safe.
+ */
+function recordJobOwnership(
+  jobId: string,
+  tenantId: string,
+  companyId: string | null,
+): void {
+  try {
+    const sqlite = getSqlite();
+    sqlite
+      .prepare(
+        `INSERT OR IGNORE INTO scanner_jobs (id, tenant_id, company_id, created_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(jobId, tenantId, companyId ?? null, new Date().toISOString());
+  } catch (err) {
+    log.warn({ jobId, tenantId, err }, "scanner: failed to record job ownership — ownership row skipped");
+  }
+}
+
+/**
+ * Look up the stored tenant for a scan/job id.
+ * Returns null when the job has no ownership record (pre-migration or out-of-band submit).
+ */
+function lookupJobTenant(jobId: string): string | null {
+  try {
+    const sqlite = getSqlite();
+    const row = sqlite
+      .prepare("SELECT tenant_id FROM scanner_jobs WHERE id = ?")
+      .get(jobId) as { tenant_id: string } | undefined;
+    return row?.tenant_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Severities that auto-trigger the compliance loop. Configurable via env var;
+// defaults to "high,critical". Below-threshold findings persist but do not fire.
+const AUTOLOOP_SEVERITIES: Set<string> = new Set(
+  (process.env.AGENTOS_SCANNER_AUTOLOOP_SEVERITIES ?? "high,critical")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
+);
 
 export function createScannerRouter(config: Config): Router {
   const router = Router();
@@ -137,6 +197,17 @@ export function createScannerRouter(config: Config): Router {
       return;
     }
 
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    try {
+      assertTenantAllowed(req.principal, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
+
     const body = parsed.data;
     const batchId = body.batchId ?? randomUUID();
 
@@ -172,9 +243,20 @@ export function createScannerRouter(config: Config): Router {
     }
 
     const result = (await upstreamRes.json()) as Record<string, any>;
+    const confirmedBatchId: string = result.batch_id ?? batchId;
+    // Persist ownership for the batch id and any individual scan ids in results.
+    recordJobOwnership(confirmedBatchId, body.tenantId, null);
+    if (Array.isArray(result.results)) {
+      for (const r of result.results as Array<Record<string, any>>) {
+        const jobId: string | undefined = r.scan_id ?? r.scanId ?? r.job_id ?? r.jobId;
+        if (typeof jobId === "string") {
+          recordJobOwnership(jobId, body.tenantId, null);
+        }
+      }
+    }
     // Normalize snake_case from scanner-worker → camelCase for agentos-d consumers
     res.status(upstreamRes.status).json({
-      batchId: result.batch_id ?? batchId,
+      batchId: confirmedBatchId,
       status: result.status,
       targetCount: result.targetCount ?? body.targets.length,
       estimatedSeconds: result.estimatedSeconds,
@@ -192,6 +274,17 @@ export function createScannerRouter(config: Config): Router {
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    try {
+      assertTenantAllowed(req.principal, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
 
     const body = parsed.data;
@@ -267,9 +360,12 @@ export function createScannerRouter(config: Config): Router {
     }
 
     const scanResult = (await upstreamRes.json()) as Record<string, any>;
+    const confirmedScanId: string = scanResult.scan_id ?? scanId;
+    // Persist ownership so job-level routes can enforce it against the stored tenant.
+    recordJobOwnership(confirmedScanId, body.tenantId, null);
     // RFC 003: scanResult may have status "complete", "queued", or "error"
     res.status(202).json({
-      scanId: scanResult.scan_id ?? scanId,
+      scanId: confirmedScanId,
       status: scanResult.status,
       submittedAt: new Date().toISOString(),
     });
@@ -281,7 +377,32 @@ export function createScannerRouter(config: Config): Router {
   // -------------------------------------------------------------------------
 
   router.get("/jobs/:id", async (req, res) => {
-    const tenantId = typeof req.query.tenantId === "string" ? req.query.tenantId : "unknown";
+    const tenantIdParse = z.string().uuid().safeParse(req.query.tenantId);
+    if (!tenantIdParse.success) {
+      res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
+      return;
+    }
+    const claimedTenantId = tenantIdParse.data;
+
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+
+    // Enforce against the STORED tenant if an ownership record exists;
+    // fall back to the claimed tenantId for pre-migration / out-of-band jobs.
+    const storedTenant = lookupJobTenant(req.params.id);
+    const tenantId = storedTenant ?? claimedTenantId;
+    if (!storedTenant) {
+      log.debug({ jobId: req.params.id }, "scanner: no ownership record for job — using claimed tenantId");
+    }
+    try {
+      assertTenantAllowed(req.principal, tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
+
     let upstreamRes: Response;
     try {
       upstreamRes = await fetch(`${SCANNER_WORKER_BASE}/scan/${req.params.id}`, {
@@ -334,12 +455,13 @@ export function createScannerRouter(config: Config): Router {
         )
         .get();
       if (existing) continue;
+      const severity = (finding.severity?.toLowerCase() ?? "info") as Severity;
       db.insert(scannerFindings).values({
         id: findingId,
         tenantId: tenantId,
         originId: finding.id ?? finding.rule_id ?? findingId,
         originKind: "scanner_finding",
-        severity: (finding.severity?.toLowerCase() ?? "info") as Severity,
+        severity,
         ruleId: finding.rule_id ?? null,
         title: finding.title ?? "Untitled finding",
         description: finding.description ?? "",
@@ -352,6 +474,28 @@ export function createScannerRouter(config: Config): Router {
         createdAt: now,
         updatedAt: now,
       }).run();
+
+      // Fire the compliance-loop event for high-signal findings only.
+      // Below-threshold findings persist but do not auto-trigger.
+      if (AUTOLOOP_SEVERITIES.has(severity)) {
+        fireWorkflowEvent(
+          "scanner.finding",
+          {
+            finding: {
+              id: findingId,
+              tenantId,
+              severity,
+              title: finding.title ?? "Untitled finding",
+              ruleId: finding.rule_id ?? null,
+              description: finding.description ?? "",
+            },
+          },
+          { tenantId },
+          config,
+        ).catch((err: unknown) => {
+          log.error({ findingId, tenantId, err }, "scanner: fireWorkflowEvent failed");
+        });
+      }
     }
     }
 
@@ -365,6 +509,28 @@ export function createScannerRouter(config: Config): Router {
   });
 
   router.post("/jobs/:id/cancel", async (req, res) => {
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    const rawTenantId = req.query.tenantId;
+    const tenantIdParse = z.string().uuid().safeParse(rawTenantId);
+    if (!tenantIdParse.success) {
+      res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
+      return;
+    }
+    const storedTenant = lookupJobTenant(req.params.id);
+    const tenantId = storedTenant ?? tenantIdParse.data;
+    if (!storedTenant) {
+      log.debug({ jobId: req.params.id }, "scanner: no ownership record for job — using claimed tenantId");
+    }
+    try {
+      assertTenantAllowed(req.principal, tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
+
     let upstreamRes: Response;
     try {
       upstreamRes = await fetch(`${SCANNER_WORKER_BASE}/scan/${req.params.id}/cancel`, {
@@ -397,6 +563,28 @@ export function createScannerRouter(config: Config): Router {
   // -------------------------------------------------------------------------
 
   router.get("/jobs/:id/sarif", async (req, res) => {
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    const rawTenantId = req.query.tenantId;
+    const tenantIdParse = z.string().uuid().safeParse(rawTenantId);
+    if (!tenantIdParse.success) {
+      res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
+      return;
+    }
+    const storedTenant = lookupJobTenant(req.params.id);
+    const tenantId = storedTenant ?? tenantIdParse.data;
+    if (!storedTenant) {
+      log.debug({ jobId: req.params.id }, "scanner: no ownership record for job — using claimed tenantId");
+    }
+    try {
+      assertTenantAllowed(req.principal, tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
+
     let upstreamRes: Response;
     try {
       upstreamRes = await fetch(`${SCANNER_WORKER_BASE}/scan/${req.params.id}/sarif`, {
@@ -436,6 +624,28 @@ export function createScannerRouter(config: Config): Router {
   // -------------------------------------------------------------------------
 
   router.get("/jobs/:id/json", async (req, res) => {
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    const rawTenantId = req.query.tenantId;
+    const tenantIdParse = z.string().uuid().safeParse(rawTenantId);
+    if (!tenantIdParse.success) {
+      res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
+      return;
+    }
+    const storedTenant = lookupJobTenant(req.params.id);
+    const tenantId = storedTenant ?? tenantIdParse.data;
+    if (!storedTenant) {
+      log.debug({ jobId: req.params.id }, "scanner: no ownership record for job — using claimed tenantId");
+    }
+    try {
+      assertTenantAllowed(req.principal, tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
+
     let upstreamRes: Response;
     try {
       upstreamRes = await fetch(`${SCANNER_WORKER_BASE}/scan/${req.params.id}/json`, {
@@ -482,6 +692,17 @@ export function createScannerRouter(config: Config): Router {
       return;
     }
 
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    try {
+      assertTenantAllowed(req.principal, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
+
     const now = new Date().toISOString();
     const row = {
       id: randomUUID(),
@@ -506,11 +727,39 @@ export function createScannerRouter(config: Config): Router {
   });
 
   router.get("/findings", (req, res) => {
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+
+    const { tenantId: rawTenantId, severity: sevRaw, status, limit = "100", offset = "0" } = req.query;
+
+    // Scoped principals must supply tenantId — omitting it would expose all tenants.
+    let tenantId: string | undefined;
+    if (rawTenantId === undefined) {
+      if (req.principal.tenants !== "*") {
+        res.status(403).json({ error: "tenant_required" });
+        return;
+      }
+    } else {
+      const tenantIdParse = z.string().uuid().safeParse(rawTenantId);
+      if (!tenantIdParse.success) {
+        res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
+        return;
+      }
+      tenantId = tenantIdParse.data;
+      try {
+        assertTenantAllowed(req.principal, tenantId);
+      } catch (err) {
+        if (denyTenant(res, err)) return;
+        throw err;
+      }
+    }
+
     const db = getDb();
-    const { tenantId, severity: sevRaw, status, limit = "100", offset = "0" } = req.query;
 
     const conditions = [];
-    if (tenantId) conditions.push(eq(scannerFindings.tenantId, tenantId as string));
+    if (tenantId) conditions.push(eq(scannerFindings.tenantId, tenantId));
     if (sevRaw) {
       const sev = SeveritySchema.safeParse(sevRaw);
       if (sev.success) conditions.push(eq(scannerFindings.severity, sev.data));
@@ -542,6 +791,11 @@ export function createScannerRouter(config: Config): Router {
   // -------------------------------------------------------------------------
 
   router.patch("/findings/:id", (req, res) => {
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+
     const parsed = UpdateFindingSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
@@ -560,6 +814,13 @@ export function createScannerRouter(config: Config): Router {
     if (!existing) {
       res.status(404).json({ error: "not_found" });
       return;
+    }
+
+    try {
+      assertTenantAllowed(req.principal, existing.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
 
     const { status, resolvedBy, resolutionNote } = parsed.data;

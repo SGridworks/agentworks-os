@@ -52,7 +52,6 @@ const LEGACY_LOCAL_STATE_DIR = `.${"paper"}${"clip"}/`;
 
 const ALWAYS_BLOCK_WRITE = [
   ".git/",
-  ".gstack/",
   LEGACY_LOCAL_STATE_DIR,
   ".agentworks/",
   "node_modules/",

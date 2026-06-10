@@ -239,7 +239,7 @@ curl http://localhost:7710/api/health
 Open:
 
 ```text
-http://localhost:7710
+http://localhost:3000/mission-control
 ```
 
 Log in with:

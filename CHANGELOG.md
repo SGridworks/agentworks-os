@@ -4,6 +4,20 @@ All notable changes to AgentWorks OS are documented here.
 
 AgentWorks OS uses SemVer. Until `1.0.0`, minor versions may include breaking changes; those changes must be called out in release notes.
 
+## [Unreleased]
+
+### Added
+
+- Autonomous compliance loop: approval and dispatch auto-resume so a parked run advances to a sealed evidence pack without further manual steps after the operator approves. A reconciler re-wakes any waiting run whose linked approval or dispatch resolved while the daemon was down, making the loop restart-safe.
+- Scanner-driven compliance loop: the generic workflow event bus (`workflow-events.ts`) lets any producer fire a named event that starts matching active event-triggered workflows. Scanner findings at or above the configured severity threshold now fire a `scanner.finding` event, driving the end-to-end `policy → approval → dispatch → evidence` chain automatically when the `scanner-compliance-loop` template is installed and active.
+- Four additional event producers: `dispatch.failed` (inline from dispatch consumer), `provider.degraded` (inline from provider health), `approval.sla_breach` and `issue.stuck` (level-triggered sweeps in `event-producer-sweeps.ts` with `INSERT OR IGNORE` dedup).
+- Simulated dispatch adapter (`AWOS_ADAPTER=simulated`): deterministic, role-aware output with `simulated: true` on every result; no external credentials required. Designed for demos and end-to-end tests.
+- Demo seed: `POST /api/admin/demo/seed`, `agentos seed-demo` CLI, and the **Load demo** button in the admin UI (empty-tenant state) all create a synthetic demo tenant with two agents, a sample scanner finding, and the `compliance-loop` workflow parked at `waiting_approval`. Idempotent.
+- Active event subscriptions panel in the Automations view shows every active event-triggered workflow and its subscribed event kind.
+- Return for revision: a reviewer's `return_to_author` decision parks the run in a non-terminal `waiting_revision` state (instead of failing); `POST /api/admin/automations/runs/:id/resubmit` and a **Resubmit** control on the Active Work page re-enter the approval gate with an optionally-revised input.
+- New env vars: `AGENTOS_SCANNER_AUTOLOOP_SEVERITIES` (default `high,critical`), `AGENTOS_APPROVAL_SLA_HOURS` (default `24`), `AGENTOS_STUCK_ISSUE_THRESHOLD_HOURS` (default `4`), `AGENTOS_EVENT_SWEEP_MS` (default `900000`), `AGENTOS_LOOP_RECONCILE_MS` (default `60000`).
+- [Compliance Loop guide](docs/compliance-loop.md) — operator and contributor documentation.
+
 ## [0.3.0-alpha.0] - 2026-06-07
 
 ### Added

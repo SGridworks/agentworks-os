@@ -44,6 +44,11 @@ async function setupApp() {
   const { createAdminRouter } = await import("./admin.js");
   app = express();
   app.use(express.json());
+  // Inject an owner principal so tenant-access guards pass in this bare-express setup.
+  app.use("/api", (req, _res, next) => {
+    req.principal = { kind: "owner", id: "owner", scopes: new Set(["admin", "memory:read", "memory:write", "policy:check", "dispatch:write", "approvals:decide", "operator-memory:read"] as const), tenants: "*" };
+    next();
+  });
   app.use("/api", createExecutionRouter({} as never));
   app.use("/api/admin", createAdminRouter({} as never));
 }

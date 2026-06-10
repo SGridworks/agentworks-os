@@ -17,8 +17,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from scanner_worker.embed import get_service as get_embed_service
-from scanner_worker.rerank import get_service as get_rerank_service
-
 from scanner_worker.models import (
     BatchCompleteResponse,
     BatchQueuedResponse,
@@ -30,6 +28,7 @@ from scanner_worker.models import (
     WatchDirectoryConfig,
     WatchEvent,
 )
+from scanner_worker.rerank import get_service as get_rerank_service
 from scanner_worker.security.formatters.json_fmt import format_json
 from scanner_worker.security.formatters.sarif import format_sarif
 from scanner_worker.service import ScannerWorker
@@ -106,13 +105,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 def _build_watch_configs() -> list[WatchDirectoryConfig]:
-    """Build watch configs from WATCH_DIRS env var or defaults."""
+    """Build watch configs from SCANNER_WATCH_DIRS or WATCH_DIRS env var.
+
+    Accepts comma-separated or colon-separated directory paths.
+    An optional trailing colon-separated integer sets the poll interval in
+    seconds (e.g. ``/config/claude:/config/cursor:60``).
+    """
     import os
 
-    raw = os.environ.get("WATCH_DIRS", "")
+    raw = os.environ.get("SCANNER_WATCH_DIRS") or os.environ.get("WATCH_DIRS", "")
     if not raw:
         return []
 
+    # Detect trailing poll-interval suffix: last colon-delimited token is
+    # an integer (only applies to colon-separated form).
     parts = raw.rsplit(":", 1)
     if len(parts) == 2 and parts[1].isdigit():
         raw_paths = parts[0]
@@ -121,10 +127,10 @@ def _build_watch_configs() -> list[WatchDirectoryConfig]:
         raw_paths = raw
         default_interval = 30
 
+    # Accept both comma-separated and colon-separated paths.
+    separator = "," if "," in raw_paths else ":"
     configs: list[WatchDirectoryConfig] = []
-    for segment in raw_paths.split(":"):
-        if not segment:
-            continue
+    for segment in raw_paths.split(separator):
         path = segment.strip()
         if path and Path(path).exists():
             configs.append(
@@ -690,7 +696,7 @@ async def rerank(req: RerankRequest) -> RerankResponse:
 def main() -> None:
     """Run the scanner-worker via uvicorn on the port configured by SCANNER_WORKER_PORT env var."""
     import os
-    port = int(os.environ.get("SCANNER_WORKER_PORT", "3101"));
+    port = int(os.environ.get("SCANNER_WORKER_PORT", "3101"))
     uvicorn.run(
         "scanner_worker.app:app",
         host="0.0.0.0",

@@ -26,6 +26,7 @@
 
 import type { Config } from "../config.js";
 import { Router, type Request, type Response } from "express";
+import { assertTenantAllowed, TenantAccessError } from "../auth/tenant-access.js";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { join } from "node:path";
@@ -45,6 +46,7 @@ import { aggregateTrust } from "../services/trust-aggregator.js";
 import { getCached, setCached } from "../services/trust-cache.js";
 import { issuePreviewRouter } from "./admin/issue-preview.js";
 import { isPaused, pause, resume } from "../pause-service.js";
+import { resolveAdminToken, isLoopback, isValidToken } from "../middleware/require-auth.js";
 import {
   checkN8nBridge,
   cancelNativeAutomationRun,
@@ -67,6 +69,7 @@ import {
   listNativeAutomationWorkflows,
   nativeAutomationRuntime,
   replayNativeAutomationRun,
+  resubmitNativeAutomationRun,
   resumeNativeAutomationRun,
   runNativeAutomationWorkflow,
   rollbackNativeAutomationWorkflow,
@@ -109,6 +112,10 @@ const AutomationRunBody = z.object({
 
 const AutomationRunResumeBody = z.object({
   input: z.record(z.unknown()).default({}),
+});
+
+const AutomationRunResubmitBody = z.object({
+  input: z.record(z.unknown()).optional(),
 });
 
 const AutomationRunReplayBody = z.object({
@@ -364,27 +371,14 @@ function getContentRisks(decisionReason: string): { score: number; reasons: stri
   return { score, reasons };
 }
 
-function isLoopbackRequest(req: Request): boolean {
-  const remote = req.socket.remoteAddress ?? "";
-  return remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
-}
-
-function adminToken(config: Config): string {
-  return (
-    process.env.AGENTOS_ADMIN_TOKEN ??
-    process.env.AGENTOS_API_KEY ??
-    config.legacyBridgeApiKey ??
-    "local-trusted"
-  );
-}
-
-function requireLocalAdmin(req: Request, res: Response, config: Config): boolean {
-  if (!isLoopbackRequest(req)) {
+export function requireLocalAdmin(req: Request, res: Response, config: Config): boolean {
+  if (!isLoopback(req)) {
     res.status(403).json({ error: "loopback_required" });
     return false;
   }
   const auth = req.header("authorization") ?? "";
-  if (auth !== `Bearer ${adminToken(config)}`) {
+  const prefix = "Bearer ";
+  if (!auth.startsWith(prefix) || !isValidToken(auth.slice(prefix.length), resolveAdminToken(config))) {
     res.status(401).json({ error: "unauthorized" });
     return false;
   }
@@ -421,6 +415,14 @@ function auditSubstrateControl(input: {
       loggedAt: now,
     })
     .run();
+}
+
+function denyTenant(res: Response, err: unknown): boolean {
+  if (err instanceof TenantAccessError) {
+    res.status(403).json({ error: "forbidden", message: err.message });
+    return true;
+  }
+  return false;
 }
 
 export function createAdminRouter(config: Config): Router {
@@ -525,7 +527,13 @@ export function createAdminRouter(config: Config): Router {
 
   // GET /api/admin/scope-violations — list violations with optional filters
   router.get("/scope-violations", async (req, res) => {
-    const { agentId, since, limit = "100" } = req.query as Record<string, string>;
+    const { agentId, tenantId: svTenantId, since, limit = "100" } = req.query as Record<string, string>;
+    if (!req.principal) { res.status(401).json({ error: "unauthorized" }); return; }
+    if (svTenantId) {
+      try { assertTenantAllowed(req.principal, svTenantId); } catch (err) { if (denyTenant(res, err)) return; throw err; }
+    } else if (req.principal.tenants !== "*") {
+      res.status(403).json({ error: "tenant_required" }); return;
+    }
     const db = getDb();
 
     const conditions = [];
@@ -551,7 +559,13 @@ export function createAdminRouter(config: Config): Router {
 
   // GET /api/admin/scope-violations/summary — aggregated per-agent summary
   router.get("/scope-violations/summary", async (req, res) => {
-    const { agentId } = req.query as Record<string, string>;
+    const { agentId, tenantId: svsTenantId } = req.query as Record<string, string>;
+    if (!req.principal) { res.status(401).json({ error: "unauthorized" }); return; }
+    if (svsTenantId) {
+      try { assertTenantAllowed(req.principal, svsTenantId); } catch (err) { if (denyTenant(res, err)) return; throw err; }
+    } else if (req.principal.tenants !== "*") {
+      res.status(403).json({ error: "tenant_required" }); return;
+    }
     const db = getDb();
 
     // Count total reverts per agent (or all)
@@ -607,10 +621,16 @@ export function createAdminRouter(config: Config): Router {
    * Joins action_log with policy_decisions to surface outcome.
    */
   router.get("/activity-log", (req, res) => {
+    if (!req.principal) { res.status(401).json({ error: "unauthorized" }); return; }
     const sqlite = getDb().$client;
     const limit = Math.min(Number(req.query.limit ?? 100) || 100, 1000);
     const offset = Math.max(Number(req.query.offset ?? 0) || 0, 0);
     const tenantId = typeof req.query.tenantId === "string" ? req.query.tenantId : null;
+    if (tenantId) {
+      try { assertTenantAllowed(req.principal, tenantId); } catch (err) { if (denyTenant(res, err)) return; throw err; }
+    } else if (req.principal.tenants !== "*") {
+      res.status(403).json({ error: "tenant_required" }); return;
+    }
     const agentId = typeof req.query.agentId === "string" ? req.query.agentId : null;
     const actionKind = typeof req.query.actionKind === "string" ? req.query.actionKind : null;
     const decision = typeof req.query.decision === "string" ? req.query.decision : null;
@@ -1016,6 +1036,7 @@ export function createAdminRouter(config: Config): Router {
    * Computed from triage queue + policy decisions + dispatch queue + idle-agent state
    */
   router.get("/autopilot", (req, res) => {
+    if (!req.principal) { res.status(401).json({ error: "unauthorized" }); return; }
     try {
       const { tenantId } = req.query as Record<string, string>;
 
@@ -1023,6 +1044,8 @@ export function createAdminRouter(config: Config): Router {
         res.status(400).json({ error: "tenantId required" });
         return;
       }
+
+      try { assertTenantAllowed(req.principal, tenantId); } catch (err) { if (denyTenant(res, err)) return; throw err; }
 
       const sqlite = getDb().$client;
 
@@ -1230,12 +1253,15 @@ export function createAdminRouter(config: Config): Router {
    *   - depth: optional max depth (default: 3, max: 5)
    */
   router.get("/mission-map", (req, res) => {
+    if (!req.principal) { res.status(401).json({ error: "unauthorized" }); return; }
     const { tenantId, root, depth } = req.query as Record<string, string>;
 
     if (!tenantId) {
       res.status(400).json({ error: "tenantId required" });
       return;
     }
+
+    try { assertTenantAllowed(req.principal, tenantId); } catch (err) { if (denyTenant(res, err)) return; throw err; }
 
     try {
       const depthNum = depth ? parseInt(depth, 10) : 3;
@@ -1262,12 +1288,15 @@ export function createAdminRouter(config: Config): Router {
    *   - generatedAt: optional ISO timestamp (defaults to now)
    */
   router.get("/morning-brief", async (req, res) => {
+    if (!req.principal) { res.status(401).json({ error: "unauthorized" }); return; }
     const { tenantId, since, generatedAt } = req.query as Record<string, string>;
 
     if (!tenantId) {
       res.status(400).json({ error: "tenantId required" });
       return;
     }
+
+    try { assertTenantAllowed(req.principal, tenantId); } catch (err) { if (denyTenant(res, err)) return; throw err; }
 
     try {
       // Default to 12 hours look-back if not specified
@@ -1513,6 +1542,7 @@ export function createAdminRouter(config: Config): Router {
         active: workflow.status === "active",
         status: workflow.status,
         trigger: workflow.trigger,
+        eventKind: workflow.eventKind ?? null,
         description: workflow.description,
         definition: workflow.definition,
         updatedAt: workflow.updatedAt,
@@ -1545,10 +1575,14 @@ export function createAdminRouter(config: Config): Router {
   });
 
   router.post("/automations/templates", (req, res) => {
+    if (!req.principal) { res.status(401).json({ error: "unauthorized" }); return; }
     const parsed = AutomationTemplateCreateBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    if (parsed.data.tenantId) {
+      try { assertTenantAllowed(req.principal, parsed.data.tenantId); } catch (err) { if (denyTenant(res, err)) return; throw err; }
     }
     const opts: Parameters<typeof createNativeAutomationTemplate>[0] = {
       name: parsed.data.name,
@@ -1562,10 +1596,14 @@ export function createAdminRouter(config: Config): Router {
   });
 
   router.post("/automations/templates/:templateId/install", (req, res) => {
+    if (!req.principal) { res.status(401).json({ error: "unauthorized" }); return; }
     const parsed = AutomationInstallBody.safeParse(req.body ?? {});
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    if (parsed.data.tenantId) {
+      try { assertTenantAllowed(req.principal, parsed.data.tenantId); } catch (err) { if (denyTenant(res, err)) return; throw err; }
     }
     try {
       const installOpts: { tenantId?: string; companyId?: string } = {};
@@ -1580,10 +1618,14 @@ export function createAdminRouter(config: Config): Router {
   });
 
   router.post("/automations/workflows", (req, res) => {
+    if (!req.principal) { res.status(401).json({ error: "unauthorized" }); return; }
     const parsed = AutomationWorkflowCreateBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    if (parsed.data.tenantId) {
+      try { assertTenantAllowed(req.principal, parsed.data.tenantId); } catch (err) { if (denyTenant(res, err)) return; throw err; }
     }
     const opts: Parameters<typeof createNativeAutomationWorkflow>[0] = {
       name: parsed.data.name,
@@ -1728,6 +1770,35 @@ export function createAdminRouter(config: Config): Router {
     }
   });
 
+  router.post("/automations/runs/:runId/resubmit", async (req, res) => {
+    const parsed = AutomationRunResubmitBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
+      return;
+    }
+    const run = getNativeAutomationRun(req.params.runId);
+    if (!run) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, run.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
+    if (run.status !== "waiting_revision") {
+      res.status(409).json({ error: "not_waiting_revision", status: run.status });
+      return;
+    }
+    try {
+      res.json(await resubmitNativeAutomationRun(req.params.runId, parsed.data.input, config));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "workflow resubmit failed";
+      res.status(message === "run_not_found" ? 404 : 500).json({ error: message });
+    }
+  });
+
   router.post("/automations/runs/:runId/replay", async (req, res) => {
     const parsed = AutomationRunReplayBody.safeParse(req.body ?? {});
     if (!parsed.success) {
@@ -1803,10 +1874,14 @@ export function createAdminRouter(config: Config): Router {
   });
 
   router.post("/automations/n8n-import", (req, res) => {
+    if (!req.principal) { res.status(401).json({ error: "unauthorized" }); return; }
     const parsed = AutomationN8nImportBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    if (parsed.data.tenantId) {
+      try { assertTenantAllowed(req.principal, parsed.data.tenantId); } catch (err) { if (denyTenant(res, err)) return; throw err; }
     }
     try {
       const importBody: Parameters<typeof importN8nWorkflow>[0] = {
@@ -1824,10 +1899,14 @@ export function createAdminRouter(config: Config): Router {
   });
 
   router.post("/automations/ai/draft-template", async (req, res) => {
+    if (!req.principal) { res.status(401).json({ error: "unauthorized" }); return; }
     const parsed = AutomationAiDraftBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+    if (parsed.data.tenantId) {
+      try { assertTenantAllowed(req.principal, parsed.data.tenantId); } catch (err) { if (denyTenant(res, err)) return; throw err; }
     }
     try {
       const draftBody: Parameters<typeof draftAutomationTemplateFromPrompt>[0] = {

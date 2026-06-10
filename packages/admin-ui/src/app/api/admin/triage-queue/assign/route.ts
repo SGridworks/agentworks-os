@@ -6,9 +6,9 @@
  * Patches the issue in agentos-d to set the assignee.
  */
 
-export const dynamic = "force-dynamic";
+import { daemonFetch } from "@/lib/daemon-fetch";
 
-const AGENTOS_BASE = process.env.AGENTOS_API_URL ?? "http://127.0.0.1:7710";
+export const dynamic = "force-dynamic";
 
 interface AssignRequest {
   issueId: string;
@@ -41,7 +41,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const res = await fetch(`${AGENTOS_BASE}/api/issues/${issueId}`, {
+    const res = await daemonFetch(`/api/issues/${issueId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

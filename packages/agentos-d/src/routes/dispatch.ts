@@ -13,7 +13,7 @@
  * PATCH /api/dispatch/:id         { status, error? } — adapter side transitions
  */
 
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { eq, and, desc, sql } from "drizzle-orm";
@@ -21,10 +21,20 @@ import { getDb } from "../db/index.js";
 import { dispatchQueue, type NewDispatchQueueRow } from "../db/schema.js";
 import { isPaused } from "../pause-service.js";
 import type { Config } from "../config.js";
+import { assertTenantAllowed, resolveTenantId, TenantAccessError } from "../auth/tenant-access.js";
+import { requireScope } from "../auth/scope-guard.js";
 
 const ACTION_KIND_RE = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/;
 const DISPATCH_STATUSES = ["queued", "waiting", "dispatched", "completed", "failed", "dead_letter", "cancelled"] as const;
 type DispatchStatus = (typeof DISPATCH_STATUSES)[number];
+
+function denyTenant(res: Response, err: unknown): boolean {
+  if (err instanceof TenantAccessError) {
+    res.status(403).json({ error: "forbidden", message: err.message });
+    return true;
+  }
+  return false;
+}
 
 export function createDispatchRouter(_config: Config): Router {
   const router = Router();
@@ -66,7 +76,7 @@ export function createDispatchRouter(_config: Config): Router {
     cancelled: [],
   };
 
-  router.post("/", (req, res) => {
+  router.post("/", requireScope("dispatch:write"), (req, res) => {
     if (isPaused()) {
       res.status(503).json({ error: "substrate_paused", reason: "substrate is paused" });
       return;
@@ -77,6 +87,12 @@ export function createDispatchRouter(_config: Config): Router {
       return;
     }
     const body = parsed.data;
+    try {
+      assertTenantAllowed(req.principal!, body.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
     const db = getDb();
     const now = new Date().toISOString();
     const taskId = randomUUID();
@@ -112,7 +128,7 @@ export function createDispatchRouter(_config: Config): Router {
     });
   });
 
-  router.get("/stats", (req, res) => {
+  router.get("/stats", requireScope("dispatch:write"), (req, res) => {
     const db = getDb();
     const tenantId = typeof req.query.tenantId === "string" ? req.query.tenantId : undefined;
     const stuckMinutes = Number(req.query.stuckMinutes ?? 5);
@@ -120,7 +136,18 @@ export function createDispatchRouter(_config: Config): Router {
     const stuckCutoff = new Date(Date.now() - stuckThreshold * 60_000).toISOString();
 
     const baseConditions = [];
-    if (tenantId) baseConditions.push(eq(dispatchQueue.tenantId, tenantId));
+    if (tenantId) {
+      try {
+        assertTenantAllowed(req.principal!, tenantId);
+      } catch (err) {
+        if (denyTenant(res, err)) return;
+        throw err;
+      }
+      baseConditions.push(eq(dispatchQueue.tenantId, tenantId));
+    } else if (req.principal?.tenants !== "*") {
+      res.status(403).json({ error: "tenant_required" });
+      return;
+    }
 
     const counts = db
       .select({ status: dispatchQueue.status, count: sql<number>`count(*)` })
@@ -175,12 +202,23 @@ export function createDispatchRouter(_config: Config): Router {
     });
   });
 
-  router.get("/", (req, res) => {
+  router.get("/", requireScope("dispatch:write"), (req, res) => {
     const db = getDb();
     const { tenantId, status, targetAgentId, limit = "50", offset = "0" } = req.query;
 
     const conditions = [];
-    if (tenantId) conditions.push(eq(dispatchQueue.tenantId, tenantId as string));
+    if (typeof tenantId === "string") {
+      try {
+        assertTenantAllowed(req.principal!, tenantId);
+      } catch (err) {
+        if (denyTenant(res, err)) return;
+        throw err;
+      }
+      conditions.push(eq(dispatchQueue.tenantId, tenantId));
+    } else if (req.principal?.tenants !== "*") {
+      res.status(403).json({ error: "tenant_required" });
+      return;
+    }
     if (status)
       conditions.push(
         eq(
@@ -214,21 +252,29 @@ export function createDispatchRouter(_config: Config): Router {
     res.json({ items, total, limit: Number(limit), offset: Number(offset) });
   });
 
-  router.get("/:id", (req, res) => {
+  router.get("/:id", requireScope("dispatch:write"), (req, res) => {
     const db = getDb();
+    const id = String(req.params.id ?? "");
     const row = db
       .select()
       .from(dispatchQueue)
-      .where(eq(dispatchQueue.id, req.params.id))
+      .where(eq(dispatchQueue.id, id))
       .get();
     if (!row) {
       res.status(404).json({ error: "not_found" });
       return;
     }
+    try {
+      assertTenantAllowed(req.principal!, row.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
     res.json({ ...row, input: safeParseJson(row.input) });
   });
 
-  router.patch("/:id", (req, res) => {
+  router.patch("/:id", requireScope("dispatch:write"), (req, res) => {
+    const id = String(req.params.id ?? "");
     const parsed = TransitionSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
@@ -238,11 +284,17 @@ export function createDispatchRouter(_config: Config): Router {
     const existing = db
       .select()
       .from(dispatchQueue)
-      .where(eq(dispatchQueue.id, req.params.id))
+      .where(eq(dispatchQueue.id, id))
       .get();
     if (!existing) {
       res.status(404).json({ error: "not_found" });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, existing.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
 
     const now = new Date().toISOString();
@@ -272,18 +324,28 @@ export function createDispatchRouter(_config: Config): Router {
 
     db.update(dispatchQueue)
       .set(update)
-      .where(eq(dispatchQueue.id, req.params.id))
+      .where(eq(dispatchQueue.id, id))
       .run();
 
     const updated = db
       .select()
       .from(dispatchQueue)
-      .where(eq(dispatchQueue.id, req.params.id))
+      .where(eq(dispatchQueue.id, id))
       .get();
     res.json({ ...updated, input: safeParseJson(updated?.input ?? "{}") });
   });
 
-  router.post("/:id/retry", (req, res) => {
+  router.post("/:id/retry", requireScope("dispatch:write"), (req, res) => {
+    const id = String(req.params.id ?? "");
+    const suppliedTenantId = resolveTenantId(req);
+    if (suppliedTenantId) {
+      try {
+        assertTenantAllowed(req.principal!, suppliedTenantId);
+      } catch (err) {
+        if (denyTenant(res, err)) return;
+        throw err;
+      }
+    }
     const parsed = DispatchRepairSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
@@ -293,11 +355,17 @@ export function createDispatchRouter(_config: Config): Router {
     const existing = db
       .select()
       .from(dispatchQueue)
-      .where(eq(dispatchQueue.id, req.params.id))
+      .where(eq(dispatchQueue.id, id))
       .get();
     if (!existing) {
       res.status(404).json({ error: "not_found" });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, existing.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
     if (!VALID_TRANSITIONS[existing.status as DispatchStatus]?.includes("queued")) {
       res.status(409).json({
@@ -316,13 +384,23 @@ export function createDispatchRouter(_config: Config): Router {
         leaseExpiresAt: null,
         error: parsed.data.error ?? null,
       })
-      .where(eq(dispatchQueue.id, req.params.id))
+      .where(eq(dispatchQueue.id, id))
       .run();
-    const updated = db.select().from(dispatchQueue).where(eq(dispatchQueue.id, req.params.id)).get();
+    const updated = db.select().from(dispatchQueue).where(eq(dispatchQueue.id, id)).get();
     res.json({ ...updated, input: safeParseJson(updated?.input ?? "{}") });
   });
 
-  router.post("/:id/dead-letter", (req, res) => {
+  router.post("/:id/dead-letter", requireScope("dispatch:write"), (req, res) => {
+    const id = String(req.params.id ?? "");
+    const suppliedTenantId = resolveTenantId(req);
+    if (suppliedTenantId) {
+      try {
+        assertTenantAllowed(req.principal!, suppliedTenantId);
+      } catch (err) {
+        if (denyTenant(res, err)) return;
+        throw err;
+      }
+    }
     const parsed = DispatchRepairSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
@@ -332,11 +410,17 @@ export function createDispatchRouter(_config: Config): Router {
     const existing = db
       .select()
       .from(dispatchQueue)
-      .where(eq(dispatchQueue.id, req.params.id))
+      .where(eq(dispatchQueue.id, id))
       .get();
     if (!existing) {
       res.status(404).json({ error: "not_found" });
       return;
+    }
+    try {
+      assertTenantAllowed(req.principal!, existing.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
     if (!VALID_TRANSITIONS[existing.status as DispatchStatus]?.includes("dead_letter")) {
       res.status(409).json({
@@ -352,9 +436,9 @@ export function createDispatchRouter(_config: Config): Router {
         completedAt: new Date().toISOString(),
         error: parsed.data.error ?? existing.error ?? "Moved to dead letter by operator",
       })
-      .where(eq(dispatchQueue.id, req.params.id))
+      .where(eq(dispatchQueue.id, id))
       .run();
-    const updated = db.select().from(dispatchQueue).where(eq(dispatchQueue.id, req.params.id)).get();
+    const updated = db.select().from(dispatchQueue).where(eq(dispatchQueue.id, id)).get();
     res.json({ ...updated, input: safeParseJson(updated?.input ?? "{}") });
   });
 

@@ -12,3 +12,4 @@ Welcome to the AgentWorks documentation site.
 - [Update Procedure](./update-procedure.md) - check for and apply updates.
 - [Best Practices](./best-practices.md) - operational patterns for a healthy deployment.
 - [Disclaimer](./disclaimer-text.md) - product limitations and legal boundaries.
+- [Compliance Loop](./compliance-loop.md) - autonomous compliance loop, workflow event bus, demo seed, and configuration reference.
