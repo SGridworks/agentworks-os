@@ -1,9 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { createHash, randomUUID } from "node:crypto";
 import { createApp } from "../app.js";
 import { loadConfig } from "../config.js";
+import { migrate } from "../db/migrations/index.js";
+import type { Scope } from "../auth/principal.js";
 
-vi.mock("../db/index.js", () => {
+// vi.hoisted ensures _dbState is available inside the vi.mock factory
+// even though vi.mock is hoisted to the top of the module by vitest.
+const _dbState = vi.hoisted(() => ({ sqlite: null as Database.Database | null }));
+
+vi.mock("../db/index.js", async () => {
+  const { drizzle: _drizzle } = await import("drizzle-orm/better-sqlite3");
   const mockDb = {
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
@@ -19,7 +29,17 @@ vi.mock("../db/index.js", () => {
     all: vi.fn().mockReturnValue([]),
     get: vi.fn().mockReturnValue(null),
   };
-  return { getDb: () => mockDb };
+  return {
+    // When _dbState.sqlite is set, use real drizzle (for scoped-principal tests).
+    // Otherwise return the mock (for all existing tests).
+    getDb: () => (_dbState.sqlite !== null ? _drizzle(_dbState.sqlite) : mockDb),
+    // getSqlite is called by require-auth middleware to look up agent keys.
+    // Throws when _dbState.sqlite is null → middleware falls back to loopback=owner.
+    getSqlite: () => {
+      if (_dbState.sqlite !== null) return _dbState.sqlite;
+      throw new Error("SQLite not initialized");
+    },
+  };
 });
 
 // Capture the real globalThis.fetch once at module load — before any vi.fn() wrappers
@@ -354,6 +374,42 @@ describe("scanner routes", () => {
       expect(res.body.error).toBe("invalid_request");
     });
 
+    it("POST /jobs/:id/cancel returns 400 when tenantId is absent", async () => {
+      const res = await request(app).post("/api/scanner/jobs/scan-abc/cancel");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("invalid_request");
+    });
+
+    it("POST /jobs/:id/cancel returns 400 for non-UUID tenantId", async () => {
+      const res = await request(app).post("/api/scanner/jobs/scan-abc/cancel?tenantId=NOT-A-UUID");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("invalid_request");
+    });
+
+    it("GET /jobs/:id/sarif returns 400 when tenantId is absent", async () => {
+      const res = await request(app).get("/api/scanner/jobs/scan-abc/sarif");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("invalid_request");
+    });
+
+    it("GET /jobs/:id/sarif returns 400 for non-UUID tenantId", async () => {
+      const res = await request(app).get("/api/scanner/jobs/scan-abc/sarif?tenantId=NOT-A-UUID");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("invalid_request");
+    });
+
+    it("GET /jobs/:id/json returns 400 when tenantId is absent", async () => {
+      const res = await request(app).get("/api/scanner/jobs/scan-abc/json");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("invalid_request");
+    });
+
+    it("GET /jobs/:id/json returns 400 for non-UUID tenantId", async () => {
+      const res = await request(app).get("/api/scanner/jobs/scan-abc/json?tenantId=NOT-A-UUID");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("invalid_request");
+    });
+
     it("POST /submit returns 400 for non-UUID tenantId", async () => {
       const res = await request(app)
         .post("/api/scanner/submit")
@@ -440,7 +496,9 @@ describe("scanner routes", () => {
       // @ts-ignore
       global.fetch = mockFetch;
 
-      const res = await request(app).get("/api/scanner/jobs/scan-123/sarif");
+      const res = await request(app).get(
+        "/api/scanner/jobs/scan-123/sarif?tenantId=550e8400-e29b-41d4-a716-446655440000",
+      );
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toMatch(/application\/json/);
       expect(res.headers["x-content-type-options"]).toBe("nosniff");
@@ -458,7 +516,9 @@ describe("scanner routes", () => {
       // @ts-ignore
       global.fetch = mockFetch;
 
-      const res = await request(app).get("/api/scanner/jobs/nonexistent/sarif");
+      const res = await request(app).get(
+        "/api/scanner/jobs/nonexistent/sarif?tenantId=550e8400-e29b-41d4-a716-446655440000",
+      );
       expect(res.status).toBe(404);
       expect(res.body.error).toBe("not_found");
     });
@@ -472,7 +532,9 @@ describe("scanner routes", () => {
       // @ts-ignore
       global.fetch = mockFetch;
 
-      const res = await request(app).get("/api/scanner/jobs/scan-123/sarif");
+      const res = await request(app).get(
+        "/api/scanner/jobs/scan-123/sarif?tenantId=550e8400-e29b-41d4-a716-446655440000",
+      );
       expect(res.status).toBe(503);
       expect(res.body.error).toBe("scanner_unavailable");
     });
@@ -482,7 +544,9 @@ describe("scanner routes", () => {
       // @ts-ignore
       global.fetch = mockFetch;
 
-      const res = await request(app).get("/api/scanner/jobs/scan-123/sarif");
+      const res = await request(app).get(
+        "/api/scanner/jobs/scan-123/sarif?tenantId=550e8400-e29b-41d4-a716-446655440000",
+      );
       expect(res.status).toBe(502);
       expect(res.body.error).toBe("scanner_worker_unreachable");
     });
@@ -515,7 +579,9 @@ describe("scanner routes", () => {
       // @ts-ignore
       global.fetch = mockFetch;
 
-      const res = await request(app).get("/api/scanner/jobs/scan-123/json");
+      const res = await request(app).get(
+        "/api/scanner/jobs/scan-123/json?tenantId=550e8400-e29b-41d4-a716-446655440000",
+      );
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toMatch(/application\/json/);
       expect(res.headers["x-content-type-options"]).toBe("nosniff");
@@ -533,7 +599,9 @@ describe("scanner routes", () => {
       // @ts-ignore
       global.fetch = mockFetch;
 
-      const res = await request(app).get("/api/scanner/jobs/nonexistent/json");
+      const res = await request(app).get(
+        "/api/scanner/jobs/nonexistent/json?tenantId=550e8400-e29b-41d4-a716-446655440000",
+      );
       expect(res.status).toBe(404);
       expect(res.body.error).toBe("not_found");
     });
@@ -547,7 +615,9 @@ describe("scanner routes", () => {
       // @ts-ignore
       global.fetch = mockFetch;
 
-      const res = await request(app).get("/api/scanner/jobs/scan-123/json");
+      const res = await request(app).get(
+        "/api/scanner/jobs/scan-123/json?tenantId=550e8400-e29b-41d4-a716-446655440000",
+      );
       expect(res.status).toBe(503);
       expect(res.body.error).toBe("scanner_unavailable");
     });
@@ -557,9 +627,205 @@ describe("scanner routes", () => {
       // @ts-ignore
       global.fetch = mockFetch;
 
-      const res = await request(app).get("/api/scanner/jobs/scan-123/json");
+      const res = await request(app).get(
+        "/api/scanner/jobs/scan-123/json?tenantId=550e8400-e29b-41d4-a716-446655440000",
+      );
       expect(res.status).toBe(502);
       expect(res.body.error).toBe("scanner_worker_unreachable");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Scoped-principal tenant isolation
+  // These tests use a real in-memory SQLite (with full migrations) so that the
+  // auth middleware can look up agent API keys and produce a scoped principal.
+  // ---------------------------------------------------------------------------
+
+  describe("scoped-principal tenant isolation", () => {
+    const TENANT_A = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
+    const TENANT_B = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
+    const AGENT_ID = "cccccccc-cccc-4ccc-cccc-cccccccccccc";
+    const COMPANY_A = "dddddddd-dddd-4ddd-dddd-dddddddddddd";
+    const OWNER_TOKEN = "scanner-test-owner-token";
+    const SCOPED_TOKEN_A = "scanner-test-scoped-token-a";
+
+    function sha256hex(token: string): string {
+      return createHash("sha256").update(token).digest("hex");
+    }
+
+    function seedAgent(sqlite: Database.Database): void {
+      const now = new Date().toISOString();
+      sqlite
+        .prepare(
+          `INSERT INTO execution_companies
+           (id, tenant_id, name, status, metadata_json, source, created_at, updated_at)
+           VALUES (?, ?, 'Test Company', 'active', '{}', 'awos', ?, ?)`,
+        )
+        .run(COMPANY_A, TENANT_A, now, now);
+      sqlite
+        .prepare(
+          `INSERT INTO execution_agents
+           (id, tenant_id, company_id, name, role, status, config_json, source, created_at, updated_at)
+           VALUES (?, ?, ?, 'Test Agent', 'worker', 'active', '{}', 'awos', ?, ?)`,
+        )
+        .run(AGENT_ID, TENANT_A, COMPANY_A, now, now);
+    }
+
+    function insertAgentKey(
+      sqlite: Database.Database,
+      opts: { token: string; scopes: Scope[]; tenants: string[] | "*" },
+    ): void {
+      sqlite
+        .prepare(
+          `INSERT INTO agent_api_keys
+           (id, agent_id, key_hash, key_prefix, scopes, tenant_allowlist, created_at, revoked_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          randomUUID(),
+          AGENT_ID,
+          sha256hex(opts.token),
+          opts.token.slice(0, 8),
+          JSON.stringify(opts.scopes),
+          opts.tenants === "*" ? "*" : JSON.stringify(opts.tenants),
+          new Date().toISOString(),
+          null,
+        );
+    }
+
+    function insertFinding(
+      sqlite: Database.Database,
+      opts: { id: string; tenantId: string },
+    ): void {
+      const now = new Date().toISOString();
+      sqlite
+        .prepare(
+          `INSERT INTO scanner_findings
+           (id, tenant_id, origin_kind, origin_id, severity, rule_id, title, description,
+            remediation, affected_endpoint, status, resolved_by, resolved_at, resolution_note,
+            created_at, updated_at)
+           VALUES (?, ?, 'scanner_finding', ?, 'high', NULL, 'Test Finding', '',
+                   NULL, NULL, 'open', NULL, NULL, NULL, ?, ?)`,
+        )
+        .run(opts.id, opts.tenantId, randomUUID(), now, now);
+    }
+
+    beforeEach(() => {
+      const sqlite = new Database(":memory:");
+      sqlite.pragma("foreign_keys = ON");
+      migrate(sqlite);
+      seedAgent(sqlite);
+      insertAgentKey(sqlite, {
+        token: SCOPED_TOKEN_A,
+        scopes: ["memory:read"],
+        tenants: [TENANT_A],
+      });
+      _dbState.sqlite = sqlite;
+      process.env.AGENTOS_API_KEY = OWNER_TOKEN;
+      process.env.AGENTOS_REQUIRE_TOKEN = "true";
+      const base = loadConfig({});
+      app = createApp({ ...base, scannerSidecarUrl: "http://127.0.0.1:1" });
+    });
+
+    afterEach(() => {
+      _dbState.sqlite?.close();
+      _dbState.sqlite = null;
+      delete process.env.AGENTOS_API_KEY;
+      delete process.env.AGENTOS_REQUIRE_TOKEN;
+      globalThis.fetch = originalFetch;
+    });
+
+    it("PATCH /findings/:id returns 403 when finding belongs to tenant B but principal is scoped to tenant A", async () => {
+      const findingId = randomUUID();
+      insertFinding(_dbState.sqlite!, { id: findingId, tenantId: TENANT_B });
+
+      const res = await request(app)
+        .patch(`/api/scanner/findings/${findingId}`)
+        .set("Authorization", `Bearer ${SCOPED_TOKEN_A}`)
+        .send({ status: "resolved" });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("forbidden");
+    });
+
+    it("GET /findings returns 403 when tenantId is absent and principal is scoped", async () => {
+      const res = await request(app)
+        .get("/api/scanner/findings")
+        .set("Authorization", `Bearer ${SCOPED_TOKEN_A}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("tenant_required");
+    });
+
+    it("GET /findings returns 200 when tenantId matches scoped principal's allowed tenant", async () => {
+      const res = await request(app)
+        .get(`/api/scanner/findings?tenantId=${TENANT_A}`)
+        .set("Authorization", `Bearer ${SCOPED_TOKEN_A}`);
+
+      expect(res.status).toBe(200);
+    });
+
+    it("GET /findings returns 403 when tenantId is a valid UUID but not in principal's tenant list", async () => {
+      const res = await request(app)
+        .get(`/api/scanner/findings?tenantId=${TENANT_B}`)
+        .set("Authorization", `Bearer ${SCOPED_TOKEN_A}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("forbidden");
+    });
+
+    it("POST /jobs/:id/cancel returns 403 when tenantId is not in principal's tenant list", async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      global.fetch = vi.fn<any>().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({}) });
+
+      const res = await request(app)
+        .post(`/api/scanner/jobs/scan-xyz/cancel?tenantId=${TENANT_B}`)
+        .set("Authorization", `Bearer ${SCOPED_TOKEN_A}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("forbidden");
+    });
+
+    it("POST /jobs/:id/cancel proceeds (proxy call) when tenantId is in principal's tenant list", async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      global.fetch = vi.fn<any>().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ status: "cancelled" }),
+      });
+
+      const res = await request(app)
+        .post(`/api/scanner/jobs/scan-xyz/cancel?tenantId=${TENANT_A}`)
+        .set("Authorization", `Bearer ${SCOPED_TOKEN_A}`);
+
+      // Auth passed; scanner-worker mock returned 200
+      expect(res.status).toBe(200);
+    });
+
+    it("GET /jobs/:id/sarif returns 403 when tenantId is not in principal's tenant list", async () => {
+      const res = await request(app)
+        .get(`/api/scanner/jobs/scan-xyz/sarif?tenantId=${TENANT_B}`)
+        .set("Authorization", `Bearer ${SCOPED_TOKEN_A}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("forbidden");
+    });
+
+    it("GET /jobs/:id/json returns 403 when tenantId is not in principal's tenant list", async () => {
+      const res = await request(app)
+        .get(`/api/scanner/jobs/scan-xyz/json?tenantId=${TENANT_B}`)
+        .set("Authorization", `Bearer ${SCOPED_TOKEN_A}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("forbidden");
+    });
+
+    it("owner principal passes GET /findings without tenantId (tenants='*')", async () => {
+      const res = await request(app)
+        .get("/api/scanner/findings")
+        .set("Authorization", `Bearer ${OWNER_TOKEN}`);
+
+      expect(res.status).toBe(200);
     });
   });
 });

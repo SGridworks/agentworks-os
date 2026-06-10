@@ -449,6 +449,23 @@ export function createScannerRouter(config: Config): Router {
   });
 
   router.post("/jobs/:id/cancel", async (req, res) => {
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    const rawTenantId = req.query.tenantId;
+    const tenantIdParse = z.string().uuid().safeParse(rawTenantId);
+    if (!tenantIdParse.success) {
+      res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
+      return;
+    }
+    try {
+      assertTenantAllowed(req.principal, tenantIdParse.data);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
+
     let upstreamRes: Response;
     try {
       upstreamRes = await fetch(`${SCANNER_WORKER_BASE}/scan/${req.params.id}/cancel`, {
@@ -481,6 +498,23 @@ export function createScannerRouter(config: Config): Router {
   // -------------------------------------------------------------------------
 
   router.get("/jobs/:id/sarif", async (req, res) => {
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    const rawTenantId = req.query.tenantId;
+    const tenantIdParse = z.string().uuid().safeParse(rawTenantId);
+    if (!tenantIdParse.success) {
+      res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
+      return;
+    }
+    try {
+      assertTenantAllowed(req.principal, tenantIdParse.data);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
+
     let upstreamRes: Response;
     try {
       upstreamRes = await fetch(`${SCANNER_WORKER_BASE}/scan/${req.params.id}/sarif`, {
@@ -520,6 +554,23 @@ export function createScannerRouter(config: Config): Router {
   // -------------------------------------------------------------------------
 
   router.get("/jobs/:id/json", async (req, res) => {
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    const rawTenantId = req.query.tenantId;
+    const tenantIdParse = z.string().uuid().safeParse(rawTenantId);
+    if (!tenantIdParse.success) {
+      res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
+      return;
+    }
+    try {
+      assertTenantAllowed(req.principal, tenantIdParse.data);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
+
     let upstreamRes: Response;
     try {
       upstreamRes = await fetch(`${SCANNER_WORKER_BASE}/scan/${req.params.id}/json`, {
@@ -608,9 +659,14 @@ export function createScannerRouter(config: Config): Router {
 
     const { tenantId: rawTenantId, severity: sevRaw, status, limit = "100", offset = "0" } = req.query;
 
-    // If a tenantId filter is supplied, validate it and enforce ownership.
+    // Scoped principals must supply tenantId — omitting it would expose all tenants.
     let tenantId: string | undefined;
-    if (rawTenantId !== undefined) {
+    if (rawTenantId === undefined) {
+      if (req.principal.tenants !== "*") {
+        res.status(403).json({ error: "tenant_required" });
+        return;
+      }
+    } else {
       const tenantIdParse = z.string().uuid().safeParse(rawTenantId);
       if (!tenantIdParse.success) {
         res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
@@ -660,6 +716,11 @@ export function createScannerRouter(config: Config): Router {
   // -------------------------------------------------------------------------
 
   router.patch("/findings/:id", (req, res) => {
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+
     const parsed = UpdateFindingSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
@@ -678,6 +739,13 @@ export function createScannerRouter(config: Config): Router {
     if (!existing) {
       res.status(404).json({ error: "not_found" });
       return;
+    }
+
+    try {
+      assertTenantAllowed(req.principal, existing.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
 
     const { status, resolvedBy, resolutionNote } = parsed.data;

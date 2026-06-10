@@ -135,7 +135,9 @@ export function resolvePrincipal(
 
       let parsedScopes: Scope[];
       try {
-        parsedScopes = JSON.parse(row.scopes) as Scope[];
+        parsedScopes = (JSON.parse(row.scopes) as string[]).filter(
+          (s) => ALL_SCOPES.has(s as Scope),
+        ) as Scope[];
       } catch {
         parsedScopes = [];
       }
