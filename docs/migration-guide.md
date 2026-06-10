@@ -236,7 +236,7 @@ Then write those entries to the vault as reference material.
 
 After migration, verify each piece is working:
 
-- [ ] Admin UI accessible at `http://localhost:7710` — logged in as admin
+- [ ] Admin UI accessible at `http://localhost:3000/mission-control` — logged in as admin
 - [ ] Claude Desktop connected — `/memory read` returns vault content
 - [ ] Vault pages visible — key pages (company/overview, context/conventions) readable
 - [ ] Scanner findings — no critical findings on migrated agent configs

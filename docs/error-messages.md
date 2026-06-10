@@ -200,7 +200,7 @@ An n8n workflow using a substrate-aware node can't reach `agentos-d`.
 
 Your admin session timed out after 8 hours of inactivity.
 
-**Fix:** Log in again at `http://agentworks.local:7710`.
+**Fix:** Log in again at `http://localhost:3000/mission-control`.
 
 ---
 

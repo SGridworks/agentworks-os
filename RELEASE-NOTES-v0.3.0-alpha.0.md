@@ -1,9 +1,9 @@
 # AgentWorks OS — v0.3.0-alpha.0 Release Notes
 
-**Status:** Pre-release (alpha). Privacy-boundary review gate open as PR. **Not tagged, not published, no release artifacts.**
-**Date:** 2026-06-07 (changelog) / PR opened 2026-06-08
+**Status:** Alpha — tagged and published. Intended for local evaluation, not production.
+**Date:** 2026-06-07 (changelog) / PR merged 2026-06-08 / Tagged 2026-06-08
 **Baseline:** frozen public baseline `e9ceed665ed1e6f93b2267460eb8e15e78937584` (v0.1.9)
-**Release branch HEAD:** `e372f537936152b0fcb4da8f83d8af7004ef5a31`
+**Tag commit:** `8ed84ce` (v0.3.0-alpha.0)
 **Diff vs baseline:** 456 files changed, +39,093 / -18,171
 
 AgentWorks OS uses SemVer. Pre-1.0.0, minor versions may include breaking changes; they are called out below.
@@ -17,7 +17,7 @@ v0.3.0-alpha.0 is the first cut of the privacy-hardened public release line for 
 1. **Ships real product surface** — a native workflow orchestration engine and a shared vault metadata index.
 2. **Establishes a hardened public/private boundary** — automated scanners and a release ignore manifest that keep operator data, private paths, and internal naming out of the public tree.
 
-This is an **alpha**. The intended consumer is an evaluator running it locally, not a production deployment. The release is published as a review gate (PR), not as a tagged release.
+This is an **alpha**. The intended consumer is an evaluator running it locally, not a production deployment.
 
 ---
 
@@ -76,7 +76,7 @@ A vault metadata layer in `@agentworks/memory` (`packages/memory`, 19 files), su
 
 ## Privacy-boundary hardening
 
-The release was prepared with an explicit privacy boundary. The head commit `e372f53` ("chore: harden public release privacy boundary") closes the last gaps:
+The release was prepared with an explicit privacy boundary. The hardening commit ("chore: harden public release privacy boundary") closes the last gaps:
 
 - Removed private local fallback paths/envs; replaced with AWOS provider-profile defaults.
 - Renamed the public SDK adapter surface from the internal gateway name to **Local Gateway**.
@@ -102,7 +102,7 @@ Pre-1.0.0 alpha; the following are behavior changes evaluators should know:
 
 ## Verification
 
-All checks below pass on `e372f53`:
+All checks below pass on the release commit (`8ed84ce`):
 
 | Check | Command | Result |
 | --- | --- | --- |
@@ -115,29 +115,23 @@ All checks below pass on `e372f53`:
 
 Previously also green: `pnpm --dir packages/admin-ui test` / `lint`, `agent-adapters test`, `agentos-d test`, `memory test`.
 
-Worktree clean; HEAD `e372f53`; baseline `e9ceed6`.
-
 ---
 
 ## Distribution
 
 - **Public repo:** `SGridworks/agentworks-os-v0.3` (new, public).
-- **`main`** seeded from the frozen baseline `e9ceed6` (v0.1.9) only.
-- **`release/v0.3.0-alpha.0`** = `e372f53`, opened as PR #1 against `main` (8 commits, 456 files, mergeable) — this PR is the privacy-boundary review gate.
+- **Git tag:** `v0.3.0-alpha.0` at commit `8ed84ce`, pushed to `SGridworks/agentworks-os-v0.3`.
+- **GitHub release:** published as a pre-release on `SGridworks/agentworks-os-v0.3`.
+- **Container images:** multi-arch (linux/amd64 + linux/arm64) published to `ghcr.io/sgridworks/agentworks-os-v0.3/*`. Images are unsigned (Cosign signing is deferred).
+- **`main`** seeded from the frozen baseline `e9ceed6` (v0.1.9) only. PR #1 (8 commits, 456 files) merged into `main`.
 - This release line has an **independent history** from the existing public `agentworks-os-vps` repo (currently at v0.2.0). The two do not share a common ancestor.
 
 ---
 
-## What is NOT done yet
+## Known deferred items
 
-Per the release plan, the following are intentionally deferred:
-
-- **No git tag** for `v0.3.0-alpha.0`.
-- **No GitHub release.**
-- **No package/image publish** (no GHCR push).
-- **No release artifacts** uploaded.
-
-The PR is the gate. Tagging and publishing happen only after the privacy-boundary review passes.
+- **Image signing:** container images are not Cosign-signed.
+- Alpha quality: intended for local evaluation, not production deployment.
 
 ---
 

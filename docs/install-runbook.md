@@ -66,6 +66,7 @@ All services should show `Up` within 30 seconds of the installer completing.
 | Service | What it is | Port |
 |---|---|---|
 | `agentos-d` | Main daemon — REST API + MCP server | 7710 |
+| `admin-ui` | Admin UI | 3000 |
 | `scanner-worker` | AgentGuard sidecar — security scanner | 3101 |
 | `n8n` | Workflow automation | 5678 |
 
@@ -75,10 +76,10 @@ The `postgres` service starts in `legacy` profile only (v1 uses SQLite). It show
 
 ## Step 3 — Open the Admin UI
 
-The admin UI is served by `agentos-d` at the same port as the REST API:
+The admin UI is served by the `admin-ui` service on port 3000:
 
 ```
-http://localhost:7710
+http://localhost:3000/mission-control
 ```
 
 Log in with:

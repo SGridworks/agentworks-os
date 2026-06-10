@@ -58,7 +58,6 @@ const ALWAYS_BLOCK_WRITE = [
   "AGENTS.md",
   "CLAUDE.md",
   "PLAN.md",
-  ".gstack/",
   LEGACY_LOCAL_STATE_DIR,
   ".agentworks/",
   "node_modules/",
