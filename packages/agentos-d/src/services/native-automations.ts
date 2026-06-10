@@ -2108,17 +2108,23 @@ async function executeWorkflowRun(
     }
   }
 
-  updateRunSnapshot(sqlite, runId, "succeeded", "completed", null, new Date().toISOString(), null, null);
-  // Backfill evidence pack status to match the terminal run status.
-  // Packs are created during the evidence.pack step while the run is still
-  // 'running'; update them now so the pack reflects the final outcome.
-  sqlite
-    .prepare(
-      `UPDATE native_automation_evidence_packs
-       SET status = 'succeeded'
-       WHERE run_id = ? AND status = 'running'`,
-    )
-    .run(runId);
+  // M3: atomic succeeded transition — run status and evidence pack status must
+  // agree. A crash between the two separate UPDATEs would leave a 'running'
+  // evidence pack under a 'succeeded' run, which is unrecoverable without a
+  // manual fix. Both are sync better-sqlite3 statements so this is safe.
+  sqlite.transaction(() => {
+    updateRunSnapshot(sqlite, runId, "succeeded", "completed", null, new Date().toISOString(), null, null);
+    // Backfill evidence pack status to match the terminal run status.
+    // Packs are created during the evidence.pack step while the run is still
+    // 'running'; update them now so the pack reflects the final outcome.
+    sqlite
+      .prepare(
+        `UPDATE native_automation_evidence_packs
+         SET status = 'succeeded'
+         WHERE run_id = ? AND status = 'running'`,
+      )
+      .run(runId);
+  })();
   return getNativeAutomationRun(runId)!;
 }
 
@@ -2325,6 +2331,39 @@ export async function resumeNativeAutomationRun(
       ? sqlite.prepare("SELECT * FROM native_automation_workflow_versions WHERE id = ?").get(run.workflowVersionId)
       : getLatestWorkflowVersionRow(workflow.id)) ?? null;
   if (!version) throw new Error("workflow_version_not_found");
+
+  // H3: pre-claim guard — verify the resume will actually make progress before
+  // atomically claiming. Without this, claiming clears waiting_for_*_id and
+  // status transitions to 'running', but the post-claim early-returns fire
+  // (dispatch still in-flight, approval still pending), abandoning the run
+  // permanently because neither the reconciler nor onApprovalResolved /
+  // onDispatchResolved can find it by its old wait status.
+  if (run.status === "waiting_dispatch") {
+    const dispatchId = run.waitingForDispatchId;
+    const forcedStatus = asString(input.dispatchStatus, "");
+    const isForced = forcedStatus === "completed" || forcedStatus === "failed" || input.forceComplete === true;
+    if (!isForced) {
+      const dispatchRow = dispatchId
+        ? (sqlite.prepare("SELECT status FROM dispatch_queue WHERE id = ?").get(dispatchId) as { status: string } | undefined)
+        : undefined;
+      if (!dispatchRow || ["waiting", "queued", "dispatched"].includes(dispatchRow.status)) {
+        return getNativeAutomationRun(runId)!;
+      }
+    }
+  } else if (run.status === "waiting_approval") {
+    const approvalId = run.waitingForApprovalId;
+    const requested = asString(input.decision ?? input.approvalStatus, "");
+    const hasDecision =
+      requested === "approved" || requested === "approve" || requested === "rejected" || requested === "reject";
+    if (!hasDecision) {
+      const approvalRow = approvalId
+        ? (sqlite.prepare("SELECT status FROM approval_queue WHERE id = ?").get(approvalId) as { status: string } | undefined)
+        : undefined;
+      if (!approvalRow || approvalRow.status === "pending") {
+        return getNativeAutomationRun(runId)!;
+      }
+    }
+  }
 
   // H2: atomically claim the run before doing any work — prevents double-execution on concurrent resumes
   const now = new Date().toISOString();

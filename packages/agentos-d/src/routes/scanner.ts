@@ -9,7 +9,7 @@
  * PATCH  /api/scanner/findings/:id - update finding status (resolve/reopen)
  */
 
-import { Router } from "express";
+import { Router, type Response as ExpressResponse } from "express";
 import { z } from "zod";
 import pino from "pino";
 import { getDb } from "../db/index.js";
@@ -18,10 +18,19 @@ import { eq, desc, and, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { Config } from "../config.js";
 import { fireWorkflowEvent } from "../services/workflow-events.js";
+import { assertTenantAllowed, TenantAccessError } from "../auth/tenant-access.js";
 
 type Severity = "critical" | "high" | "medium" | "low" | "info";
 
 const log = pino({ name: "scanner-router" });
+
+function denyTenant(res: ExpressResponse, err: unknown): boolean {
+  if (err instanceof TenantAccessError) {
+    res.status(403).json({ error: "forbidden", message: err.message });
+    return true;
+  }
+  return false;
+}
 
 // Severities that auto-trigger the compliance loop. Configurable via env var;
 // defaults to "high,critical". Below-threshold findings persist but do not fire.
@@ -150,6 +159,17 @@ export function createScannerRouter(config: Config): Router {
       return;
     }
 
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    try {
+      assertTenantAllowed(req.principal, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
+
     const body = parsed.data;
     const batchId = body.batchId ?? randomUUID();
 
@@ -205,6 +225,17 @@ export function createScannerRouter(config: Config): Router {
     if (!parsed.success) {
       res.status(400).json({ error: "invalid_request", details: parsed.error.flatten() });
       return;
+    }
+
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    try {
+      assertTenantAllowed(req.principal, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
     }
 
     const body = parsed.data;
@@ -294,7 +325,24 @@ export function createScannerRouter(config: Config): Router {
   // -------------------------------------------------------------------------
 
   router.get("/jobs/:id", async (req, res) => {
-    const tenantId = typeof req.query.tenantId === "string" ? req.query.tenantId : "unknown";
+    const tenantIdParse = z.string().uuid().safeParse(req.query.tenantId);
+    if (!tenantIdParse.success) {
+      res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
+      return;
+    }
+    const tenantId = tenantIdParse.data;
+
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    try {
+      assertTenantAllowed(req.principal, tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
+
     let upstreamRes: Response;
     try {
       upstreamRes = await fetch(`${SCANNER_WORKER_BASE}/scan/${req.params.id}`, {
@@ -518,6 +566,17 @@ export function createScannerRouter(config: Config): Router {
       return;
     }
 
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    try {
+      assertTenantAllowed(req.principal, parsed.data.tenantId);
+    } catch (err) {
+      if (denyTenant(res, err)) return;
+      throw err;
+    }
+
     const now = new Date().toISOString();
     const row = {
       id: randomUUID(),
@@ -542,11 +601,34 @@ export function createScannerRouter(config: Config): Router {
   });
 
   router.get("/findings", (req, res) => {
+    if (!req.principal) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+
+    const { tenantId: rawTenantId, severity: sevRaw, status, limit = "100", offset = "0" } = req.query;
+
+    // If a tenantId filter is supplied, validate it and enforce ownership.
+    let tenantId: string | undefined;
+    if (rawTenantId !== undefined) {
+      const tenantIdParse = z.string().uuid().safeParse(rawTenantId);
+      if (!tenantIdParse.success) {
+        res.status(400).json({ error: "invalid_request", details: "tenantId must be a valid UUID" });
+        return;
+      }
+      tenantId = tenantIdParse.data;
+      try {
+        assertTenantAllowed(req.principal, tenantId);
+      } catch (err) {
+        if (denyTenant(res, err)) return;
+        throw err;
+      }
+    }
+
     const db = getDb();
-    const { tenantId, severity: sevRaw, status, limit = "100", offset = "0" } = req.query;
 
     const conditions = [];
-    if (tenantId) conditions.push(eq(scannerFindings.tenantId, tenantId as string));
+    if (tenantId) conditions.push(eq(scannerFindings.tenantId, tenantId));
     if (sevRaw) {
       const sev = SeveritySchema.safeParse(sevRaw);
       if (sev.success) conditions.push(eq(scannerFindings.severity, sev.data));

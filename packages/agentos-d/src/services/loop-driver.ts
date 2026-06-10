@@ -14,7 +14,7 @@
 
 import pino from "pino";
 import { getSqlite } from "../db/index.js";
-import type { Config } from "../config.js";
+import { loadConfig, type Config } from "../config.js";
 import { resumeNativeAutomationRun } from "./native-automations.js";
 
 const logger = pino({ name: "loop-driver" });
@@ -61,7 +61,7 @@ export async function onApprovalResolved(
 
   if (rows.length === 0) return;
 
-  const cfg = config ?? ({} as Config);
+  const cfg = config ?? loadConfig();
   for (const row of rows) {
     try {
       await resumeNativeAutomationRun(
@@ -104,7 +104,7 @@ export async function onDispatchResolved(
 
   if (rows.length === 0) return;
 
-  const cfg = config ?? ({} as Config);
+  const cfg = config ?? loadConfig();
   for (const row of rows) {
     try {
       await resumeNativeAutomationRun(row.id, { dispatchStatus }, cfg);

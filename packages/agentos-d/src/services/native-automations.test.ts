@@ -516,4 +516,161 @@ describe("native automations", () => {
     expect(resumed.status).toBe("failed");
     expect(resumed.terminalReason).toBe("definition_hash_mismatch");
   });
+
+  // H3 guard: resume on a waiting_dispatch run whose dispatch row is still in-flight
+  // must leave the run parked — it must NOT claim/advance it.
+  it("does not claim a waiting_dispatch run when the dispatch is still in-flight and no forced status given", async () => {
+    const workflow = createNativeAutomationWorkflow({
+      tenantId: TENANT_ID,
+      companyId: COMPANY_ID,
+      name: "Dispatch wait workflow",
+      trigger: "manual",
+      status: "active",
+      definition: {
+        trigger: "manual",
+        steps: [
+          {
+            id: "handoff",
+            name: "Handoff",
+            type: "handoff.contract",
+            params: {
+              taskKind: "workflow.handoff",
+              targetAgentId: "agent-x",
+              contract: { objective: "Do something" },
+              waitForCompletion: true,
+            },
+          },
+          { id: "after", name: "After", type: "data.set", params: { value: { done: true } } },
+        ],
+      },
+    });
+
+    const waiting = await runNativeAutomationWorkflow(workflow.id, {}, config);
+    expect(waiting.status).toBe("waiting_dispatch");
+    expect(waiting.waitingForDispatchId).toBeTruthy();
+
+    // Call resume with no forced status — dispatch row is still 'dispatched'/'queued'/'waiting'
+    const result = await resumeNativeAutomationRun(waiting.id, {}, config);
+
+    // Run must remain parked — not abandoned as 'running' with wait id cleared
+    expect(result.status).toBe("waiting_dispatch");
+    expect(result.waitingForDispatchId).toBe(waiting.waitingForDispatchId);
+
+    // Confirm the DB row is still waiting_dispatch and waiting_for_dispatch_id is intact
+    const sqlite = getSqlite();
+    const row = sqlite.prepare("SELECT status, waiting_for_dispatch_id FROM native_automation_runs WHERE id = ?").get(waiting.id) as {
+      status: string;
+      waiting_for_dispatch_id: string | null;
+    };
+    expect(row.status).toBe("waiting_dispatch");
+    expect(row.waiting_for_dispatch_id).toBe(waiting.waitingForDispatchId);
+  });
+
+  // H3 guard: resume on a waiting_approval run still 'pending' with no decision
+  // must leave the run parked.
+  it("does not claim a waiting_approval run when the approval is still pending and no decision given", async () => {
+    const workflow = createNativeAutomationWorkflow({
+      tenantId: TENANT_ID,
+      companyId: COMPANY_ID,
+      name: "Pending approval workflow",
+      trigger: "manual",
+      status: "active",
+      definition: {
+        trigger: "manual",
+        steps: [
+          {
+            id: "gate",
+            name: "Gate",
+            type: "approval.wait",
+            params: { proposedActionSummary: "Pending gate" },
+          },
+          { id: "after", name: "After", type: "data.set", params: { value: { done: true } } },
+        ],
+      },
+    });
+
+    const waiting = await runNativeAutomationWorkflow(workflow.id, {}, config);
+    expect(waiting.status).toBe("waiting_approval");
+    expect(waiting.waitingForApprovalId).toBeTruthy();
+
+    // Call resume with no decision — approval row is still 'pending'
+    const result = await resumeNativeAutomationRun(waiting.id, {}, config);
+
+    // Run must remain parked
+    expect(result.status).toBe("waiting_approval");
+    expect(result.waitingForApprovalId).toBe(waiting.waitingForApprovalId);
+
+    const sqlite = getSqlite();
+    const row = sqlite.prepare("SELECT status, waiting_for_approval_id FROM native_automation_runs WHERE id = ?").get(waiting.id) as {
+      status: string;
+      waiting_for_approval_id: string | null;
+    };
+    expect(row.status).toBe("waiting_approval");
+    expect(row.waiting_for_approval_id).toBe(waiting.waitingForApprovalId);
+  });
+
+  // Positive regression: a real approval decision still advances the run to succeeded.
+  it("advances a waiting_approval run when a valid decision is provided", async () => {
+    const workflow = createNativeAutomationWorkflow({
+      tenantId: TENANT_ID,
+      companyId: COMPANY_ID,
+      name: "Real approval workflow",
+      trigger: "manual",
+      status: "active",
+      definition: {
+        trigger: "manual",
+        steps: [
+          {
+            id: "gate",
+            name: "Gate",
+            type: "approval.wait",
+            params: { proposedActionSummary: "Real approval gate" },
+          },
+          { id: "after", name: "After", type: "data.set", params: { value: { approved: true } } },
+        ],
+      },
+    });
+
+    const waiting = await runNativeAutomationWorkflow(workflow.id, {}, config);
+    expect(waiting.status).toBe("waiting_approval");
+
+    const resumed = await resumeNativeAutomationRun(waiting.id, { decision: "approved" }, config);
+    expect(resumed.status).toBe("succeeded");
+    expect(resumed.steps.map((s) => s.status)).toEqual(["succeeded", "succeeded"]);
+  });
+
+  // Positive regression: a forced dispatch completion advances the run.
+  it("advances a waiting_dispatch run when dispatchStatus=completed is provided", async () => {
+    const workflow = createNativeAutomationWorkflow({
+      tenantId: TENANT_ID,
+      companyId: COMPANY_ID,
+      name: "Forced dispatch workflow",
+      trigger: "manual",
+      status: "active",
+      definition: {
+        trigger: "manual",
+        steps: [
+          {
+            id: "handoff",
+            name: "Handoff",
+            type: "handoff.contract",
+            params: {
+              taskKind: "workflow.handoff",
+              targetAgentId: "agent-y",
+              contract: { objective: "Complete handoff" },
+              waitForCompletion: true,
+            },
+          },
+          { id: "after", name: "After", type: "data.set", params: { value: { dispatched: true } } },
+        ],
+      },
+    });
+
+    const waiting = await runNativeAutomationWorkflow(workflow.id, {}, config);
+    expect(waiting.status).toBe("waiting_dispatch");
+
+    const resumed = await resumeNativeAutomationRun(waiting.id, { dispatchStatus: "completed" }, config);
+    expect(resumed.status).toBe("succeeded");
+    expect(resumed.steps.map((s) => s.status)).toEqual(["succeeded", "succeeded"]);
+  });
 });

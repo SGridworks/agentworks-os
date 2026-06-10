@@ -19,6 +19,7 @@ describe("tenant-scoped route coverage", () => {
     { file: "approval-queue.ts", minTenantChecks: 4 },
     { file: "dispatch.ts", minTenantChecks: 7 },
     { file: "compliance.ts", minTenantChecks: 2 },
+    { file: "scanner.ts", minTenantChecks: 5 },
   ])("$file calls assertTenantAllowed at each tenant-scoped surface", ({ file, minTenantChecks }) => {
     const text = source(file);
     expect(text).toContain("assertTenantAllowed");
