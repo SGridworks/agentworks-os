@@ -40,6 +40,8 @@ export interface AutomationTemplate {
   id: string;
   name: string;
   trigger: string;
+  /** For event-triggered templates, the event kind they subscribe to (e.g. "scanner.finding"). */
+  event_kind?: string | null;
   status: string;
   description: string;
   definition: AutomationDefinition;
@@ -223,6 +225,8 @@ export interface AutomationStatus {
     active: boolean;
     status?: string;
     trigger?: string;
+    /** For event-triggered workflows, the event kind they subscribe to (e.g. "scanner.finding"). */
+    eventKind?: string | null;
     description?: string | null;
     definition: AutomationDefinition;
     updatedAt: string | null;

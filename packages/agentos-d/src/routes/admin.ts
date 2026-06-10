@@ -1501,6 +1501,7 @@ export function createAdminRouter(config: Config): Router {
         active: workflow.status === "active",
         status: workflow.status,
         trigger: workflow.trigger,
+        eventKind: workflow.eventKind ?? null,
         description: workflow.description,
         definition: workflow.definition,
         updatedAt: workflow.updatedAt,

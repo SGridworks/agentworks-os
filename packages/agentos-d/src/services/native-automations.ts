@@ -97,6 +97,8 @@ export interface NativeAutomationWorkflow {
   companyId: string;
   name: string;
   trigger: string;
+  /** For event-triggered workflows, the event kind they subscribe to (e.g. "scanner.finding"). */
+  eventKind: string | null;
   status: "active" | "paused";
   description: string | null;
   definition: NativeAutomationDefinition;
@@ -735,6 +737,7 @@ function mapWorkflow(row: any): NativeAutomationWorkflow {
     companyId: row.company_id,
     name: row.name,
     trigger: row.trigger_kind,
+    eventKind: row.event_kind ?? null,
     status: row.status,
     description: row.description ?? null,
     definition: parseJson<NativeAutomationDefinition>(row.definition_json, {
@@ -908,6 +911,7 @@ function mapTemplate(row: any, installed: Set<string>): NativeAutomationTemplate
     id: row.id,
     name: row.name,
     trigger: toTemplateTrigger(row.trigger_kind),
+    event_kind: row.event_kind ?? undefined,
     status: installed.has(row.id) ? "installed" : "available",
     description: row.description,
     definition: parseJson<NativeAutomationDefinition>(row.definition_json, {

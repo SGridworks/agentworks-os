@@ -927,6 +927,7 @@ export default function AutomationsV2() {
                 <tr>
                   <th>Name</th>
                   <th style={{ width: 120 }}>Trigger</th>
+                  <th style={{ width: 160 }}>Event</th>
                   <th style={{ width: 110 }}>Status</th>
                   <th style={{ width: 96 }} />
                 </tr>
@@ -939,6 +940,7 @@ export default function AutomationsV2() {
                       <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 3 }}>{template.description}</div>
                     </td>
                     <td className="mono" style={{ fontSize: 11 }}>{template.trigger}</td>
+                    <td className="mono" style={{ fontSize: 11 }}>{template.event_kind ?? '—'}</td>
                     <td><StatusPill kind="info">{template.status}</StatusPill></td>
                     <td>
                       <button
@@ -953,7 +955,7 @@ export default function AutomationsV2() {
                 ))}
                 {!status && (
                   <tr>
-                    <td colSpan={4} style={{ padding: 32, textAlign: 'center', color: 'var(--ink-4)', fontStyle: 'italic' }}>
+                    <td colSpan={5} style={{ padding: 32, textAlign: 'center', color: 'var(--ink-4)', fontStyle: 'italic' }}>
                       Loading...
                     </td>
                   </tr>
@@ -962,6 +964,30 @@ export default function AutomationsV2() {
             </table>
           </div>
         </div>
+
+        {(() => {
+          const activeEventSubs = (status?.workflows ?? []).filter(
+            (w) => w.trigger === 'event' && w.active && w.eventKind,
+          );
+          return (
+            <div className="card" style={{ padding: '12px 16px' }}>
+              <div className="eyebrow" style={{ marginBottom: 8 }}>ACTIVE EVENT SUBSCRIPTIONS</div>
+              {activeEventSubs.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--ink-4)', fontStyle: 'italic' }}>No active event subscriptions.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {activeEventSubs.map((w) => (
+                    <div key={w.id} className="mono" style={{ fontSize: 12 }}>
+                      <span style={{ fontWeight: 600 }}>{w.name}</span>
+                      <span style={{ color: 'var(--ink-3)', margin: '0 6px' }}>&rarr;</span>
+                      <span style={{ color: 'var(--accent)' }}>{w.eventKind}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--rule)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -973,6 +999,8 @@ export default function AutomationsV2() {
               <tr>
                 <th>Name</th>
                 <th style={{ width: 120 }}>State</th>
+                <th style={{ width: 120 }}>Trigger</th>
+                <th style={{ width: 160 }}>Event</th>
                 <th style={{ width: 150 }}>Version</th>
                 <th style={{ width: 180 }}>Updated</th>
                 <th style={{ width: 360 }} />
@@ -983,6 +1011,8 @@ export default function AutomationsV2() {
                 <tr key={workflow.id}>
                   <td style={{ fontWeight: 600 }}>{workflow.name}</td>
                   <td><StatusPill kind={workflow.active ? 'success' : 'muted'}>{workflow.active ? 'active' : 'paused'}</StatusPill></td>
+                  <td className="mono" style={{ fontSize: 11 }}>{workflow.trigger ?? '—'}</td>
+                  <td className="mono" style={{ fontSize: 11 }}>{workflow.eventKind ?? '—'}</td>
                   <td className="mono" style={{ fontSize: 11 }}>
                     v{workflow.currentVersion ?? '—'} · {(workflow.definitionHash ?? '').slice(0, 8) || 'pending'}
                   </td>
@@ -1010,7 +1040,7 @@ export default function AutomationsV2() {
               ))}
               {status && status.workflows.length === 0 && (
                 <tr>
-                  <td colSpan={5} style={{ padding: 32, textAlign: 'center', color: 'var(--ink-4)', fontStyle: 'italic' }}>
+                  <td colSpan={7} style={{ padding: 32, textAlign: 'center', color: 'var(--ink-4)', fontStyle: 'italic' }}>
                     No managed workflows yet.
                   </td>
                 </tr>
