@@ -23,7 +23,11 @@ services:
     container_name: agentos-d
     restart: unless-stopped
     ports:
-      - "7710:7710"   # REST + MCP
+      # Bound to loopback: the raw API (incl. operator memory + approval controls)
+      # must not be reachable from the LAN. Sibling containers reach it over the
+      # bridge network by service name. To expose deliberately, override the bind
+      # address AND set AGENTOS_API_KEY + AGENTOS_REQUIRE_TOKEN=true.
+      - "127.0.0.1:7710:7710"   # REST + MCP
     environment:
       AGENTOS_HOST: "0.0.0.0"
       AGENTOS_PORT: "7710"
@@ -31,15 +35,11 @@ services:
       AGENTOS_AWCP_VERSION: ${AGENTOS_AWCP_VERSION:-awcp/v0.1}
       RULE_PACKS_DIR: /opt/agentworks/rule-packs
       VAULT_ROOT: /data/vault
-      AGENTWORKS_DATA_DIR: /data
-      AGENTWORKS_SESSION_SECRET: ${AGENTWORKS_SESSION_SECRET}
-      AGENTOS_EXECUTION_DATABASE_URL: postgres://agentworks:${POSTGRES_PASSWORD:-agentworks-local}@postgres:5432/agentworks
+      AGENTOS_DATA_DIR: /data
+      AGENTOS_API_KEY: ${AGENTOS_API_KEY:-local-trusted}
     volumes:
       - ${AGENTWORKS_DATA_DIR:-./data}:/data            # SQLite DB, WAL, vault, uploads
       - ${AGENTWORKS_CONFIG_DIR:-./config}:/config:ro    # .env and secrets (read-only at runtime)
-    depends_on:
-      postgres:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://localhost:7710/api/health || exit 1"]
       interval: 30s
@@ -50,33 +50,12 @@ services:
       - agentworks
 
   # --------------------------------------------------------------------------
-  # postgres - local execution database
-  # --------------------------------------------------------------------------
-  postgres:
-    image: postgres:16-alpine
-    container_name: agentos-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-agentworks}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentworks-local}
-      POSTGRES_DB: ${POSTGRES_DB:-agentworks}
-    volumes:
-      - agentworks-postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentworks}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - agentworks
-
-  # --------------------------------------------------------------------------
   # scanner-worker — AgentGuard Python sidecar
   # --------------------------------------------------------------------------
   scanner-worker:
     build:
-      context: ${AGENTWORKS_SOURCE_DIR:-.}
-      dockerfile: packages/scanner-worker/Dockerfile
+      context: ${AGENTWORKS_SOURCE_DIR:-.}/packages/scanner-worker
+      dockerfile: Dockerfile
     image: ghcr.io/sgridworks/agentworks-os-v0.3/scanner-worker:${AGENTWORKS_VERSION:-0.3.0-alpha.0}
     container_name: scanner-worker
     restart: unless-stopped
@@ -111,54 +90,21 @@ services:
     container_name: agentworks-admin-ui
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      # Loopback-only by default — the UI proxies to the unauthenticated API, so
+      # exposing it to the LAN would re-expose agentos-d. Reach it via localhost
+      # or an SSH tunnel; expose deliberately only behind your own auth.
+      - "127.0.0.1:3000:3000"
     environment:
       NODE_ENV: production
       PORT: "3000"
+      # Target the daemon by service name over the bridge network. Without this
+      # the Next proxy falls back to 127.0.0.1, which inside this container is
+      # the UI itself, not the daemon.
       AGENTOS_API_URL: "http://agentos-d:7710"
       AGENTOS_API_KEY: ${AGENTOS_API_KEY:-local-trusted}
     depends_on:
       agentos-d:
         condition: service_healthy
-    networks:
-      - agentworks
-
-  # --------------------------------------------------------------------------
-  # n8n — workflow automation (admin-only; port not exposed by default)
-  # --------------------------------------------------------------------------
-  n8n:
-    build:
-      context: ${AGENTWORKS_SOURCE_DIR:-.}
-      dockerfile: packages/n8n-nodes/Dockerfile
-    container_name: agentworks-n8n
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:5678:5678"
-    environment:
-      - N8N_HOST=0.0.0.0
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=http
-      - WEBHOOK_URL=http://localhost:5678/
-      - N8N_CUSTOM_EXTENSIONS=/opt/agentworks/n8n-custom
-      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
-      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
-      - EXECUTIONS_DATA_SAVE_ON_VOLATICAL_ERROR=all
-      - GENERIC_TIMEZONE=America/New_York
-      # SQLite for n8n workflow data (bundled in the image)
-      - N8N_DATABASE_TYPE=sqlite
-      - N8N_DATABASE_SQLITE_VACUUM_ON_STARTUP=true
-      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false
-      - N8N_SECURE_COOKIE=false
-      - AGENTWORKS_API_URL=http://host.docker.internal:7710
-      - AGENTOS_API_URL=http://host.docker.internal:7710
-    volumes:
-      - ${AGENTWORKS_DATA_DIR:-./data}/n8n:/home/node/.n8n
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5678/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
     networks:
       - agentworks
 
@@ -173,6 +119,4 @@ networks:
 # ------------------------------------------------------------------------------
 # Volumes
 # ------------------------------------------------------------------------------
-volumes:
-  agentworks-postgres-data:
-    name: agentworks-postgres-data
+volumes: {}
