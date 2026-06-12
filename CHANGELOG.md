@@ -6,6 +6,8 @@ AgentWorks OS uses SemVer. Until `1.0.0`, minor versions may include breaking ch
 
 ## [Unreleased]
 
+## [0.3.0-alpha.1] - 2026-06-12
+
 ### Added
 
 - Autonomous compliance loop: approval and dispatch auto-resume so a parked run advances to a sealed evidence pack without further manual steps after the operator approves. A reconciler re-wakes any waiting run whose linked approval or dispatch resolved while the daemon was down, making the loop restart-safe.
@@ -17,6 +19,10 @@ AgentWorks OS uses SemVer. Until `1.0.0`, minor versions may include breaking ch
 - Return for revision: a reviewer's `return_to_author` decision parks the run in a non-terminal `waiting_revision` state (instead of failing); `POST /api/admin/automations/runs/:id/resubmit` and a **Resubmit** control on the Active Work page re-enter the approval gate with an optionally-revised input.
 - New env vars: `AGENTOS_SCANNER_AUTOLOOP_SEVERITIES` (default `high,critical`), `AGENTOS_APPROVAL_SLA_HOURS` (default `24`), `AGENTOS_STUCK_ISSUE_THRESHOLD_HOURS` (default `4`), `AGENTOS_EVENT_SWEEP_MS` (default `900000`), `AGENTOS_LOOP_RECONCILE_MS` (default `60000`).
 - [Compliance Loop guide](docs/compliance-loop.md) — operator and contributor documentation.
+
+### Fixed
+
+- Deploy Docs workflow: granted `contents: write` so `mkdocs gh-deploy` can push the `gh-pages` branch (previously failed with 403 on every docs change).
 
 ## [0.3.0-alpha.0] - 2026-06-07
 

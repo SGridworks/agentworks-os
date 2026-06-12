@@ -1,6 +1,6 @@
 {
   "name": "@agentworks/awcp",
-  "version": "0.3.0-alpha.0",
+  "version": "0.3.0-alpha.1",
   "description": "AgentWorks Compliance Protocol (AWCP) — canonical action schema, policy check API, audit log format, and rule pack manifest",
   "type": "module",
   "main": "./dist/index.js",
