@@ -267,6 +267,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.resolve-tag.outputs.tag }}
+          prerelease: ${{ contains(needs.resolve-tag.outputs.tag, '-') }}
           files: apps/installer/src/install.sh
           fail_on_unmatched_files: true
           generate_release_notes: false
