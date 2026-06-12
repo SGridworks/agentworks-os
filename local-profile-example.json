@@ -1,0 +1,53 @@
+{
+  "_comment": "Canonical example for ~/.agentworks/awos-local.profile.json. Copy to that path, edit, and the daemon will pick it up on next restart. Loader precedence: AGENTWORKS_LOCAL_PROFILE env path -> this file -> bridged defaults from ~/.agentworks/awos-local.env.",
+  "version": 1,
+
+  "_comment_repoRoot": "Absolute path to the agentworks-os checkout.",
+  "repoRoot": "/Users/example/Projects/agentworks-os",
+
+  "_comment_dataDir": "Directory holding agentworks.db plus WAL/SHM sidecars. Must match AGENTOS_DATA_DIR in awos-local.env to avoid dbPath-mismatch drift.",
+  "dataDir": "/Users/example/Library/Application Support/agentworks-os/data",
+
+  "_comment_dbPath": "Verified live DB path. Trust endpoint compares this to the daemon-opened path.",
+  "dbPath": "/Users/example/Library/Application Support/agentworks-os/data/agentworks.db",
+
+  "_comment_vaultRoot": "FileVaultStore root. Trust endpoint reports drift if this path is missing.",
+  "vaultRoot": "/Users/example/vault",
+
+  "_comment_tenantId": "Example local tenant. Companies enumerated below all belong to this tenant.",
+  "tenantId": "00000000-0000-4000-8000-000000000001",
+  "tenantName": "Local",
+
+  "_comment_expectedCompanies": "Names from execution_companies WHERE tenant_id = tenantId, ordered by name. Trust endpoint surfaces missing-expected-company if any are absent.",
+  "expectedCompanies": [
+    "AgentWorks",
+    "E2E-Test-Company"
+  ],
+
+  "_comment_alwaysKeepIssueIds": "Issue-preview classifier never marks these as cleanup candidates regardless of heartbeat or queue state.",
+  "alwaysKeepIssueIds": ["AWOS-STANDING"],
+
+  "_comment_ports": "admin = Next.js admin-ui (LaunchAgent com.agentworks.admin-ui-watchdog). api = agentos-d daemon (AGENTOS_PORT in env file is 7710 today).",
+  "ports": {
+    "admin": 3000,
+    "api": 7710
+  },
+
+  "_comment_launchdLabels": "Doctor checks these labels with launchctl print. Add new daemons here when introduced.",
+  "launchdLabels": [
+    "com.agentworks.admin-ui-watchdog",
+    "com.agentworks.wake-on-assign",
+    "com.agentworks.automation-engine",
+    "com.agentworks.review-router",
+    "ai.agentworks.daemon",
+    "ai.agentworks.bridge"
+  ],
+
+  "_comment_backupDir": "awos-snapshot.mjs writes <ts>.db + <ts>.json + <ts>.manifest.json triplets here. Operator creates the directory; sprint does not.",
+  "backupDir": "/Users/example/backups/awos-local",
+
+  "_comment_allowedFallbackModel": "Bridge fails closed unless FALLBACK_MODEL matches this.",
+  "allowedFallbackModel": "kimi-k2.6",
+
+  "_comment_lastKnownGoodSnapshot": "Optional. Filename (not full path) of the most recent snapshot validated by awos-restore-plan. Restore-plan refuses to suggest snapshots older than this without --force."
+}

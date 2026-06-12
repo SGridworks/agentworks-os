@@ -1,0 +1,878 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="AgentWorks Compliance Protocol v0.1 documentation">
+      
+      
+      
+        <link rel="canonical" href="https://sgridworks.github.io/agentworks-os/operator-ux-v2/command-palette-spec/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Command Palette UX Specification - AgentWorks AWCP Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#command-palette-ux-specification" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="AgentWorks AWCP Documentation" class="md-header__button md-logo" aria-label="AgentWorks AWCP Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AgentWorks AWCP Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Command Palette UX Specification
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/SGridworks/agentworks-os" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="AgentWorks AWCP Documentation" class="md-nav__button md-logo" aria-label="AgentWorks AWCP Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AgentWorks AWCP Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/SGridworks/agentworks-os" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../awcp/SPEC/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AWCP Spec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../install-runbook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rule-pack-authoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rule Pack Authoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../disclaimer-text/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disclaimer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#surfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Surfaces
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Surfaces">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#modal-ux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modal UX
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#context-pre-fill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context pre-fill
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Backend">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#action-registry-shape-yaml-tenant-scoped" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Action-registry shape (YAML, tenant-scoped)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API endpoints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#persistence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistence
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#frontend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frontend
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Frontend">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#react-implementation-sketch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        React implementation sketch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#styling-tokens-tailwind" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Styling tokens (Tailwind)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#out-of-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Out of scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open questions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v1-verb-list-seed-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v1 verb list (seed data)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="command-palette-ux-specification">Command Palette UX Specification<a class="headerlink" href="#command-palette-ux-specification" title="Permanent link">&para;</a></h1>
+<h2 id="goal">Goal<a class="headerlink" href="#goal" title="Permanent link">&para;</a></h2>
+<p>Deliver a keyboard-driven command palette that lets operators invoke any substrate action without leaving the keyboard. The palette surfaces tenant-scoped actions, pre-fills context from the current view, and returns an RFC 001 ActionEnvelope ready for policy evaluation.</p>
+<h2 id="surfaces">Surfaces<a class="headerlink" href="#surfaces" title="Permanent link">&para;</a></h2>
+<h3 id="modal-ux">Modal UX<a class="headerlink" href="#modal-ux" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Trigger</strong>: <code>Cmd+K</code> (macOS) / <code>Ctrl+K</code> (Linux/Win) from any admin-ui page.</li>
+<li><strong>Appearance</strong>: Centered overlay, 600 px wide, 80 % viewport height, glassmorphic background (<code>bg-slate-900/70</code>).</li>
+<li><strong>Search box</strong>: Auto-focused input, placeholder “Type a command or search…”, clears on <code>Escape</code>.</li>
+<li><strong>Results list</strong>: Max 7 visible items, virtual-scroll if registry &gt; 7. Each row shows:</li>
+<li>Icon (20×20 px, monochrome)</li>
+<li>Verb label (sentence-case)</li>
+<li>Keyboard shortcut right-aligned (if bound)</li>
+<li>One-line description (color <code>text-slate-400</code>, 14 px)</li>
+<li><strong>Selection</strong>: Arrow keys move highlight; <code>Enter</code> executes; <code>Escape</code> closes without action.</li>
+<li><strong>Empty state</strong>: “No commands match ‘foo’” with a “See all” link that clears the filter.</li>
+</ul>
+<h3 id="context-pre-fill">Context pre-fill<a class="headerlink" href="#context-pre-fill" title="Permanent link">&para;</a></h3>
+<p>When the palette opens we capture:
+- <code>tenantId</code> from route param
+- <code>page</code> token (<code>dashboard</code>, <code>approvals</code>, <code>vault</code>, <code>logs</code>)
+- Any selected entity id(s) from the view (multi-select supported)</p>
+<p>These values populate <code>context.meta</code> in the outgoing ActionEnvelope so rules can branch on UI state.</p>
+<h2 id="backend">Backend<a class="headerlink" href="#backend" title="Permanent link">&para;</a></h2>
+<h3 id="action-registry-shape-yaml-tenant-scoped">Action-registry shape (YAML, tenant-scoped)<a class="headerlink" href="#action-registry-shape-yaml-tenant-scoped" title="Permanent link">&para;</a></h3>
+<pre><code class="language-yaml"># /api/tenants/:id/actions registry entry
+id: approve-selected-approvals
+scope: tenant
+verb: Approve selected
+icon: check-circle
+description: Approve all currently selected items in the queue
+context:
+  page: approvals
+  requiresSelection: true
+  minSelection: 1
+parameters:
+  - name: reason
+    type: string
+    required: false
+    default: &quot;Approved via palette&quot;
+route: /api/tenants/{tenantId}/approvals/bulk-approve
+method: POST
+</code></pre>
+<p>Fields:
+- <code>id</code> – unique within tenant, kebab-case
+- <code>scope</code> – <code>tenant</code> (v1 only)
+- <code>verb</code> – human label shown in palette
+- <code>icon</code> – lucide name or custom svg id
+- <code>description</code> – one-line help
+- <code>context</code> – filters when the action is eligible
+  - <code>page</code> – optional whitelist; omit = always eligible
+  - <code>requiresSelection</code> – bool
+  - <code>minSelection</code> – int, default 0
+- <code>parameters</code> – ordered list; supports <code>string</code>, <code>number</code>, <code>boolean</code>, <code>enum</code>
+- <code>route</code> – absolute path, may contain <code>{tenantId}</code> or <code>{selection}</code> tokens
+- <code>method</code> – HTTP verb</p>
+<h3 id="api-endpoints">API endpoints<a class="headerlink" href="#api-endpoints" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>GET /api/tenants/:tenantId/actions</code></li>
+<li>Returns array of registry entries filtered by current page &amp; selection state</li>
+<li>200: <code>{ actions: ActionRegistryEntry[] }</code></li>
+<li><code>POST /api/tenants/:tenantId/actions/invoke</code></li>
+<li>Body: <code>{ actionId, parameters, context }</code></li>
+<li>Returns RFC 001 ActionEnvelope (same shape scanner uses)</li>
+<li>200: <code>{ envelope: ActionEnvelope }</code></li>
+<li>400: unknown action or missing param</li>
+<li>403: policy engine blocks (payload contains block reason)</li>
+</ul>
+<h3 id="persistence">Persistence<a class="headerlink" href="#persistence" title="Permanent link">&para;</a></h3>
+<p>Registry lives in SQLite table <code>tenant_actions</code>:</p>
+<pre><code class="language-sql">id TEXT PRIMARY KEY,
+tenant_id TEXT NOT NULL,
+scope TEXT NOT NULL,
+verb TEXT NOT NULL,
+icon TEXT,
+description TEXT,
+context_json TEXT,
+parameters_json TEXT,
+route TEXT NOT NULL,
+method TEXT NOT NULL,
+created_at TEXT DEFAULT CURRENT_TIMESTAMP
+</code></pre>
+<p>Seed rows are inserted per tenant on provisioning; operators may add rows via future UI (v1.1).</p>
+<h2 id="frontend">Frontend<a class="headerlink" href="#frontend" title="Permanent link">&para;</a></h2>
+<h3 id="react-implementation-sketch">React implementation sketch<a class="headerlink" href="#react-implementation-sketch" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>&lt;CommandPalette&gt;</code> portal mounted in <code>_app.tsx</code></li>
+<li><code>useKeyboardShortcut(['cmd+k', 'ctrl+k'], open)</code></li>
+<li><code>useQuery(['actions', tenantId, page, selection], fetchActions)</code></li>
+<li>Keyboard navigation with <code>useRef</code> list, <code>onKeyDown</code> handler</li>
+<li><code>execute()</code> calls <code>POST /actions/invoke</code>, receives envelope, then:</li>
+<li>If <code>allow</code> → POST to envelope.route with parameters</li>
+<li>If <code>block</code> → toast error with reason</li>
+<li>If <code>route_to_review</code> → navigate to <code>/approvals/new?envelope=...</code></li>
+</ul>
+<h3 id="styling-tokens-tailwind">Styling tokens (Tailwind)<a class="headerlink" href="#styling-tokens-tailwind" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Overlay: <code>fixed inset-0 z-50 flex items-center justify-center</code></li>
+<li>Modal: <code>w-[600px] h-4/5 rounded-xl bg-slate-900/70 backdrop-blur border border-slate-700</code></li>
+<li>Search input: <code>w-full px-4 py-3 bg-slate-800 text-slate-100 placeholder-slate-400 border-0 focus:ring-0</code></li>
+<li>Row hover: <code>bg-slate-800/60</code></li>
+<li>Highlight: <code>bg-slate-700/80</code></li>
+</ul>
+<h2 id="out-of-scope">Out of scope<a class="headerlink" href="#out-of-scope" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Global (cross-tenant) actions</li>
+<li>Custom operator-defined actions via UI (v1.1)</li>
+<li>Keyboard shortcut editor (v1.1)</li>
+<li>Voice invocation</li>
+<li>Mobile gesture trigger</li>
+</ul>
+<h2 id="open-questions">Open questions<a class="headerlink" href="#open-questions" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Do we ship a default icon set or require every registry entry to supply an icon?</li>
+<li>Should we support nested/grouped verbs (e.g., “Vault &gt; Rotate keys”) in v1?</li>
+<li>Do we stream partial parameter forms inside the palette (wizard style) or always open a secondary modal?</li>
+</ol>
+<h2 id="v1-verb-list-seed-data">v1 verb list (seed data)<a class="headerlink" href="#v1-verb-list-seed-data" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Verb</th>
+<th>Page</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>approve-selected-approvals</td>
+<td>Approve selected</td>
+<td>approvals</td>
+<td>Approve all selected approvals</td>
+</tr>
+<tr>
+<td>deny-selected-approvals</td>
+<td>Deny selected</td>
+<td>approvals</td>
+<td>Deny all selected approvals</td>
+</tr>
+<tr>
+<td>export-approvals-csv</td>
+<td>Export CSV</td>
+<td>approvals</td>
+<td>Download approvals as CSV</td>
+</tr>
+<tr>
+<td>rotate-vault-key</td>
+<td>Rotate vault key</td>
+<td>vault</td>
+<td>Rotate tenant master key</td>
+</tr>
+<tr>
+<td>purge-vault-entries</td>
+<td>Purge old entries</td>
+<td>vault</td>
+<td>Delete entries older than 90 days</td>
+</tr>
+<tr>
+<td>reprocess-failed-scans</td>
+<td>Re-process failed</td>
+<td>logs</td>
+<td>Retry policy evaluation for failed scans</td>
+</tr>
+<tr>
+<td>toggle-maintenance-mode</td>
+<td>Toggle maintenance</td>
+<td>dashboard</td>
+<td>Enable/disable maintenance mode</td>
+</tr>
+<tr>
+<td>invite-operator</td>
+<td>Invite operator</td>
+<td>dashboard</td>
+<td>Send invite to new operator</td>
+</tr>
+<tr>
+<td>view-audit-log</td>
+<td>View audit log</td>
+<td>dashboard</td>
+<td>Open full audit log</td>
+</tr>
+<tr>
+<td>generate-compliance-report</td>
+<td>Generate report</td>
+<td>dashboard</td>
+<td>Create compliance evidence report</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,774 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="AgentWorks Compliance Protocol v0.1 documentation">
+      
+      
+      
+        <link rel="canonical" href="https://sgridworks.github.io/agentworks-os/specs/2026-06-09-autonomous-compliance-loop/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Spec C1 — Autonomous Compliance Loop (seeded & demoable) - AgentWorks AWCP Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#spec-c1-autonomous-compliance-loop-seeded-demoable" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="AgentWorks AWCP Documentation" class="md-header__button md-logo" aria-label="AgentWorks AWCP Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AgentWorks AWCP Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Spec C1 — Autonomous Compliance Loop (seeded &amp; demoable)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/SGridworks/agentworks-os" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="AgentWorks AWCP Documentation" class="md-nav__button md-logo" aria-label="AgentWorks AWCP Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AgentWorks AWCP Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/SGridworks/agentworks-os" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../awcp/SPEC/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AWCP Spec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../install-runbook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install Runbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rule-pack-authoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rule Pack Authoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../disclaimer-text/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disclaimer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#goals-non-goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goals / non-goals
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decisions-locked" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decisions (locked)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#f1-auto-resume-the-spine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        F1 — Auto-resume (the spine)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#f3-simulated-adapter-opt-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        F3 — Simulated adapter (opt-in)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#f4-demo-seed-endpoint-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        F4 — Demo seed (endpoint + CLI)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#f5-golden-path-template-e2e-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        F5 — Golden-path template + e2e test
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#out-of-scope-future" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Out of scope (future)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="spec-c1-autonomous-compliance-loop-seeded-demoable">Spec C1 — Autonomous Compliance Loop (seeded &amp; demoable)<a class="headerlink" href="#spec-c1-autonomous-compliance-loop-seeded-demoable" title="Permanent link">&para;</a></h1>
+<p><strong>Date:</strong> 2026-06-09
+<strong>Status:</strong> Design — pending review
+<strong>Target:</strong> AgentWorks OS v0.3 line (<code>packages/agentos-d</code>)</p>
+<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
+<p>AWOS has broad, mostly-wired surface (~20 admin-ui pages render real daemon data), but the
+<em>automated</em> compliance loop has three broken joins, and a fresh install shows lifeless dashboards
+until a 20-minute setup. The intended loop is:</p>
+<pre><code>agent action → AgentGuard scan → policy evaluation → human approval → dispatch → sealed evidence pack
+</code></pre>
+<p>Confirmed gaps (file:line):
+- <strong>Approval → dispatch</strong> is a dead-end: a workflow parked on <code>approval.wait</code> never resumes — nothing
+  watches <code>approval_queue</code> review to continue the run (<code>native-automations.ts:2643</code>,
+  <code>approval-queue.ts:205-282</code>).
+- <strong>Dispatch → evidence</strong>: a completed dispatch doesn't resume the waiting run
+  (<code>dispatch-consumer.ts:315-330</code>, no lookup of <code>waiting_for_dispatch_id</code>).
+- <strong>No end-to-end template</strong>: no bundled workflow composes scan→policy→approval→dispatch→evidence.
+- <strong>No demo seed</strong>: fresh install starts empty; nothing to approve, nothing to watch.</p>
+<p>This spec closes those joins and makes the loop <strong>demonstrable out of the box in ~30 seconds</strong>, which
+is simultaneously the "complete the core loop" and "open-source differentiation" goal: <em>approve once,
+and the whole cryptographically-sealed compliance trail completes itself.</em></p>
+<h2 id="goals-non-goals">Goals / non-goals<a class="headerlink" href="#goals-non-goals" title="Permanent link">&para;</a></h2>
+<p><strong>Goals:</strong> (F1) approval/dispatch auto-resume the parked run; (F3) an opt-in simulated adapter so the
+loop produces realistic, clearly-labeled output with no external credentials; (F4) an owner-only demo
+seed; (F5) a golden-path template + e2e test proving the full chain.</p>
+<p><strong>Non-goals (this spec):</strong> admin-ui "Load demo" button (fast-follow), scanner→policy auto-evaluation
+(F2, next spec), real LLM adapters, multi-tenant auth changes (covered by Spec B).</p>
+<h2 id="decisions-locked">Decisions (locked)<a class="headerlink" href="#decisions-locked" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Simulated adapter is opt-in</strong> via <code>AWOS_ADAPTER=simulated</code>. The no-op <code>stubAdapter</code> remains the
+   default; quickstart/demo docs instruct enabling simulated. Default behavior is unchanged.</li>
+<li><strong>Demo seed ships as <code>POST /api/admin/demo/seed</code> + an <code>agentos seed-demo</code> CLI</strong> only. No admin-ui
+   work in this spec.</li>
+</ol>
+<h2 id="design">Design<a class="headerlink" href="#design" title="Permanent link">&para;</a></h2>
+<h3 id="f1-auto-resume-the-spine">F1 — Auto-resume (the spine)<a class="headerlink" href="#f1-auto-resume-the-spine" title="Permanent link">&para;</a></h3>
+<p>New service <code>packages/agentos-d/src/services/loop-driver.ts</code>, notified at both seams, plus a reconciler:
+- <code>onApprovalResolved(approvalId)</code>: looks up <code>native_automation_runs WHERE waiting_for_approval_id=?
+  AND status='waiting_approval'</code> → <code>resumeNativeAutomationRun(run.id, {decision, reviewedBy,
+  reviewNote})</code>. Resume advances to the <code>dispatch</code> step, which enqueues and returns quickly (does not
+  block the HTTP response). Called from the review handler at <code>approval-queue.ts:281</code> <strong>after</strong> the DB
+  update + WebSocket broadcast.
+- <code>onDispatchResolved(dispatchId, outcome)</code>: looks up <code>native_automation_runs WHERE
+  waiting_for_dispatch_id=? AND status='waiting_dispatch'</code> → <code>resumeNativeAutomationRun(run.id,
+  {dispatchStatus})</code>. Called from <code>dispatch-consumer.ts</code> after <code>markCompleted</code>/<code>markFailed</code>.
+- <code>reconcileWaitingRuns()</code>: a cron-registered sweep that resumes any waiting run whose linked
+  approval/dispatch already resolved — closes the "lost wakeup after a restart" gap and makes the loop
+  self-healing. Logs counts of resumed/failed (fail-loud).
+- <strong>Safety:</strong> <code>resumeNativeAutomationRun</code> already performs an atomic status claim (added in the Spec-B
+  fix work), so duplicate triggers from the inline hook + the reconciler are no-ops. Resume failures
+  mark the run <code>failed</code> with a <code>terminal_reason</code> and surface on the existing <code>/active-work</code> page.
+- <strong>Migration <code>0043_loop_indexes.ts</code>:</strong> indexes on <code>native_automation_runs(waiting_for_approval_id,
+  status)</code> and <code>(waiting_for_dispatch_id, status)</code> for scan-free lookups.</p>
+<p>Reuses: <code>resumeNativeAutomationRun</code> (<code>native-automations.ts:2175</code>), the cron registration pattern from
+<code>evidence-report-cron.ts</code>.</p>
+<h3 id="f3-simulated-adapter-opt-in">F3 — Simulated adapter (opt-in)<a class="headerlink" href="#f3-simulated-adapter-opt-in" title="Permanent link">&para;</a></h3>
+<p>New <code>packages/agentos-d/src/adapters/simulated-adapter.ts</code> implementing the dispatch-consumer
+<code>AgentAdapter</code> interface (<code>run(input): Promise&lt;AdapterOutcome&gt;</code>, <code>dispatch-consumer.ts:54-57</code>). It
+returns <strong>deterministic, role-aware, clearly-labeled</strong> output:
+- review role → a verdict + a couple of synthetic findings; engineer → a short diff/summary; default →
+  a plausible completion note.
+- Every outcome carries <code>simulated: true</code>, propagated into the dispatch result summary and the evidence
+  pack, so simulated output is never mistaken for real agent work (fail-loud / surface uncertainty).
+- Determinism: output varies by a hash of the input (agent id + task), no RNG — keeps the e2e test
+  stable.
+- Selection: extend <code>buildAdapter</code> in <code>cli.ts:28-48</code> so <code>AWOS_ADAPTER=simulated</code> returns the new
+  adapter; <code>stub</code>/unset → existing no-op (unchanged default); <code>router</code>/<code>kimi</code> → real adapters.</p>
+<h3 id="f4-demo-seed-endpoint-cli">F4 — Demo seed (endpoint + CLI)<a class="headerlink" href="#f4-demo-seed-endpoint-cli" title="Permanent link">&para;</a></h3>
+<p>New <code>packages/agentos-d/src/routes/admin/demo-seed.ts</code>: <code>POST /api/admin/demo/seed</code>, owner-only (reuses
+Spec-B <code>requireScope("admin")</code> / <code>requireLocalAdmin</code>). It creates, idempotently and flagged as demo:
+- a synthetic demo tenant (neutral name, public-safe) via the onboarding init path
+  (<code>onboarding.ts:179</code>),
+- two agents (review, engineer roles),
+- a few sample issues + scanner findings,
+- the <code>compliance-loop</code> workflow (F5) plus a <strong>run executed up to <code>waiting_approval</code></strong> (call
+  <code>runNativeAutomationWorkflow</code> — it parks at <code>approval.wait</code>).
+Result: the operator opens <code>/approvals</code>, sees a pending item, approves once, and — with
+<code>AWOS_ADAPTER=simulated</code> — watches F1 drive dispatch → sealed evidence pack. Re-running the seed is
+idempotent (skip/replace); the demo tenant is flagged for easy deletion. The <code>agentos seed-demo</code> CLI
+calls the same service and prints the "start with AWOS_ADAPTER=simulated" hint and the approvals URL.</p>
+<h3 id="f5-golden-path-template-e2e-test">F5 — Golden-path template + e2e test<a class="headerlink" href="#f5-golden-path-template-e2e-test" title="Permanent link">&para;</a></h3>
+<ul>
+<li>New <code>compliance-loop</code> template in <code>TEMPLATE_DEFINITIONS</code> (<code>native-automations.ts:258-583</code>):
+  <strong>trigger <code>manual</code></strong>, steps <code>policy.check → approval.wait → dispatch → evidence.pack</code>, evaluated
+  against a sample action/finding supplied in the run <strong>input</strong> (so the demo is self-contained and does
+  not depend on the live scanner sidecar — the scanner→policy auto-trigger is F2, out of scope). No
+  bundled template composes the full chain today; this is the canonical one.</li>
+<li><code>packages/agentos-d/src/services/compliance-loop.e2e.test.ts</code>: seeds the workflow, runs it (parks at
+  approval), drives an approval through the review path, asserts it advances to dispatch, the simulated
+  adapter completes it, dispatch-completion auto-resumes the run, and <code>evidence.pack</code> produces a
+  <strong>sealed</strong> pack referencing the decision + dispatch ids. This is both the regression proof and the
+  demo script.</li>
+</ul>
+<h2 id="files">Files<a class="headerlink" href="#files" title="Permanent link">&para;</a></h2>
+<p><strong>New:</strong> <code>services/loop-driver.ts</code>, <code>adapters/simulated-adapter.ts</code>, <code>routes/admin/demo-seed.ts</code>,
+<code>db/migrations/0043_loop_indexes.ts</code>, <code>services/compliance-loop.e2e.test.ts</code>, plus unit tests for
+loop-driver and simulated-adapter.
+<strong>Modify:</strong> <code>routes/approval-queue.ts</code> (call <code>onApprovalResolved</code> post-broadcast),
+<code>services/dispatch-consumer.ts</code> (call <code>onDispatchResolved</code> post-complete/fail), <code>cli.ts</code> (simulated
+adapter selection + register reconciler cron), <code>services/native-automations.ts</code> (add <code>compliance-loop</code>
+template; ensure <code>simulated</code> flag flows into the evidence pack), <code>db/migrations/index.ts</code> (wire 0043),
+<code>docs/quickstart.md</code> (demo seed + <code>AWOS_ADAPTER=simulated</code> walkthrough).</p>
+<p><strong>Reuse:</strong> <code>resumeNativeAutomationRun</code> + its atomic claim, <code>createNativeAutomationEvidencePack</code>
+(<code>native-automations.ts:2445</code>), <code>generateEvidenceReport</code>/<code>signPdf</code> (<code>evidence-report.ts:66,103</code>),
+onboarding tenant-seed (<code>onboarding.ts:179</code>), the <code>evidence-report-cron</code> registration pattern, Spec-B
+<code>requireScope</code>/<code>requireLocalAdmin</code>.</p>
+<h2 id="verification">Verification<a class="headerlink" href="#verification" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Unit — loop-driver</strong>: <code>onApprovalResolved</code> resumes exactly the matching run; no match → no-op;
+   <code>reconcileWaitingRuns</code> resumes an orphaned waiting run; double-trigger (hook + reconciler) runs the
+   workflow once (atomic-claim guard).</li>
+<li><strong>Unit — simulated adapter</strong>: deterministic output for a fixed input; <code>simulated:true</code> present;
+   role-specific shapes.</li>
+<li><strong>Integration — <code>compliance-loop.e2e.test.ts</code></strong>: full chain produces a sealed evidence pack;
+   reject path terminates the run without dispatch.</li>
+<li><strong>Seed</strong>: <code>POST /api/admin/demo/seed</code> is owner-gated (401/403 without owner principal), idempotent,
+   and leaves a run at <code>waiting_approval</code>; <code>agentos seed-demo</code> produces the same state.</li>
+<li><strong>Regression</strong>: full <code>pnpm --filter @agentworks/agentos-d test</code> stays green (876 today); default
+   <code>AWOS_ADAPTER</code> behavior unchanged (stub) — confirm no existing dispatch test flips.</li>
+<li><strong>Manual demo</strong>: fresh DB → <code>agentos seed-demo</code> → start daemon with <code>AWOS_ADAPTER=simulated</code> → open
+   <code>/approvals</code> → approve → confirm <code>/active-work</code> shows the run completing and <code>/evidence</code> shows a
+   sealed pack, end-to-end, no external credentials.</li>
+<li><strong>Release safety</strong>: <code>pnpm check:public-release</code> / <code>check:product-surfaces</code> / <code>check:version</code> stay
+   green (no private strings in the seed data or template).</li>
+</ol>
+<h2 id="out-of-scope-future">Out of scope (future)<a class="headerlink" href="#out-of-scope-future" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Admin-ui one-click "Load demo" button (fast-follow on F4).</li>
+<li>F2 scanner→policy auto-evaluation (next spec).</li>
+<li>Real LLM adapters / credential management.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
