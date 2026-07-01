@@ -9,8 +9,8 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 # Constants
 # -----------------------------------------------------------------------------
-readonly INSTALLER_VERSION="0.3.0-alpha.1"  # BUMP ON RELEASE
-readonly REPO="SGridworks/agentworks-os-v0.3"
+readonly INSTALLER_VERSION="0.3.0-alpha.2"  # BUMP ON RELEASE
+readonly REPO="SGridworks/agentworks-os"
 readonly COMPOSE_URL="https://raw.githubusercontent.com/${REPO}/main/docker-compose.yml"
 readonly GITHUB_API="https://api.github.com"
 readonly AGENTWORKS_DIR="${AGENTWORKS_DIR:-$HOME/.agentworks}"

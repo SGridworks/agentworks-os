@@ -9,8 +9,8 @@
 # rather than downloading from GitHub.
 set -euo pipefail
 
-INSTALLER_VERSION="0.3.0-alpha.1"  # BUMP ON RELEASE
-REPO="SGridworks/agentworks-os-v0.3"
+INSTALLER_VERSION="0.3.0-alpha.2"  # BUMP ON RELEASE
+REPO="SGridworks/agentworks-os"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 
 # ---------------------------------------------------------------------------

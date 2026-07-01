@@ -6,6 +6,17 @@ AgentWorks OS uses SemVer. Until `1.0.0`, minor versions may include breaking ch
 
 ## [Unreleased]
 
+## [0.3.0-alpha.2] - 2026-07-01
+
+### Changed
+
+- Container images are now signed with cosign using keyless / OIDC signing (the GitHub Actions workflow identity via Fulcio, recorded in the Rekor transparency log). There is no signing key or secret to manage. Verify an image with `cosign verify --certificate-identity-regexp '^https://github.com/SGridworks/agentworks-os/' --certificate-oidc-issuer https://token.actions.githubusercontent.com ghcr.io/sgridworks/agentworks-os/<image>:<version>`.
+- Container images now publish to the `ghcr.io/sgridworks/agentworks-os/*` namespace (previously `agentworks-os-v0.3/*`), matching the repository name after the 2026-07-01 consolidation. `docker-compose.yml`, `docker-compose.dev.yml`, the installer scripts, and the CLI reference the new namespace. Images previously published under `agentworks-os-v0.3/*` remain pullable.
+
+### Documentation
+
+- README: broadened positioning from "regulated small businesses" to "AI agents in regulated industries" (energy/grid NERC/FERC, real estate, health-adjacent, insurance, financial FINRA/GLBA/SOX), and replaced the hardcoded release-candidate line with a pointer to the Releases page.
+
 ## [0.3.0-alpha.1] - 2026-06-12
 
 ### Added

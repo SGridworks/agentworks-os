@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-agentworks-memory-write",
-  "version": "0.3.0-alpha.1",
+  "version": "0.3.0-alpha.2",
   "description": "AgentWorks Memory Write node for n8n",
   "n8n": {
     "n8nNodesApiVersion": 1,

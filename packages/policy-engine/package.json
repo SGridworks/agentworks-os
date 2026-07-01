@@ -1,6 +1,6 @@
 {
   "name": "@agentworks/policy-engine",
-  "version": "0.3.0-alpha.1",
+  "version": "0.3.0-alpha.2",
   "description": "YAML rule pack loader and evaluator for AgentWorks OS compliance engine",
   "type": "module",
   "main": "./dist/index.js",

@@ -6,7 +6,7 @@
 #
 set -euo pipefail
 
-INSTALLER_VERSION="0.3.0-alpha.1"  # BUMP ON RELEASE
+INSTALLER_VERSION="0.3.0-alpha.2"  # BUMP ON RELEASE
 AGENTWORKS_DIR="${AGENTWORKS_DIR:-$HOME/.agentworks}"
 DATA_DIR="${AGENTWORKS_DIR}/data"
 CONFIG_DIR="${AGENTWORKS_DIR}/config"
@@ -83,7 +83,7 @@ download_compose() {
   fi
 
   # GitHub-based install: fetch docker-compose.yml, the seed script, and workflows
-  local base_url="https://raw.githubusercontent.com/SGridworks/agentworks-os-v0.3/main"
+  local base_url="https://raw.githubusercontent.com/SGridworks/agentworks-os/main"
   local ok=true
 
   if ! curl -fsSL -L "$base_url/docker-compose.yml" -o "$compose_file" 2>/dev/null; then
@@ -126,7 +126,7 @@ gen_secrets() {
   # Resolve the installed version: prefer the release tag fetched at runtime,
   # fall back to the compiled-in INSTALLER_VERSION constant.
   local resolved_version
-  resolved_version=$(curl -s "https://api.github.com/repos/SGridworks/agentworks-os-v0.3/releases/latest" 2>/dev/null \
+  resolved_version=$(curl -s "https://api.github.com/repos/SGridworks/agentworks-os/releases/latest" 2>/dev/null \
     | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v?([^"]+)".*/\1/p' | head -1 || true)
   [[ -z "$resolved_version" ]] && resolved_version="${INSTALLER_VERSION}"
 

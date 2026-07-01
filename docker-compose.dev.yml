@@ -28,7 +28,7 @@ services:
     build:
       context: .
       dockerfile: packages/agentos-d/Dockerfile
-    image: ghcr.io/sgridworks/agentworks-os-v0.3/agentos-d:dev
+    image: ghcr.io/sgridworks/agentworks-os/agentos-d:dev
     container_name: agentworks-agentos-d
     restart: unless-stopped
     ports:
@@ -60,7 +60,7 @@ services:
   # scanner-worker — AgentGuard Python sidecar
   # ------------------------------------------------------------------
   scanner-worker:
-    image: ghcr.io/sgridworks/agentworks-os-v0.3/scanner-worker:dev
+    image: ghcr.io/sgridworks/agentworks-os/scanner-worker:dev
     container_name: agentworks-scanner
     restart: unless-stopped
     ports:

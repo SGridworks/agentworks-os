@@ -26,8 +26,8 @@ readonly CONFIG_DIR="${AGENTWORKS_DIR}/config"
 readonly SECRETS_FILE="${CONFIG_DIR}/secrets.json"
 readonly LOG_DIR="${AGENTWORKS_DIR}/logs"
 readonly DATA_DIR="${AGENTWORKS_DIR}/data"
-readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.3.0-alpha.1}"  # BUMP ON RELEASE
-readonly REPO="SGridworks/agentworks-os-v0.3"
+readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.3.0-alpha.2}"  # BUMP ON RELEASE
+readonly REPO="SGridworks/agentworks-os"
 readonly GITHUB_RELEASES="https://api.github.com/repos/${REPO}/releases"
 
 # Color codes
