@@ -40,6 +40,7 @@ jobs:
       sha7: ${{ steps.r.outputs.sha7 }}
       owner_lc: ${{ steps.r.outputs.owner_lc }}
       image_prefix: ${{ steps.r.outputs.image_prefix }}
+      image_prefix_legacy: ${{ steps.r.outputs.image_prefix_legacy }}
     steps:
       - id: validate
         run: |
@@ -76,6 +77,13 @@ jobs:
           # free before the v0.3.0-alpha.2 cut and matching the repo name
           # after the 2026-07-01 repo consolidation.
           image_prefix="ghcr.io/${owner_lc}/agentworks-os"
+          # Migration mirror: this repo also owns the old
+          # `agentworks-os-v0.3/*` packages (published before the rename).
+          # We dual-publish this release there so installs from
+          # 0.3.0-alpha.1 — whose updater only overrides the version tag
+          # against a compose file pinned to the old namespace — can still
+          # pull. Retire this once alpha.1 installs are gone.
+          image_prefix_legacy="ghcr.io/${owner_lc}/agentworks-os-v0.3"
           {
             echo "tag=$tag"
             echo "version=$version"
@@ -83,6 +91,7 @@ jobs:
             echo "sha7=$sha7"
             echo "owner_lc=$owner_lc"
             echo "image_prefix=$image_prefix"
+            echo "image_prefix_legacy=$image_prefix_legacy"
           } >> "$GITHUB_OUTPUT"
           echo "Resolved: tag=$tag version=$version minor=$minor sha7=$sha7 image_prefix=$image_prefix"
 
@@ -168,6 +177,7 @@ jobs:
       - name: Create multi-arch manifest for ${{ matrix.image }}
         env:
           IMG: ${{ needs.resolve-tag.outputs.image_prefix }}/${{ matrix.image }}
+          LEGACY: ${{ needs.resolve-tag.outputs.image_prefix_legacy }}/${{ matrix.image }}
           TAG: ${{ needs.resolve-tag.outputs.tag }}
           VERSION: ${{ needs.resolve-tag.outputs.version }}
           MINOR: ${{ needs.resolve-tag.outputs.minor }}
@@ -178,6 +188,15 @@ jobs:
             -t "$IMG:$VERSION" \
             -t "$IMG:$MINOR" \
             -t "$IMG:sha-$SHA7" \
+            "$IMG:$TAG-amd64" \
+            "$IMG:$TAG-arm64"
+          # Migration mirror: assemble the same multi-arch manifest under
+          # the legacy namespace from the identical per-platform images
+          # (no rebuild). See resolve-tag for why.
+          docker buildx imagetools create \
+            -t "$LEGACY:$VERSION" \
+            -t "$LEGACY:$MINOR" \
+            -t "$LEGACY:sha-$SHA7" \
             "$IMG:$TAG-amd64" \
             "$IMG:$TAG-arm64"
 
@@ -217,41 +236,46 @@ jobs:
       - name: Sign ${{ matrix.image }} (keyless / OIDC)
         env:
           IMG: ${{ needs.resolve-tag.outputs.image_prefix }}/${{ matrix.image }}
+          LEGACY: ${{ needs.resolve-tag.outputs.image_prefix_legacy }}/${{ matrix.image }}
           VERSION: ${{ needs.resolve-tag.outputs.version }}
         run: |
           set -euo pipefail
-          # cosign resolves the tag to its immutable digest and anchors
-          # the signature to that digest (not the mutable tag).
+          # cosign resolves each tag to its immutable digest and anchors
+          # the signature to that digest (not the mutable tag). Sign both
+          # the canonical manifest and the legacy migration mirror.
           cosign sign --yes "$IMG:$VERSION"
+          cosign sign --yes "$LEGACY:$VERSION"
 
       # Try /user/... first (works for user-owned packages), fall back
       # to /orgs/... (org-owned, the SGridworks case). After flipping,
       # verify the package is actually public by reading visibility
       # back; a silent flip failure would let a green release ship with
       # private images and unauthenticated docker pull would 401.
-      - name: Make ${{ matrix.image }} GHCR package public
+      - name: Make ${{ matrix.image }} GHCR packages public
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          pkg="agentworks-os/${{ matrix.image }}"
-          enc="${pkg//\//%2F}"
           owner_lc="${{ needs.resolve-tag.outputs.owner_lc }}"
-          if gh api -X PATCH "/user/packages/container/${enc}/visibility" -f visibility=public >/dev/null 2>&1; then
-            echo "ok: flipped ${pkg} public via /user"
-          elif gh api -X PATCH "/orgs/${owner_lc}/packages/container/${enc}/visibility" -f visibility=public >/dev/null 2>&1; then
-            echo "ok: flipped ${pkg} public via /orgs"
-          else
-            echo "warn: PATCH visibility failed via both /user and /orgs (may already be public)"
-          fi
-          vis="$(gh api "/users/${owner_lc}/packages/container/${enc}" --jq .visibility 2>/dev/null \
-              || gh api "/orgs/${owner_lc}/packages/container/${enc}" --jq .visibility 2>/dev/null \
-              || echo "")"
-          if [ "$vis" != "public" ]; then
-            echo "::error::${pkg} visibility is '${vis:-unknown}', not public — unauthenticated docker pull will fail"
-            exit 1
-          fi
-          echo "verified: ${pkg} visibility=public"
+          # Flip both the canonical and the legacy-mirror packages public.
+          for pkg in "agentworks-os/${{ matrix.image }}" "agentworks-os-v0.3/${{ matrix.image }}"; do
+            enc="${pkg//\//%2F}"
+            if gh api -X PATCH "/user/packages/container/${enc}/visibility" -f visibility=public >/dev/null 2>&1; then
+              echo "ok: flipped ${pkg} public via /user"
+            elif gh api -X PATCH "/orgs/${owner_lc}/packages/container/${enc}/visibility" -f visibility=public >/dev/null 2>&1; then
+              echo "ok: flipped ${pkg} public via /orgs"
+            else
+              echo "warn: PATCH visibility failed via both /user and /orgs for ${pkg} (may already be public)"
+            fi
+            vis="$(gh api "/users/${owner_lc}/packages/container/${enc}" --jq .visibility 2>/dev/null \
+                || gh api "/orgs/${owner_lc}/packages/container/${enc}" --jq .visibility 2>/dev/null \
+                || echo "")"
+            if [ "$vis" != "public" ]; then
+              echo "::error::${pkg} visibility is '${vis:-unknown}', not public — unauthenticated docker pull will fail"
+              exit 1
+            fi
+            echo "verified: ${pkg} visibility=public"
+          done
 
   # ------------------------------------------------------------------
   # Attach install.sh to the GitHub Release for this tag once images
