@@ -157,7 +157,11 @@ cmd_update() {
   log_step "Checking for updates..."
 
   local latest_version
-  latest_version=$(curl -s "$GITHUB_RELEASES/latest" 2>/dev/null \
+  # Query the releases list, not /latest: GitHub's /releases/latest
+  # returns only the newest NON-prerelease, so it never sees alpha/beta
+  # tags. per_page=1 returns just the newest release (prereleases
+  # included); -L follows the redirect if the repo was renamed.
+  latest_version=$(curl -sL "${GITHUB_RELEASES}?per_page=1" 2>/dev/null \
     | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v?([^"]+)".*/\1/p' | head -1 || true)
 
   if [[ -z "$latest_version" ]]; then
@@ -196,6 +200,15 @@ cmd_update() {
     rm -f "${tmp_compose}"
     return 1
   fi
+
+  # Back up the current config so a failed pull/start rolls back cleanly
+  # instead of leaving the install pointed at an unreachable image.
+  local rb_dir="${AGENTWORKS_DIR}/.update-rollback"
+  rm -rf "$rb_dir"; mkdir -p "$rb_dir"
+  cp -p "$COMPOSE_FILE" "${rb_dir}/docker-compose.yml" 2>/dev/null || true
+  [[ -f "${AGENTWORKS_DIR}/.env" ]] && cp -p "${AGENTWORKS_DIR}/.env" "${rb_dir}/env.root"   || true
+  [[ -f "${CONFIG_DIR}/.env" ]]     && cp -p "${CONFIG_DIR}/.env"     "${rb_dir}/env.config" || true
+
   mv "${tmp_compose}" "${COMPOSE_FILE}"
   log_info "Updated docker-compose.yml for ${latest_version}."
 
@@ -212,11 +225,18 @@ cmd_update() {
     fi
   done
 
-  log_step "Pulling updated images..."
-  AGENTWORKS_VERSION="$latest_version" $compose_cmd pull
-
-  log_step "Starting updated services..."
-  AGENTWORKS_VERSION="$latest_version" $compose_cmd up -d
+  log_step "Pulling and starting updated services..."
+  if ! AGENTWORKS_VERSION="$latest_version" $compose_cmd pull \
+     || ! AGENTWORKS_VERSION="$latest_version" $compose_cmd up -d; then
+    log_error "Update failed; rolling back to ${AGENTWORKS_VERSION} and restarting."
+    cp -p "${rb_dir}/docker-compose.yml" "$COMPOSE_FILE" 2>/dev/null || true
+    [[ -f "${rb_dir}/env.root" ]]   && cp -p "${rb_dir}/env.root"   "${AGENTWORKS_DIR}/.env" || true
+    [[ -f "${rb_dir}/env.config" ]] && cp -p "${rb_dir}/env.config" "${CONFIG_DIR}/.env"     || true
+    AGENTWORKS_VERSION="$AGENTWORKS_VERSION" $compose_cmd up -d >/dev/null 2>&1 || true
+    rm -rf "$rb_dir"
+    return 1
+  fi
+  rm -rf "$rb_dir"
 
   log_info "Update complete."
 }
