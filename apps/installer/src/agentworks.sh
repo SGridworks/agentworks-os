@@ -149,6 +149,17 @@ cmd_update() {
   local compose_cmd
   compose_cmd=$(get_compose_cmd)
 
+  # Prefer the version persisted by a prior update over the value baked
+  # into this script: `agentworks update` does not replace the CLI
+  # wrapper, so the embedded AGENTWORKS_VERSION goes stale after an
+  # in-place upgrade. The persisted .env is the source of truth.
+  local current_version="$AGENTWORKS_VERSION"
+  if [[ -f "${AGENTWORKS_DIR}/.env" ]]; then
+    local persisted
+    persisted=$(sed -nE 's/^AGENTWORKS_VERSION=([^[:space:]]+).*/\1/p' "${AGENTWORKS_DIR}/.env" | head -1 || true)
+    [[ -n "$persisted" ]] && current_version="$persisted"
+  fi
+
   local check_only=false
   if [[ "${1:-}" == "--check" ]]; then
     check_only=true
@@ -170,18 +181,18 @@ cmd_update() {
   fi
 
   if [[ "$check_only" == "true" ]]; then
-    if [[ "$latest_version" == "$AGENTWORKS_VERSION" ]]; then
+    if [[ "$latest_version" == "$current_version" ]]; then
       echo "You are on the latest version: ${latest_version}"
     else
-      echo "Current: ${AGENTWORKS_VERSION}  Latest: ${latest_version}"
+      echo "Current: ${current_version}  Latest: ${latest_version}"
     fi
     return 0
   fi
 
   log_info "Latest version: ${latest_version}"
-  log_info "Current version: ${AGENTWORKS_VERSION}"
+  log_info "Current version: ${current_version}"
 
-  if [[ "$latest_version" == "$AGENTWORKS_VERSION" ]]; then
+  if [[ "$latest_version" == "$current_version" ]]; then
     log_info "Already on the latest version."
     return 0
   fi
@@ -232,11 +243,11 @@ cmd_update() {
   log_step "Pulling and starting updated services..."
   if ! env AGENTWORKS_VERSION="$latest_version" $compose_cmd pull \
      || ! env AGENTWORKS_VERSION="$latest_version" $compose_cmd up -d; then
-    log_error "Update failed; rolling back to ${AGENTWORKS_VERSION} and restarting."
+    log_error "Update failed; rolling back to ${current_version} and restarting."
     cp -p "${rb_dir}/docker-compose.yml" "$COMPOSE_FILE" 2>/dev/null || true
     [[ -f "${rb_dir}/env.root" ]]   && cp -p "${rb_dir}/env.root"   "${AGENTWORKS_DIR}/.env" || true
     [[ -f "${rb_dir}/env.config" ]] && cp -p "${rb_dir}/env.config" "${CONFIG_DIR}/.env"     || true
-    env AGENTWORKS_VERSION="$AGENTWORKS_VERSION" $compose_cmd up -d >/dev/null 2>&1 || true
+    env AGENTWORKS_VERSION="$current_version" $compose_cmd up -d >/dev/null 2>&1 || true
     rm -rf "$rb_dir"
     return 1
   fi
