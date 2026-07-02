@@ -126,7 +126,7 @@ gen_secrets() {
   # Resolve the installed version: prefer the release tag fetched at runtime,
   # fall back to the compiled-in INSTALLER_VERSION constant.
   local resolved_version
-  resolved_version=$(curl -s "https://api.github.com/repos/SGridworks/agentworks-os/releases/latest" 2>/dev/null \
+  resolved_version=$(curl -sL "https://api.github.com/repos/SGridworks/agentworks-os/releases?per_page=1" 2>/dev/null \
     | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v?([^"]+)".*/\1/p' | head -1 || true)
   [[ -z "$resolved_version" ]] && resolved_version="${INSTALLER_VERSION}"
 
