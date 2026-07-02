@@ -182,6 +182,23 @@ cmd_update() {
     return 0
   fi
 
+  # Refresh the compose file so image paths (registry namespace), ports,
+  # and service definitions from the new release are applied — not just
+  # the version tag. Without this, a release that moved the GHCR
+  # namespace or changed services would make `compose pull` fetch a
+  # non-existent manifest. Fetch the target release's compose so it
+  # matches the images being pulled, and only swap it in on success.
+  log_step "Refreshing docker-compose.yml for ${latest_version}..."
+  local compose_url="https://raw.githubusercontent.com/${REPO}/v${latest_version}/docker-compose.yml"
+  local tmp_compose="${COMPOSE_FILE}.new"
+  if ! curl -fsSL -L "${compose_url}" -o "${tmp_compose}"; then
+    log_error "Failed to download docker-compose.yml for ${latest_version} from ${compose_url}"
+    rm -f "${tmp_compose}"
+    return 1
+  fi
+  mv "${tmp_compose}" "${COMPOSE_FILE}"
+  log_info "Updated docker-compose.yml for ${latest_version}."
+
   log_step "Pulling updated images..."
   AGENTWORKS_VERSION="$latest_version" $compose_cmd pull
 

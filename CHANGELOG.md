@@ -12,6 +12,7 @@ AgentWorks OS uses SemVer. Until `1.0.0`, minor versions may include breaking ch
 
 - Container images are now signed with cosign using keyless / OIDC signing (the GitHub Actions workflow identity via Fulcio, recorded in the Rekor transparency log). There is no signing key or secret to manage; the signature is anchored to the image digest cosign resolves from the release tag. Verify an image with `cosign verify --certificate-identity-regexp '^https://github.com/SGridworks/agentworks-os/' --certificate-oidc-issuer https://token.actions.githubusercontent.com ghcr.io/sgridworks/agentworks-os/<image>:<version>`.
 - Container images now publish to the `ghcr.io/sgridworks/agentworks-os/*` namespace (previously `agentworks-os-v0.3/*`), matching the repository name after the 2026-07-01 consolidation. `docker-compose.yml`, `docker-compose.dev.yml`, the installer scripts, and the CLI reference the new namespace. Images previously published under `agentworks-os-v0.3/*` remain pullable.
+- `agentworks update` now refreshes `docker-compose.yml` from the target release before pulling, so registry-namespace, port, and service changes are applied on upgrade — not just the version tag. Previously an upgrade only overrode `AGENTWORKS_VERSION`, so this release's namespace move would have made `compose pull` fetch a non-existent manifest on existing installs.
 
 ### Documentation
 
