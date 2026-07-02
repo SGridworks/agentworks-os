@@ -199,6 +199,19 @@ cmd_update() {
   mv "${tmp_compose}" "${COMPOSE_FILE}"
   log_info "Updated docker-compose.yml for ${latest_version}."
 
+  # Persist the new version in .env so later plain `docker compose`
+  # calls from the install dir resolve the refreshed compose to the
+  # correct tag (not the old tag under the new namespace).
+  local env_file
+  for env_file in "${AGENTWORKS_DIR}/.env" "${CONFIG_DIR}/.env"; do
+    [[ -f "$env_file" ]] || continue
+    if grep -q '^AGENTWORKS_VERSION=' "$env_file"; then
+      sed -i.bak "s/^AGENTWORKS_VERSION=.*/AGENTWORKS_VERSION=${latest_version}/" "$env_file" && rm -f "${env_file}.bak"
+    else
+      printf 'AGENTWORKS_VERSION=%s\n' "$latest_version" >> "$env_file"
+    fi
+  done
+
   log_step "Pulling updated images..."
   AGENTWORKS_VERSION="$latest_version" $compose_cmd pull
 
