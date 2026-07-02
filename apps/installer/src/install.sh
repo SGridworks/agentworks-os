@@ -9,8 +9,8 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 # Constants
 # -----------------------------------------------------------------------------
-readonly INSTALLER_VERSION="0.3.0-alpha.1"  # BUMP ON RELEASE
-readonly REPO="SGridworks/agentworks-os-v0.3"
+readonly INSTALLER_VERSION="0.3.0-alpha.2"  # BUMP ON RELEASE
+readonly REPO="SGridworks/agentworks-os"
 readonly COMPOSE_URL="https://raw.githubusercontent.com/${REPO}/main/docker-compose.yml"
 readonly GITHUB_API="https://api.github.com"
 readonly AGENTWORKS_DIR="${AGENTWORKS_DIR:-$HOME/.agentworks}"
@@ -170,7 +170,7 @@ generate_secrets() {
   # Resolve the installed version: prefer the release tag fetched at runtime,
   # fall back to the compiled-in INSTALLER_VERSION constant.
   local resolved_version
-  resolved_version=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
+  resolved_version=$(curl -sL "https://api.github.com/repos/${REPO}/releases?per_page=1" 2>/dev/null \
     | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v?([^"]+)".*/\1/p' | head -1 || true)
   [[ -z "$resolved_version" ]] && resolved_version="${INSTALLER_VERSION}"
 

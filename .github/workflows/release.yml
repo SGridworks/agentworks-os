@@ -69,12 +69,13 @@ jobs:
           minor="${core%.*}"
           sha7="$(git rev-parse HEAD | cut -c1-7)"
           owner_lc="$(printf '%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
-          # The `awos` namespace is owned by SGridworks/agentworks-os-vps
-          # and the older `agentworks`/`agentworks-os` org packages are
-          # bound to the archived SGridworks/agentworks-os repo; this
-          # repo's GITHUB_TOKEN cannot write to either. A fresh
-          # namespace lets first-push bind the packages to this repo.
-          image_prefix="ghcr.io/${owner_lc}/agentworks-os-v0.3"
+          # This repo owns the `agentworks-os` GHCR namespace. The
+          # predecessors published under `agentworks`/`awos` (now bound
+          # to agentworks-os-original / agentworks-os-vps), leaving
+          # `agentworks-os/*` free for first-push to bind here — verified
+          # free before the v0.3.0-alpha.2 cut and matching the repo name
+          # after the 2026-07-01 repo consolidation.
+          image_prefix="ghcr.io/${owner_lc}/agentworks-os"
           {
             echo "tag=$tag"
             echo "version=$version"
@@ -181,9 +182,17 @@ jobs:
             "$IMG:$TAG-arm64"
 
   # ------------------------------------------------------------------
-  # Sign the multi-arch manifests with cosign (skipped if the secret
-  # isn't configured) and flip GHCR packages to public so
+  # Sign the multi-arch manifests with cosign using keyless / OIDC
+  # signing: the GitHub Actions workflow identity via Fulcio, recorded
+  # in the Rekor transparency log. There is no private key or secret to
+  # manage, rotate, or leak. Then flip GHCR packages to public so
   # unauthenticated `docker compose pull` works for end users.
+  #
+  # Verify a published image with:
+  #   cosign verify \
+  #     --certificate-identity-regexp '^https://github.com/SGridworks/agentworks-os/' \
+  #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  #     <image-prefix>/<image>:<version>
   # ------------------------------------------------------------------
   sign-and-publicize:
     needs: [resolve-tag, manifest]
@@ -205,19 +214,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Sign ${{ matrix.image }} (skipped if key absent)
+      - name: Sign ${{ matrix.image }} (keyless / OIDC)
         env:
-          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
           IMG: ${{ needs.resolve-tag.outputs.image_prefix }}/${{ matrix.image }}
           VERSION: ${{ needs.resolve-tag.outputs.version }}
         run: |
           set -euo pipefail
-          if [ -z "${COSIGN_PRIVATE_KEY:-}" ]; then
-            echo "COSIGN_PRIVATE_KEY not set — skipping signing for ${{ matrix.image }} (image is published unsigned)."
-            exit 0
-          fi
-          echo "$COSIGN_PRIVATE_KEY" | cosign sign --yes --key - "$IMG:$VERSION"
+          # cosign resolves the tag to its immutable digest and anchors
+          # the signature to that digest (not the mutable tag).
+          cosign sign --yes "$IMG:$VERSION"
 
       # Try /user/... first (works for user-owned packages), fall back
       # to /orgs/... (org-owned, the SGridworks case). After flipping,
@@ -229,7 +234,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          pkg="agentworks-os-v0.3/${{ matrix.image }}"
+          pkg="agentworks-os/${{ matrix.image }}"
           enc="${pkg//\//%2F}"
           owner_lc="${{ needs.resolve-tag.outputs.owner_lc }}"
           if gh api -X PATCH "/user/packages/container/${enc}/visibility" -f visibility=public >/dev/null 2>&1; then

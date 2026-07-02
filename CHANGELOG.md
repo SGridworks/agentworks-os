@@ -6,6 +6,26 @@ AgentWorks OS uses SemVer. Until `1.0.0`, minor versions may include breaking ch
 
 ## [Unreleased]
 
+## [0.3.0-alpha.2] - 2026-07-01
+
+### Changed
+
+- Container images are now signed with cosign using keyless / OIDC signing (the GitHub Actions workflow identity via Fulcio, recorded in the Rekor transparency log). There is no signing key or secret to manage; the signature is anchored to the image digest cosign resolves from the release tag. Verify an image with `cosign verify --certificate-identity-regexp '^https://github.com/SGridworks/agentworks-os/' --certificate-oidc-issuer https://token.actions.githubusercontent.com ghcr.io/sgridworks/agentworks-os/<image>:<version>`.
+- Container images now publish to the `ghcr.io/sgridworks/agentworks-os/*` namespace (previously `agentworks-os-v0.3/*`), matching the repository name after the 2026-07-01 consolidation. `docker-compose.yml`, `docker-compose.dev.yml`, the installer scripts, and the CLI reference the new namespace.
+- `agentworks update` is now functional and safe. It queries the releases list instead of `/releases/latest` (which hides prereleases, so the previous updater could never discover an alpha/beta tag); it refreshes `docker-compose.yml` and the persisted `AGENTWORKS_VERSION` from the target release before pulling, so registry-namespace, port, and service changes are applied on upgrade — not just the version tag; and it rolls the configuration back if the pull or restart fails.
+
+### Upgrading from 0.3.0-alpha.1
+
+New installs and all future upgrades use the `agentworks-os/*` namespace automatically. Existing 0.3.0-alpha.1 installs must **re-run the installer** to upgrade: their bundled `agentworks update` predates the discovery fix and cannot find prerelease tags, and their compose file is pinned to the old image namespace. Re-running the installer migrates them to the new namespace and the fixed updater (after which upgrades work in place):
+
+```bash
+curl -fsSL https://github.com/SGridworks/agentworks-os/releases/download/v0.3.0-alpha.2/install.sh | bash
+```
+
+### Documentation
+
+- README: broadened positioning from "regulated small businesses" to "AI agents in regulated industries" (energy/grid NERC/FERC, real estate, health-adjacent, insurance, financial FINRA/GLBA/SOX), and replaced the hardcoded release-candidate line with a pointer to the Releases page.
+
 ## [0.3.0-alpha.1] - 2026-06-12
 
 ### Added

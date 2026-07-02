@@ -26,8 +26,8 @@ readonly CONFIG_DIR="${AGENTWORKS_DIR}/config"
 readonly SECRETS_FILE="${CONFIG_DIR}/secrets.json"
 readonly LOG_DIR="${AGENTWORKS_DIR}/logs"
 readonly DATA_DIR="${AGENTWORKS_DIR}/data"
-readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.3.0-alpha.1}"  # BUMP ON RELEASE
-readonly REPO="SGridworks/agentworks-os-v0.3"
+readonly AGENTWORKS_VERSION="${AGENTWORKS_VERSION:-0.3.0-alpha.2}"  # BUMP ON RELEASE
+readonly REPO="SGridworks/agentworks-os"
 readonly GITHUB_RELEASES="https://api.github.com/repos/${REPO}/releases"
 
 # Color codes
@@ -149,6 +149,17 @@ cmd_update() {
   local compose_cmd
   compose_cmd=$(get_compose_cmd)
 
+  # Prefer the version persisted by a prior update over the value baked
+  # into this script: `agentworks update` does not replace the CLI
+  # wrapper, so the embedded AGENTWORKS_VERSION goes stale after an
+  # in-place upgrade. The persisted .env is the source of truth.
+  local current_version="$AGENTWORKS_VERSION"
+  if [[ -f "${AGENTWORKS_DIR}/.env" ]]; then
+    local persisted
+    persisted=$(sed -nE 's/^AGENTWORKS_VERSION=([^[:space:]]+).*/\1/p' "${AGENTWORKS_DIR}/.env" | head -1 || true)
+    [[ -n "$persisted" ]] && current_version="$persisted"
+  fi
+
   local check_only=false
   if [[ "${1:-}" == "--check" ]]; then
     check_only=true
@@ -157,7 +168,11 @@ cmd_update() {
   log_step "Checking for updates..."
 
   local latest_version
-  latest_version=$(curl -s "$GITHUB_RELEASES/latest" 2>/dev/null \
+  # Query the releases list, not /latest: GitHub's /releases/latest
+  # returns only the newest NON-prerelease, so it never sees alpha/beta
+  # tags. per_page=1 returns just the newest release (prereleases
+  # included); -L follows the redirect if the repo was renamed.
+  latest_version=$(curl -sL "${GITHUB_RELEASES}?per_page=1" 2>/dev/null \
     | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v?([^"]+)".*/\1/p' | head -1 || true)
 
   if [[ -z "$latest_version" ]]; then
@@ -166,27 +181,77 @@ cmd_update() {
   fi
 
   if [[ "$check_only" == "true" ]]; then
-    if [[ "$latest_version" == "$AGENTWORKS_VERSION" ]]; then
+    if [[ "$latest_version" == "$current_version" ]]; then
       echo "You are on the latest version: ${latest_version}"
     else
-      echo "Current: ${AGENTWORKS_VERSION}  Latest: ${latest_version}"
+      echo "Current: ${current_version}  Latest: ${latest_version}"
     fi
     return 0
   fi
 
   log_info "Latest version: ${latest_version}"
-  log_info "Current version: ${AGENTWORKS_VERSION}"
+  log_info "Current version: ${current_version}"
 
-  if [[ "$latest_version" == "$AGENTWORKS_VERSION" ]]; then
+  if [[ "$latest_version" == "$current_version" ]]; then
     log_info "Already on the latest version."
     return 0
   fi
 
-  log_step "Pulling updated images..."
-  AGENTWORKS_VERSION="$latest_version" $compose_cmd pull
+  # Refresh the compose file so image paths (registry namespace), ports,
+  # and service definitions from the new release are applied — not just
+  # the version tag. Without this, a release that moved the GHCR
+  # namespace or changed services would make `compose pull` fetch a
+  # non-existent manifest. Fetch the target release's compose so it
+  # matches the images being pulled, and only swap it in on success.
+  log_step "Refreshing docker-compose.yml for ${latest_version}..."
+  local compose_url="https://raw.githubusercontent.com/${REPO}/v${latest_version}/docker-compose.yml"
+  local tmp_compose="${COMPOSE_FILE}.new"
+  if ! curl -fsSL -L "${compose_url}" -o "${tmp_compose}"; then
+    log_error "Failed to download docker-compose.yml for ${latest_version} from ${compose_url}"
+    rm -f "${tmp_compose}"
+    return 1
+  fi
 
-  log_step "Starting updated services..."
-  AGENTWORKS_VERSION="$latest_version" $compose_cmd up -d
+  # Back up the current config so a failed pull/start rolls back cleanly
+  # instead of leaving the install pointed at an unreachable image.
+  local rb_dir="${AGENTWORKS_DIR}/.update-rollback"
+  rm -rf "$rb_dir"; mkdir -p "$rb_dir"
+  cp -p "$COMPOSE_FILE" "${rb_dir}/docker-compose.yml" 2>/dev/null || true
+  [[ -f "${AGENTWORKS_DIR}/.env" ]] && cp -p "${AGENTWORKS_DIR}/.env" "${rb_dir}/env.root"   || true
+  [[ -f "${CONFIG_DIR}/.env" ]]     && cp -p "${CONFIG_DIR}/.env"     "${rb_dir}/env.config" || true
+
+  mv "${tmp_compose}" "${COMPOSE_FILE}"
+  log_info "Updated docker-compose.yml for ${latest_version}."
+
+  # Persist the new version in .env so later plain `docker compose`
+  # calls from the install dir resolve the refreshed compose to the
+  # correct tag (not the old tag under the new namespace).
+  local env_file
+  for env_file in "${AGENTWORKS_DIR}/.env" "${CONFIG_DIR}/.env"; do
+    [[ -f "$env_file" ]] || continue
+    if grep -q '^AGENTWORKS_VERSION=' "$env_file"; then
+      sed -i.bak "s/^AGENTWORKS_VERSION=.*/AGENTWORKS_VERSION=${latest_version}/" "$env_file" && rm -f "${env_file}.bak"
+    else
+      printf 'AGENTWORKS_VERSION=%s\n' "$latest_version" >> "$env_file"
+    fi
+  done
+
+  # Use `env` to set AGENTWORKS_VERSION for the compose child: it is
+  # declared readonly at startup, so a bash command-prefix assignment
+  # (`VAR=x cmd`) would error and never run the command. `env` also
+  # overrides any inherited/exported value that would otherwise beat .env.
+  log_step "Pulling and starting updated services..."
+  if ! env AGENTWORKS_VERSION="$latest_version" $compose_cmd pull \
+     || ! env AGENTWORKS_VERSION="$latest_version" $compose_cmd up -d; then
+    log_error "Update failed; rolling back to ${current_version} and restarting."
+    cp -p "${rb_dir}/docker-compose.yml" "$COMPOSE_FILE" 2>/dev/null || true
+    [[ -f "${rb_dir}/env.root" ]]   && cp -p "${rb_dir}/env.root"   "${AGENTWORKS_DIR}/.env" || true
+    [[ -f "${rb_dir}/env.config" ]] && cp -p "${rb_dir}/env.config" "${CONFIG_DIR}/.env"     || true
+    env AGENTWORKS_VERSION="$current_version" $compose_cmd up -d >/dev/null 2>&1 || true
+    rm -rf "$rb_dir"
+    return 1
+  fi
+  rm -rf "$rb_dir"
 
   log_info "Update complete."
 }

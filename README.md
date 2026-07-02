@@ -1,8 +1,8 @@
 # AgentWorks OS
 
-The AI compliance firewall for regulated small businesses.
+The compliance firewall for AI agents in regulated industries.
 
-Current release candidate: `v0.3.0-alpha.0`.
+Current pre-release: see [Releases](https://github.com/SGridworks/agentworks-os/releases) for the latest tag.
 
 ## What it does
 
@@ -12,9 +12,9 @@ The substrate also gives agents persistent memory of your business, a durable sy
 
 ## Who it's for
 
-Regulated SMBs running AI lead‑gen, outreach, or workflow automation—real‑estate brokerages, health‑adjacent services, insurance agencies, financial advisors. Teams where the user of AI isn’t the same person who set it up.
+Teams in regulated industries running AI for lead‑gen, outreach, or workflow automation—energy and grid operators (NERC, FERC), real‑estate brokerages (Fair Housing, TCPA), health‑adjacent services (HIPAA), insurance agencies, and financial advisers (FINRA, GLBA, SOX). Anywhere the person using AI isn’t the person who set it up.
 
-If your lawyer has ever asked “who approved that outbound?” or “how do we prove that message was TCPA‑compliant?”, this is the substrate that lets you answer.
+If your lawyer, auditor, or regulator has ever asked “who approved that?” or “how do we prove that action was compliant?”, this is the substrate that lets you answer.
 
 ## Quick install
 
