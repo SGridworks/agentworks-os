@@ -208,8 +208,6 @@ jobs:
         with:
           cosign-release: 'v2.4.1'
 
-      - uses: docker/setup-buildx-action@v3
-
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -222,10 +220,9 @@ jobs:
           VERSION: ${{ needs.resolve-tag.outputs.version }}
         run: |
           set -euo pipefail
-          # Sign the immutable digest, not the mutable tag.
-          digest="$(docker buildx imagetools inspect "$IMG:$VERSION" --format '{{println .Manifest.Digest}}' | head -n1)"
-          [ -n "$digest" ] || { echo "::error::could not resolve digest for $IMG:$VERSION"; exit 1; }
-          cosign sign --yes "$IMG@$digest"
+          # cosign resolves the tag to its immutable digest and anchors
+          # the signature to that digest (not the mutable tag).
+          cosign sign --yes "$IMG:$VERSION"
 
       # Try /user/... first (works for user-owned packages), fall back
       # to /orgs/... (org-owned, the SGridworks case). After flipping,
