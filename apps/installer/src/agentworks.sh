@@ -225,14 +225,18 @@ cmd_update() {
     fi
   done
 
+  # Use `env` to set AGENTWORKS_VERSION for the compose child: it is
+  # declared readonly at startup, so a bash command-prefix assignment
+  # (`VAR=x cmd`) would error and never run the command. `env` also
+  # overrides any inherited/exported value that would otherwise beat .env.
   log_step "Pulling and starting updated services..."
-  if ! AGENTWORKS_VERSION="$latest_version" $compose_cmd pull \
-     || ! AGENTWORKS_VERSION="$latest_version" $compose_cmd up -d; then
+  if ! env AGENTWORKS_VERSION="$latest_version" $compose_cmd pull \
+     || ! env AGENTWORKS_VERSION="$latest_version" $compose_cmd up -d; then
     log_error "Update failed; rolling back to ${AGENTWORKS_VERSION} and restarting."
     cp -p "${rb_dir}/docker-compose.yml" "$COMPOSE_FILE" 2>/dev/null || true
     [[ -f "${rb_dir}/env.root" ]]   && cp -p "${rb_dir}/env.root"   "${AGENTWORKS_DIR}/.env" || true
     [[ -f "${rb_dir}/env.config" ]] && cp -p "${rb_dir}/env.config" "${CONFIG_DIR}/.env"     || true
-    AGENTWORKS_VERSION="$AGENTWORKS_VERSION" $compose_cmd up -d >/dev/null 2>&1 || true
+    env AGENTWORKS_VERSION="$AGENTWORKS_VERSION" $compose_cmd up -d >/dev/null 2>&1 || true
     rm -rf "$rb_dir"
     return 1
   fi
