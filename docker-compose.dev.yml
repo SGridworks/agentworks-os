@@ -60,6 +60,9 @@ services:
   # scanner-worker — AgentGuard Python sidecar
   # ------------------------------------------------------------------
   scanner-worker:
+    build:
+      context: ./packages/scanner-worker
+      dockerfile: Dockerfile
     image: ghcr.io/sgridworks/agentworks-os/scanner-worker:dev
     container_name: agentworks-scanner
     restart: unless-stopped
