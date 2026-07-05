@@ -636,6 +636,13 @@ export interface UpdateIssueBody {
   priority?: 'critical' | 'high' | 'medium' | 'low';
   assigneeAgentId?: string | null;
   comment?: string;
+  /**
+   * Closing an issue or reopening a done/closed issue is operator-only on the
+   * daemon's state machine (see issue-transitions.ts). Callers that let a
+   * human pick any status from a dropdown — e.g. the issues editor — must
+   * send actorType: 'human' or those transitions get 409'd.
+   */
+  actorType?: 'human' | 'agent' | 'system';
 }
 
 export function patchIssue(issueId: string, body: UpdateIssueBody) {

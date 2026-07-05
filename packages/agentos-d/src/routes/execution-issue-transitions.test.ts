@@ -24,6 +24,16 @@ describe("PATCH /api/issues/:id — state-machine enforcement", () => {
     return res.body.id as string;
   }
 
+  async function setStatus(
+    id: string,
+    status: string,
+    actorType?: "human" | "agent" | "system",
+  ) {
+    return request(app)
+      .patch(`/api/issues/${id}`)
+      .send(actorType ? { status, actorType } : { status });
+  }
+
   beforeEach(async () => {
     resetDb();
     dataDir = mkdtempSync(join(tmpdir(), "awo-issue-sm-"));
@@ -73,14 +83,14 @@ describe("PATCH /api/issues/:id — state-machine enforcement", () => {
   it("allows todo->in_progress->review->done and sets completed_at exactly once", async () => {
     const id = await newIssue();
 
-    let res = await request(app).patch(`/api/issues/${id}`).send({ status: "in_progress" });
+    let res = await setStatus(id, "in_progress");
     expect(res.status).toBe(200);
     expect(res.body.completedAt).toBeNull();
 
-    res = await request(app).patch(`/api/issues/${id}`).send({ status: "review" });
+    res = await setStatus(id, "review");
     expect(res.status).toBe(200);
 
-    res = await request(app).patch(`/api/issues/${id}`).send({ status: "done" });
+    res = await setStatus(id, "done");
     expect(res.status).toBe(200);
     expect(res.body.completedAt).not.toBeNull();
     const completedAt = res.body.completedAt as string;
@@ -92,20 +102,35 @@ describe("PATCH /api/issues/:id — state-machine enforcement", () => {
     expect(res.body.completedAt).toBe(completedAt);
   });
 
-  it("rejects the illegal jump todo->done with 409 and leaves the issue unchanged", async () => {
-    const id = await newIssue();
+  // Regression lock: these three edges were missing from the old graph and
+  // 409'd legitimate bridge/review-adapter PATCHes. They must now succeed for
+  // any actor (no actorType supplied).
+  describe("previously-missing edges are now legal (the bug)", () => {
+    it("todo -> done", async () => {
+      const id = await newIssue();
+      const res = await setStatus(id, "done");
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("done");
+      expect(res.body.completedAt).not.toBeNull();
+    });
 
-    const res = await request(app).patch(`/api/issues/${id}`).send({ status: "done" });
-    expect(res.status).toBe(409);
-    expect(res.body.error).toBe("illegal_transition");
-    expect(res.body.from).toBe("todo");
-    expect(res.body.to).toBe("done");
-    expect(res.body.allowed).toContain("in_progress");
+    it("review -> todo", async () => {
+      const id = await newIssue();
+      await setStatus(id, "in_progress");
+      await setStatus(id, "review");
+      const res = await setStatus(id, "todo");
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("todo");
+    });
 
-    const after = await request(app).get(`/api/issues/${id}`);
-    expect(after.status).toBe(200);
-    expect(after.body.status).toBe("todo");
-    expect(after.body.completedAt).toBeNull();
+    it("blocked -> done", async () => {
+      const id = await newIssue();
+      await setStatus(id, "blocked");
+      const res = await setStatus(id, "done");
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("done");
+      expect(res.body.completedAt).not.toBeNull();
+    });
   });
 
   it("still rejects an unknown status with 400 (enum validation intact)", async () => {
@@ -128,12 +153,51 @@ describe("PATCH /api/issues/:id — state-machine enforcement", () => {
     expect(res.body.completedAt).not.toBeNull();
   });
 
-  it("clears completed_at when reopening done->in_progress", async () => {
-    const id = await newIssue();
-    await request(app).patch(`/api/issues/${id}`).send({ status: "in_progress" });
-    await request(app).patch(`/api/issues/${id}`).send({ status: "done" });
-    const res = await request(app).patch(`/api/issues/${id}`).send({ status: "in_progress" });
-    expect(res.status).toBe(200);
-    expect(res.body.completedAt).toBeNull();
+  describe("operator gating: closing and reopening a terminal issue", () => {
+    it("rejects done->in_progress (reopen) for an agent actor with 409", async () => {
+      const id = await newIssue();
+      await setStatus(id, "in_progress");
+      await setStatus(id, "done");
+
+      const res = await setStatus(id, "in_progress", "agent");
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("illegal_transition");
+      expect(res.body.from).toBe("done");
+      expect(res.body.to).toBe("in_progress");
+    });
+
+    it("rejects done->in_progress (reopen) with no actorType at all (defaults non-human)", async () => {
+      const id = await newIssue();
+      await setStatus(id, "in_progress");
+      await setStatus(id, "done");
+
+      const res = await setStatus(id, "in_progress");
+      expect(res.status).toBe(409);
+    });
+
+    it("allows done->in_progress (reopen) for a human actor and clears completed_at", async () => {
+      const id = await newIssue();
+      await setStatus(id, "in_progress");
+      await setStatus(id, "done");
+
+      const res = await setStatus(id, "in_progress", "human");
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("in_progress");
+      expect(res.body.completedAt).toBeNull();
+    });
+
+    it("rejects todo->closed for a system actor with 409", async () => {
+      const id = await newIssue();
+      const res = await setStatus(id, "closed", "system");
+      expect(res.status).toBe(409);
+      expect(res.body.allowed).not.toContain("closed");
+    });
+
+    it("allows todo->closed for a human actor", async () => {
+      const id = await newIssue();
+      const res = await setStatus(id, "closed", "human");
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("closed");
+    });
   });
 });

@@ -234,6 +234,10 @@ export default function IssuesPage() {
         status: editor.status,
         priority: editor.priority,
         assigneeAgentId: editor.assigneeAgentId || null,
+        // A human is driving this form and can pick any status, including
+        // closing the issue or reopening a done/closed one — both of which
+        // the daemon gates to actorType: 'human'.
+        actorType: 'human',
       });
       setIssues((rows) => rows.map((issue) => (issue.id === updated.id ? updated : issue)));
       setSelectedIssueId(updated.id);

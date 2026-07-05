@@ -161,6 +161,10 @@ const UpdateIssueSchema = z.object({
   blockedOn: z.array(IdSchema).optional(),
   metadata: JsonObjectSchema.optional(),
   comment: z.string().min(1).max(20000).optional(),
+  // Audit/gating context — closing or reopening a terminal issue is
+  // operator-only (see isLegalTransition). Absent actorType is treated as
+  // non-human so autonomous callers can never close/reopen.
+  actorType: z.enum(["human", "agent", "system"]).optional(),
 });
 
 const CommentSchema = z.object({
@@ -530,13 +534,17 @@ export function createExecutionRouter(_config: Config): Router {
     if (
       parsed.data.status &&
       parsed.data.status !== current.status &&
-      !isLegalTransition(current.status as IssueStatus, parsed.data.status as IssueStatus)
+      !isLegalTransition(
+        current.status as IssueStatus,
+        parsed.data.status as IssueStatus,
+        parsed.data.actorType,
+      )
     ) {
       return res.status(409).json({
         error: "illegal_transition",
         from: current.status,
         to: parsed.data.status,
-        allowed: allowedNextStates(current.status as IssueStatus),
+        allowed: allowedNextStates(current.status as IssueStatus, parsed.data.actorType),
       });
     }
     const row = {
