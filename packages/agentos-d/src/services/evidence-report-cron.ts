@@ -13,8 +13,9 @@ import { eq, and } from "drizzle-orm";
 import pino from "pino";
 import { getDb } from "../db/index.js";
 import { tenants, evidenceReports } from "../db/schema.js";
-import { generateEvidenceReport } from "./evidence-report.js";
+import { generateEvidenceReport, evidenceReportKeyDir } from "./evidence-report.js";
 import { isPaused } from "../pause-service.js";
+import { loadConfig } from "../config.js";
 
 const logger = pino({ name: "evidence-report-cron" });
 
@@ -26,6 +27,13 @@ export interface CronOptions {
   intervalMs?: number;
   /** Override tenant lookup for tests. */
   listTenants?: () => string[];
+  /**
+   * Directory holding evidence-report signing keys. Defaults to
+   * loadConfig().dataDir + "/keys" so the cron agrees with the route's
+   * config.dataDir-derived key location without requiring the caller to
+   * thread config through explicitly.
+   */
+  keyDir?: string;
 }
 
 export interface TickResult {
@@ -39,9 +47,11 @@ export interface TickResult {
 
 export class EvidenceReportCron {
   private timer: NodeJS.Timeout | null = null;
+  private readonly keyDir: string;
 
   constructor(private readonly opts: CronOptions) {
     if (!opts.engine) throw new Error("EvidenceReportCron: engine required");
+    this.keyDir = opts.keyDir ?? evidenceReportKeyDir(loadConfig().dataDir);
   }
 
   start(): void {
@@ -85,6 +95,7 @@ export class EvidenceReportCron {
           periodStart,
           periodEnd,
           engine: this.opts.engine,
+          keyDir: this.keyDir,
           now: () => now.toISOString(),
         });
         result.generated.push(tenantId);

@@ -31,6 +31,16 @@ import { signPdf } from "./evidence-report-signing.js";
 /** Relative path under the data directory where HMAC signing keys are stored. */
 const KEY_DIR = "keys";
 
+/**
+ * Canonical signing-key directory for a given dataDir. Sign, verify, and the
+ * cron all must agree on this one location — callers with access to the
+ * daemon's real Config (config.dataDir, from AGENTOS_DATA_DIR) should always
+ * derive keyDir through this helper rather than re-deriving the join path.
+ */
+export function evidenceReportKeyDir(dataDir: string): string {
+  return join(dataDir, KEY_DIR);
+}
+
 export interface GenerateOptions {
   tenantId: string;
   periodStart: string;
