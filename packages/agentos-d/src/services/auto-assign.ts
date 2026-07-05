@@ -143,15 +143,25 @@ export async function autoAssignAgent(
     }),
   ]);
 
-  // 3. Filter agents whose ID starts with the prefix or whose role matches.
-  const matchingAgents = agents.filter(
-    (a) => a.id.startsWith(prefix) || normalizeRole(a.role) === normalizeRole(role),
-  );
+  // 3. Filter agents whose ID starts with the prefix, whose role matches the lane
+  //    role name, or whose role matches one of the role's declared aliases.
+  //    Prefix is a fallback, not the primary key — the hardcoded agent_id_prefix
+  //    scheme is tied to the main roster and is a dead key for most companies.
+  const normalizedRole = normalizeRole(role);
+  const normalizedAliases = new Set((roleEntry.role_aliases ?? []).map(normalizeRole));
+  const matchingAgents = agents.filter((a) => {
+    const normalizedAgentRole = normalizeRole(a.role);
+    return (
+      a.id.startsWith(prefix) ||
+      normalizedAgentRole === normalizedRole ||
+      normalizedAliases.has(normalizedAgentRole)
+    );
+  });
 
   if (matchingAgents.length === 0) {
     return {
       assigneeAgentId: null,
-      reason: `No agents found with ID prefix ${prefix} for role "${role}"`,
+      reason: `No active agents of role "${role}" in this company (checked ID prefix "${prefix}", exact role match, and role_aliases)`,
       role,
       triage: true,
       candidates: [],

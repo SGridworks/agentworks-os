@@ -183,7 +183,7 @@ describe("autoAssignAgent", () => {
 
     expect(result.triage).toBe(true);
     expect(result.assigneeAgentId).toBeNull();
-    expect(result.reason).toContain("No agents found");
+    expect(result.reason).toContain("No active agents of role");
   });
 
   // -------------------------------------------------------------------------
@@ -211,5 +211,78 @@ describe("autoAssignAgent", () => {
     // No open issues, so this agent (even though available) is still returned
     // (the role resolves, but result is triage=false because assignment succeeds)
     expect(result.candidates.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// role_aliases resolution
+// ---------------------------------------------------------------------------
+
+const LANE_CONFIG_WITH_ALIASES = {
+  roles: {
+    ComplianceConsultant: {
+      agent_id_prefix: "65509b63",
+      allow: ["^rule-packs/"],
+      description: "rule packs",
+      role_aliases: ["compliance"],
+    },
+  },
+};
+
+describe("autoAssignAgent — role_aliases", () => {
+  beforeEach(() => {
+    clearLaneConfigCache();
+    loadLaneConfig(undefined, LANE_CONFIG_WITH_ALIASES);
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("resolves via alias when the agent's role matches an alias, not the prefix", async () => {
+    // Agent ID deliberately does NOT start with the ComplianceConsultant prefix
+    // (65509b63) and its normalized role ("compliance") does not equal the
+    // normalized lane role ("complianceconsultant") — this isolates the alias
+    // path from both the prefix path and the exact-role-match path.
+    const agents = [
+      { id: "aaaaaaaa-0000-0000-0000-000000000001", nameKey: "Compliance Bot", role: "compliance" },
+    ];
+    seedDb(agents, []);
+
+    const result = await autoAssignAgent("ComplianceConsultant", "00000000-0000-4000-8000-000000000001");
+
+    expect(result.triage).toBe(false);
+    expect(result.assigneeAgentId).toBe("aaaaaaaa-0000-0000-0000-000000000001");
+    // Assert the WHY: this agent could only have matched via alias.
+    expect(result.assigneeAgentId!.startsWith("65509b63")).toBe(false);
+  });
+
+  it("picks the least-loaded agent among alias matches; ties break alphabetically", async () => {
+    const agents = [
+      { id: "aaaaaaaa-0000-0000-0000-000000000001", nameKey: "Compliance Zeta", role: "compliance" },
+      { id: "bbbbbbbb-0000-0000-0000-000000000002", nameKey: "Compliance Alpha", role: "compliance" },
+    ];
+    const issues = [
+      { id: "1", assigneeAgentId: "aaaaaaaa-0000-0000-0000-000000000001", status: "todo" },
+      { id: "2", assigneeAgentId: "aaaaaaaa-0000-0000-0000-000000000001", status: "todo" },
+    ];
+    seedDb(agents, issues);
+
+    const result = await autoAssignAgent("ComplianceConsultant", "00000000-0000-4000-8000-000000000001");
+
+    expect(result.triage).toBe(false);
+    expect(result.assigneeAgentId).toBe("bbbbbbbb-0000-0000-0000-000000000002"); // 0 open issues
+  });
+
+  it("returns triage=true with the corrected reason when no agent matches role/alias/prefix", async () => {
+    seedDb([{ id: "cccccccc-0000-0000-0000-000000000003", nameKey: "Unrelated", role: "engineer" }], []);
+
+    const result = await autoAssignAgent("ComplianceConsultant", "00000000-0000-4000-8000-000000000001");
+
+    expect(result.triage).toBe(true);
+    expect(result.assigneeAgentId).toBeNull();
+    expect(result.reason).toContain("No active agents of role");
+    expect(result.reason).not.toContain("No agents found with ID prefix");
   });
 });

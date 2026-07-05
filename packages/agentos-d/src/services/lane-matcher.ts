@@ -25,6 +25,7 @@ export interface LaneRole {
   agent_id_prefix: string;
   allow: string[]; // regex patterns
   description: string;
+  role_aliases?: string[];
 }
 
 export interface LaneConfig {
@@ -192,6 +193,7 @@ export function matchLane(input: LaneMatchInput): LaneMatchResult {
 
   // Sort by score desc, then by todo count asc, then alphabetically for tie
   scored.sort((a, b) => {
+    if (a.score !== b.score) return b.score - a.score;
     const todoA = todoCounts[a.role] ?? 0;
     const todoB = todoCounts[b.role] ?? 0;
     if (todoA !== todoB) return todoA - todoB;

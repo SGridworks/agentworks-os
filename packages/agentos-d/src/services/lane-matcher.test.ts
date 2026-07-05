@@ -342,3 +342,41 @@ describe("matchLane", () => {
     expect(config.roles.PythonEngineer).toBeDefined();
   });
 });
+
+// --------------------------------------------------------------------------
+// Tests — score priority (locks the sort-by-score fix)
+// --------------------------------------------------------------------------
+
+describe("matchLane — score priority", () => {
+  it("picks the higher-scoring role even when the lower-scoring role has fewer open todos", () => {
+    // Both extracted paths match ComplianceConsultant (score 2); only the second
+    // matches TechnicalWriter (score 1). TechnicalWriter has the lower todo count,
+    // so a score-blind comparator (sorting by todo count first) would incorrectly
+    // pick TechnicalWriter. Do not rely on ambiguity here: this must resolve to an
+    // unambiguous, specific winner.
+    const config: LaneConfig = {
+      roles: {
+        ComplianceConsultant: {
+          agent_id_prefix: "65509b63",
+          allow: ["^rule-packs/", "^docs/rule-pack-authoring\\.md$"],
+          description: "specific: rule packs + authoring doc",
+        },
+        TechnicalWriter: {
+          agent_id_prefix: "d2bde45f",
+          allow: ["^docs/"],
+          description: "broad: any docs",
+        },
+      },
+    };
+    withConfig(config, () => {
+      const result = matchLane({
+        issueDescription:
+          "Update rule-packs/smb-starter/manifest.yaml and docs/rule-pack-authoring.md",
+        todoCounts: { ComplianceConsultant: 10, TechnicalWriter: 0 },
+      });
+      expect(result.matched).toBe(true);
+      expect(result.ambiguous).toBe(false);
+      expect(result.role).toBe("ComplianceConsultant");
+    });
+  });
+});
