@@ -12,11 +12,9 @@ import { z } from "zod";
 import { getDb } from "../db/index.js";
 import { policyDecisions, type PolicyDecisionRow } from "../db/schema.js";
 import { eq, desc, and, sql } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
 import type { Config } from "../config.js";
 import { callPolicyCheck, getRulePacks } from "./mcp.js";
 import { isPaused } from "../pause-service.js";
-import { logDecision } from "../services/policy/decisionLog.js";
 import { broadcast } from "../websocket-server.js";
 import { ActionEnvelopeSchema } from "@agentworks/shared";
 
@@ -59,7 +57,7 @@ export function createPolicyRouter(_config: Config): Router {
       summary: z.string(),
     }),
     evidenceSnapshot: z.record(z.unknown()),
-    shadowMode: z.boolean().optional().default(false),
+    shadowMode: z.boolean().optional(),
   });
 
   const OverrideRequestSchema = z.object({
@@ -347,85 +345,87 @@ export function createPolicyRouter(_config: Config): Router {
     }
 
     const body = parsed.data;
-    const now = new Date().toISOString();
-    const actionId = body.actionId ?? randomUUID();
 
-    // Policy engine evaluation: the full rule-pack evaluation path is
-    // callPolicyCheck (used by /api/policy/check). This endpoint applies a
-    // minimal fallback: allow by default, route-to-review when consent
-    // source != "none" but verified === false (handles common TCPA pattern).
-    let decision: "allow" | "block" | "route_to_review" = "allow";
-    let decisionReason = "default_allow";
-
-    if (
-      body.consent &&
-      body.consent.source !== "none" &&
-      body.consent.verified === false
-    ) {
-      decision = "route_to_review";
-      decisionReason = "unverified_consent_requires_review";
-    }
-
-    const { decisionId, approvalQueueId } = logDecision({
-      tenantId: body.tenantId,
-      actionId,
-      actor: body.actor,
-      ...(body.contact
+    // Converge onto the real rule-pack engine — the same path /api/policy/check
+    // uses. Structured consent/contact/channel/jurisdiction/purpose are folded
+    // into the evidence snapshot so rules that read consent.source,
+    // consent.verified, dnc_status, etc. fire through the pack. This replaces
+    // the old allow-by-default fallback, which never consulted rule packs and
+    // therefore could never return `block`.
+    const evidenceSnapshot: Record<string, unknown> = {
+      ...body.evidenceSnapshot,
+      ...(body.consent
         ? {
-            contact: {
-              type: body.contact.type ?? "person",
-              label: body.contact.label ?? "",
-              address: body.contact.address ?? "",
+            consent: {
+              source: body.consent.source,
+              verified: body.consent.verified,
+              recordRef: body.consent.recordRef,
             },
           }
         : {}),
-      channel: body.channel,
-      jurisdiction: body.jurisdiction,
-      consent: body.consent
-        ? {
-            source: body.consent.source,
-            recordRef: body.consent.recordRef,
-            verified: body.consent.verified,
-          }
-        : undefined,
-      purpose: body.purpose,
-      ...(body.proposedAction && {
-        proposedAction: {
-          kind: body.proposedAction.kind,
-          summary: body.proposedAction.summary,
-        },
-      }),
-      evidenceSnapshot: body.evidenceSnapshot,
-      decision,
-      decisionReason,
-      shadowMode: body.shadowMode ?? false,
-    });
+      ...(body.contact ? { contact: body.contact } : {}),
+      ...(body.channel ? { channel: body.channel } : {}),
+      ...(body.jurisdiction ? { jurisdiction: body.jurisdiction } : {}),
+      ...(body.purpose ? { purpose: body.purpose } : {}),
+    };
 
-    // WebSocket broadcast: notify admin-ui inbox immediately when an approval is queued.
-    // This satisfies the <2s latency requirement for criterion #6.
+    const argsBase = {
+      tenantId: body.tenantId,
+      actor: body.actor,
+      proposedAction: {
+        kind: body.proposedAction.kind,
+        summary: body.proposedAction.summary,
+      },
+      evidenceSnapshot,
+    };
+    // Only override shadowMode when the caller explicitly sends it; otherwise
+    // let callPolicyCheck resolve the tenant's effective mode (auto-flip clock).
+    const args =
+      body.shadowMode === undefined
+        ? argsBase
+        : { ...argsBase, shadowMode: body.shadowMode };
+
+    const result = await callPolicyCheck(args, _config);
+    const text = result.content[0]?.text ?? "{}";
+    let inner: Record<string, unknown>;
+    try {
+      inner = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      res.status(500).json({ error: "policy_check_payload_unparseable" });
+      return;
+    }
+    if (result.isError) {
+      res.status(500).json({ error: "policy_check_failed", details: inner });
+      return;
+    }
+
+    const approvalQueueId = (inner.approvalQueueId as string | null) ?? null;
+
+    // WebSocket broadcast: notify the admin-ui inbox immediately when an
+    // approval is queued (preserves the <2s latency contract).
     if (approvalQueueId) {
       broadcast({
         type: "approval_enqueued",
         approvalQueueId,
         tenantId: body.tenantId,
         actorLabel: body.actor.label ?? "",
-        proposedActionKind: body.proposedAction?.kind ?? "unknown",
-        proposedActionSummary: body.proposedAction?.summary ?? "",
-        decisionReason,
-        enqueuedAt: now,
+        proposedActionKind: body.proposedAction.kind,
+        proposedActionSummary: body.proposedAction.summary,
+        decisionReason: (inner.decisionReason as string) ?? "",
+        enqueuedAt: (inner.createdAt as string) ?? new Date().toISOString(),
       });
     }
 
     res.status(201).json({
-      decisionId,
-      actionId,
-      decision,
-      decisionReason,
-      shadowMode: body.shadowMode ?? false,
-      rulePackId: null,
-      rulePackVersion: null,
-      createdAt: now,
-      approvalQueueId: approvalQueueId ?? null,
+      decisionId: inner.decisionId,
+      actionId: inner.actionId,
+      decision: inner.decision,
+      decisionReason: inner.decisionReason,
+      shadowMode: inner.shadowMode,
+      rulePackId: inner.rulePackId ?? null,
+      rulePackVersion: inner.rulePackVersion ?? null,
+      createdAt: inner.createdAt,
+      approvalQueueId,
     });
   });
 

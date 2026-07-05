@@ -1169,7 +1169,10 @@ export function flipPackMode(
 }
 
 export function dryRunRulePack(id: string, body: object) {
-  // POST /api/policy/evaluate — same evaluation engine used by policy check
+  // POST /api/policy/evaluate now runs the real rule-pack engine (same path as
+  // /api/policy/check). It evaluates the tenant's subscribed packs; the packId
+  // arg is not yet honored as a single-pack scope, and the response uses
+  // decisionReason/rulePackId (not ruleId/reason) — see Finding 3 follow-up.
   return request<{ decision: string; ruleId: string | null; reason: string }>(
     `/api/policy/evaluate`,
     { method: 'POST', body: JSON.stringify({ packId: id, ...body }) }

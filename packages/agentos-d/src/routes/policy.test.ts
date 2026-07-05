@@ -81,16 +81,20 @@ describe("policy routes", () => {
       expect(res.body.error).toBe("invalid_action_envelope");
     });
 
-    it("returns 201 with default_allow when consent path is unset", async () => {
+    // /evaluate now delegates to the real rule-pack engine (same path as
+    // /api/policy/check). Decision correctness against controlled pack
+    // subscriptions is covered by policy-evaluate-engine.test.ts (real DB);
+    // here we only assert the response contract.
+    it("returns 201 with a real engine decision for a valid envelope", async () => {
       const res = await request(app).post("/api/policy/evaluate").send(validEvaluateBody());
       expect(res.status).toBe(201);
-      expect(res.body.decision).toBe("allow");
-      expect(res.body.decisionReason).toBe("default_allow");
+      expect(["allow", "block", "route_to_review"]).toContain(res.body.decision);
       expect(typeof res.body.decisionId).toBe("string");
       expect(typeof res.body.actionId).toBe("string");
+      expect(res.body).toHaveProperty("rulePackId");
     });
 
-    it("routes to review when consent.verified=false", async () => {
+    it("does not allow underspecified unverified-consent outreach", async () => {
       const res = await request(app)
         .post("/api/policy/evaluate")
         .send({
@@ -98,8 +102,9 @@ describe("policy routes", () => {
           consent: { source: "verbal", verified: false },
         });
       expect(res.status).toBe(201);
-      expect(res.body.decision).toBe("route_to_review");
-      expect(res.body.decisionReason).toBe("unverified_consent_requires_review");
+      expect(res.body.decision).not.toBe("allow");
+      expect(typeof res.body.decisionReason).toBe("string");
+      expect(res.body.decisionReason.length).toBeGreaterThan(0);
     });
 
     it("honors explicit shadowMode flag in response", async () => {
