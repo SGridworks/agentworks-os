@@ -32,6 +32,10 @@ async function getJson(path: string): Promise<Response> {
   return await fetch(`${baseUrl}${path}`);
 }
 
+async function deleteJson(path: string): Promise<Response> {
+  return await fetch(`${baseUrl}${path}`, { method: "DELETE" });
+}
+
 async function evaluatePolicy(args: {
   tenantId: string;
   actor: { id: string; type: "human" | "agent" | "system"; label: string };
@@ -122,6 +126,19 @@ describe("autopilot dispatch endpoint", () => {
       });
       expect(r.status).toBe(201);
     }
+
+    // Tenant creation auto-assigns the smb-starter baseline (tenants.ts
+    // DEFAULT_PACK_ID). That pack is unscoped (target_action_kinds: null) and
+    // its pack-level missing_data_disposition routes ANY action lacking
+    // contact/DNC/consent evidence to review — so with it subscribed, even a
+    // benign memory.write returns route_to_review and autopilot can never find
+    // a genuinely-allowed action to dispatch. Unassign it here so this suite
+    // exercises the scoped tcpa/fair-housing behavior: non-targeted actions
+    // (memory.write, file.read) are auto-allowed, outbound.sms is gated.
+    const unassign = await deleteJson(
+      `/api/tenants/${tenantId}/rule-packs/smb-starter`,
+    );
+    expect(unassign.status).toBe(204);
   });
 
   it("creates low-risk actions that should be auto-allowed", async () => {
@@ -155,16 +172,17 @@ describe("autopilot dispatch endpoint", () => {
   });
 
   it("creates medium-risk actions that need approval", async () => {
-    // Create a medium-risk action that should route to review
+    // An outbound.sms is targeted by tcpa-real-estate. Without dnc_status in
+    // the evidence, TCPA-RE-001's required-data check routes it to review
+    // (missing data is not a passing grade) — a genuine "needs approval" case.
     const result = await evaluatePolicy({
       tenantId,
       actor: { id: "agent-1", type: "agent", label: "TestAgent" },
-      proposedAction: { kind: "http.post", summary: "Post to external API" },
+      proposedAction: { kind: "outbound.sms", summary: "Text a prospect" },
       evidenceSnapshot: {
-        action_kind: "http.post",
-        url: "https://api.example.com/data",
+        action_kind: "outbound.sms",
+        message_body: "Hi from Acme Realty",
         contains_pii: false,
-        rate_limit_check: "unknown",
       },
       consent: { source: "written", verified: false },
     });
