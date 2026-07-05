@@ -8,6 +8,12 @@ import { maybeRecordEpisodeFromRun } from "../services/episode-from-run.js";
 import { getInsightExtractor, type InsightExtractor } from "../services/insight-extractor.js";
 import { resolveDefaultInstructionsPath } from "../services/instructions-resolver.js";
 import { resolveRunLineage } from "../services/run-lineage.js";
+import {
+  isLegalTransition,
+  allowedNextStates,
+  isTerminalStatus,
+  type IssueStatus,
+} from "../services/issue-transitions.js";
 
 
 let _embedClientForRuntimeState: EmbedClient | null = null;
@@ -519,6 +525,20 @@ export function createExecutionRouter(_config: Config): Router {
     if (!existing) return res.status(404).json({ error: "not_found" });
     const current = mapIssue(existing);
     const status = parsed.data.status ?? current.status;
+    // State-machine guard: reject illegal status jumps (e.g. todo -> done) at
+    // the public REST surface. Self-transitions and unchanged status pass.
+    if (
+      parsed.data.status &&
+      parsed.data.status !== current.status &&
+      !isLegalTransition(current.status as IssueStatus, parsed.data.status as IssueStatus)
+    ) {
+      return res.status(409).json({
+        error: "illegal_transition",
+        from: current.status,
+        to: parsed.data.status,
+        allowed: allowedNextStates(current.status as IssueStatus),
+      });
+    }
     const row = {
       id: issueId,
       title: parsed.data.title ?? current.title,
@@ -529,7 +549,12 @@ export function createExecutionRouter(_config: Config): Router {
       blockedOn: parsed.data.blockedOn ?? current.blockedOn,
       metadata: parsed.data.metadata ?? current.metadata,
       updatedAt: new Date().toISOString(),
-      completedAt: ["done", "closed"].includes(status) ? new Date().toISOString() : null,
+      // Set completion time only on first entry to a terminal state; preserve it
+      // across metadata edits and done->closed; clear it when reopening. Fixes
+      // the prior bug where any PATCH on a done issue bumped completed_at.
+      completedAt: isTerminalStatus(status as IssueStatus)
+        ? (current.completedAt ?? new Date().toISOString())
+        : null,
     };
     getSqlite().prepare(`
       UPDATE execution_issues SET title = @title, description = @description,
